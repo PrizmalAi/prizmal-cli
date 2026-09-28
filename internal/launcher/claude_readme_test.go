@@ -7,11 +7,11 @@ import (
 )
 
 // readmeWithoutCLIHeading is the README section that shows how to start Claude
-// Code against the Switch without prizmal.
-const readmeWithoutCLIHeading = "## Claude Code without prizmal"
+// Code against the Switch without the Prizmal CLI.
+const readmeWithoutCLIHeading = "## Run Claude Code without the Prizmal CLI"
 
 // TestREADMEDocumentsClaudeLaunchWithoutCLI checks that the README section for
-// a launch without prizmal sets every variable a prizmal launch sets, so a
+// a launch without the Prizmal CLI sets every variable a CLI launch sets, so a
 // change to envVars fails here until the README matches it.
 func TestREADMEDocumentsClaudeLaunchWithoutCLI(t *testing.T) {
 	data, err := os.ReadFile("../../README.md")

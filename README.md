@@ -191,9 +191,9 @@ the configured `--url` host. That rule matches a rotated key, and a key
 from another tenant, as well as the current one. A key for any other
 endpoint is yours, and the backup that has it stays.
 
-## Claude Code without prizmal
+## Run Claude Code without the Prizmal CLI
 
-You can start Claude Code against the Prizmal Switch with environment variables alone, without installing `prizmal`. Export your switch key as `PRIZMAL_SWITCH_KEY`, then run:
+You can start Claude Code against the Prizmal Switch with environment variables alone, without installing the Prizmal CLI. Export your switch key as `PRIZMAL_SWITCH_KEY`, then run:
 
 ```bash
 ANTHROPIC_BASE_URL=https://api.prizmal.ai ANTHROPIC_AUTH_TOKEN="$PRIZMAL_SWITCH_KEY" ANTHROPIC_API_KEY= ENABLE_TOOL_SEARCH=true ENABLE_CLAUDEAI_MCP_SERVERS=false CLAUDE_CODE_ATTRIBUTION_HEADER=0 DISABLE_ERROR_REPORTING=1 DISABLE_FEEDBACK_COMMAND=1 CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1 claude
@@ -214,7 +214,7 @@ Claude Code flags work as usual, so `claude --model sonnet` and `claude --resume
 
 `prizmal claude` adds a few things this command leaves out:
 
-- The `/model` menu lists your tenant's models. Without `prizmal`, it shows Claude Code's built-in list.
+- The `/model` menu lists your tenant's models. Without the CLI, it shows Claude Code's built-in list.
 - It marks each model it launches as accepting a request with thinking turned off. WebSearch sends that request, and for a model name outside Claude Code's built-in list it returns no results without the mark.
 - It removes model variables such as `ANTHROPIC_MODEL` that your shell exports, so they can't change the model a launch runs.
 - It installs Claude Code when the `claude` binary is missing.
