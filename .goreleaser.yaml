@@ -66,9 +66,12 @@ homebrew_casks:
     license: MIT
     skip_upload: '{{ if not (index .Env "HOMEBREW_TAP_TOKEN") }}true{{ end }}'
     # macOS quarantines downloaded binaries; strip the flag so first run does not hit Gatekeeper.
-    hooks:
-      post:
-        install: |
-          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/prizmal"]
-          end
+    # postflight_steps, not hooks.post.install: goreleaser renders the hook as a Ruby postflight
+    # block, which Homebrew 7 reports as deprecated on every install. chdir "." is the staged
+    # directory, because step arguments cannot interpolate staged_path.
+    custom_block: |
+      postflight_steps do
+        on_macos do
+          run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "prizmal"], chdir: ".", must_succeed: false
+        end
+      end
