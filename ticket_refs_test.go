@@ -3,6 +3,7 @@ package prizmalcli
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -56,7 +57,7 @@ func TestNoTicketRefsInCommittedFiles(t *testing.T) {
 		}
 	}
 	for _, path := range untracked {
-		content, err := os.ReadFile(path)
+		content, err := readAsCommitted(path)
 		if err == nil {
 			reportRefs(t, path, string(content))
 		} else if !os.IsNotExist(err) {
@@ -107,7 +108,7 @@ func divergedPaths(t *testing.T) map[string]bool {
 // working tree copy is read too, so an unstaged reference is reported.
 func trackedContents(t *testing.T, path string, diverged map[string]bool) []string {
 	t.Helper()
-	worktree, err := os.ReadFile(path)
+	worktree, err := readAsCommitted(path)
 	if err != nil && !os.IsNotExist(err) {
 		t.Fatalf("read %s: %v", path, err)
 	}
@@ -123,6 +124,21 @@ func trackedContents(t *testing.T, path string, diverged map[string]bool) []stri
 		contents = append(contents, blob)
 	}
 	return contents
+}
+
+// readAsCommitted returns what a commit records for path: a file's content, or
+// a symlink's target path. A symlink is read as its target and never followed,
+// because the file it points to is a path of its own and gets its own read.
+func readAsCommitted(path string) ([]byte, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		target, err := os.Readlink(path)
+		return []byte(target), err
+	}
+	return os.ReadFile(path)
 }
 
 // gitPaths returns the NUL-separated output of a git command as paths.
@@ -149,4 +165,26 @@ func gitOutput(t *testing.T, args ...string) string {
 		t.Fatalf("git %s: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
 	return string(out)
+}
+
+// TestReadAsCommittedReadsASymlinkAsItsTarget pins how the scan reads a symlink:
+// as the target path, which is what a commit records. A symlink to a directory,
+// such as a skill linked into .claude/skills, is not a file os.ReadFile can
+// read.
+func TestReadAsCommittedReadsASymlinkAsItsTarget(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "target"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink("target", link); err != nil {
+		t.Skipf("cannot create a symlink here: %v", err)
+	}
+	got, err := readAsCommitted(link)
+	if err != nil {
+		t.Fatalf("readAsCommitted: %v", err)
+	}
+	if string(got) != "target" {
+		t.Fatalf("readAsCommitted = %q, want the link target %q", got, "target")
+	}
 }

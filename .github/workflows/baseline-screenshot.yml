@@ -1,0 +1,47 @@
+name: Baseline screenshot
+
+# A pull request that changes a file under cmd/prizmal/testdata/terminal changes what an
+# operator sees, and AGENTS.md asks for a rendered screenshot of the new screen
+# in the pull-request body. This job fails when such a pull request has no
+# image in its body.
+#
+# `edited` is in the type list so that adding the image to the body reruns the
+# check and clears the red result.
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+concurrency:
+  group: baseline-screenshot-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  screenshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require a screenshot when a baseline changes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          changed=$(gh api "repos/$REPO/pulls/$PR/files" --paginate --jq '.[].filename' | grep '^cmd/prizmal/testdata/terminal/' || true)
+          if [ -z "$changed" ]; then
+            echo "no terminal baseline changed"
+            exit 0
+          fi
+          echo "changed baselines:"
+          echo "$changed"
+          if printf '%s' "$PR_BODY" | grep -Eq '!\[[^]]*\]\([^)]+\)|<img[[:space:]]'; then
+            echo "the pull-request body has an image"
+            exit 0
+          fi
+          echo "::error::This pull request changes a terminal baseline. Add a rendered screenshot of each changed screen to the pull-request body, as the Terminal baselines section of AGENTS.md describes."
+          exit 1

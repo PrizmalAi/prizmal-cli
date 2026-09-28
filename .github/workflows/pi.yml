@@ -1,0 +1,44 @@
+name: pi
+
+# Checks prizmal's pi integration. Each harness has its own workflow of
+# this kind, so the harnesses run in parallel and report under their own
+# names.
+#
+# launch runs the latest pi through prizmal with a one-shot prompt,
+# against a stub switch that answers every turn with a placeholder reply, and
+# passes when that reply reaches stdout. No Switch key is involved.
+# PRIZMAL_HARNESS_LAUNCH=require turns a missing harness into a failure, so
+# the job cannot pass by skipping.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pi-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  launch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: stable
+          cache: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - name: Install pi
+        run: |
+          npm install -g @earendil-works/pi-coding-agent@latest
+      - name: Launch pi through prizmal
+        env:
+          PRIZMAL_HARNESS_LAUNCH: require
+        run: go test -count=1 -v -run 'TestHarnessLaunchPi$' ./cmd/prizmal
