@@ -18,7 +18,9 @@ func TestREADMEDocumentsClaudeLaunchWithoutCLI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read README: %v", err)
 	}
-	_, section, ok := strings.Cut(string(data), readmeWithoutCLIHeading+"\n")
+	// A Windows checkout can convert the README to CRLF line endings.
+	readme := strings.ReplaceAll(string(data), "\r\n", "\n")
+	_, section, ok := strings.Cut(readme, readmeWithoutCLIHeading+"\n")
 	if !ok {
 		t.Fatalf("README has no %q section", readmeWithoutCLIHeading)
 	}
