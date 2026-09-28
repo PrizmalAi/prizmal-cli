@@ -96,3 +96,27 @@ and install it. Then run the update: it rewrites only the screens that
 changed for another reason, and those need screenshots like any other
 baseline change. The Claude Code cases skip on a machine with another
 Claude Code version installed.
+
+Check the screenshot requirement before the pull request goes up, not
+after CI fails. When a change touches a file under
+`cmd/prizmal/testdata/terminal`, the body must already carry an image
+link. A body edit re-runs the check (`edited` is in the workflow's
+trigger list), but a red first cycle is noise a local pass avoids: diff
+the change for `testdata/terminal`, and when it matches, run the update
+command with `PRIZMAL_TERMINAL_SHOTS` set, render each changed screen
+with termframe at the size in its file name, and embed the PNG with the
+`attach-screenshots` skill before `gh pr create`.
+
+The `cmd/prizmal` test binary defines the `-update-baselines` flag,
+so run the update from `cmd/prizmal`, not from the repository root:
+
+```bash
+cd cmd/prizmal
+env -u PRIZMAL_SWITCH_KEY -u PRIZMAL_SWITCH_URL PRIZMAL_TERMINAL_SHOTS=/tmp/shots \
+  go test -count=1 -run 'TestTerminalBaselinesClaude/<case>' -update-baselines .
+```
+
+Without the `env -u`, a `PRIZMAL_SWITCH_KEY` or `PRIZMAL_SWITCH_URL` in
+the launch environment leaks into tests whose assertions read that
+environment and expect it to contain nothing, and two launcher tests
+fail for an unrelated reason.
