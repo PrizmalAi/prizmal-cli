@@ -224,7 +224,6 @@ Claude Code flags work as usual, so `claude --model sonnet` and `claude --resume
 `prizmal claude` adds a few things this command leaves out:
 
 - The `/model` menu lists your tenant's models. Without the CLI, it shows Claude Code's built-in list.
-- It marks each model it launches as accepting a request with thinking turned off. WebSearch sends that request, and for a model name outside Claude Code's built-in list it returns no results without the mark.
 - It removes model variables such as `ANTHROPIC_MODEL` that your shell exports, so they can't change the model a launch runs.
 - It installs Claude Code when the `claude` binary is missing.
 
