@@ -32,7 +32,7 @@ brew install PrizmalAi/tap/prizmal
 With Go:
 
 ```bash
-go install github.com/PrizmalAi/prizmal-cli@latest
+go install github.com/PrizmalAi/prizmal-cli/cmd/prizmal@latest
 ```
 
 Or build from source:
@@ -40,10 +40,8 @@ Or build from source:
 ```bash
 git clone https://github.com/PrizmalAi/prizmal-cli
 cd prizmal-cli
-go build .
+go build ./cmd/prizmal
 ```
-
-`go install` and `go build` name the binary `prizmal-cli`, after the module path. The Homebrew cask and the release archives name it `prizmal`.
 
 On first run, `prizmal` prompts for your API key (see [Credentials](#credentials)).
 
@@ -198,7 +196,7 @@ endpoint is yours, and the backup that has it stays.
 Requires Go 1.25+.
 
 ```bash
-go build .
+go build ./cmd/prizmal
 go test ./...
 ```
 

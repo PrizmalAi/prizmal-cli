@@ -69,7 +69,7 @@ jobs:
           go-version: stable
           cache: true
       - name: Build prizmal-cli
-        run: go build -o /usr/local/bin/prizmal .
+        run: go build -o /usr/local/bin/prizmal ./cmd/prizmal
       - name: Install claude
         run: curl -fsSL https://claude.ai/install.sh | bash
       # The launcher exports ENABLE_TOOL_SEARCH=true on the child
@@ -115,7 +115,7 @@ jobs:
         with:
           node-version: 22
       - name: Build prizmal-cli
-        run: go build -o /usr/local/bin/prizmal .
+        run: go build -o /usr/local/bin/prizmal ./cmd/prizmal
       - name: Install codex
         run: npm install -g @openai/codex@latest
       - name: Launch codex through prizmal
@@ -154,7 +154,7 @@ jobs:
         with:
           node-version: 22
       - name: Build prizmal-cli
-        run: go build -o /usr/local/bin/prizmal .
+        run: go build -o /usr/local/bin/prizmal ./cmd/prizmal
       - name: Install cline
         run: npm install -g cline@latest
       - name: Launch cline through prizmal
@@ -181,7 +181,7 @@ jobs:
           go-version: stable
           cache: true
       - name: Build prizmal-cli
-        run: go build -o /usr/local/bin/prizmal .
+        run: go build -o /usr/local/bin/prizmal ./cmd/prizmal
       - name: Install opencode
         run: curl -fsSL https://opencode.ai/install | bash
       - name: Launch opencode through prizmal
@@ -218,7 +218,7 @@ jobs:
         with:
           node-version: 22
       - name: Build prizmal-cli
-        run: go build -o /usr/local/bin/prizmal .
+        run: go build -o /usr/local/bin/prizmal ./cmd/prizmal
       - name: Install pi
         run: npm install -g @earendil-works/pi-coding-agent@latest
       - name: Launch pi through prizmal

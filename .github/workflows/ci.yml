@@ -35,7 +35,7 @@ jobs:
       # silently-skipped-Windows-leg failure this workflow exists to catch.
       - name: Windows harness e2e (observed)
         if: matrix.os == 'windows-latest'
-        run: go test -race -count=1 -v -run 'TestMockHarnessLaunch|TestMockHarnessLaunchFailure|TestClaudeCodeE2EWithStubRequest' .
+        run: go test -race -count=1 -v -run 'TestMockHarnessLaunch|TestMockHarnessLaunchFailure|TestClaudeCodeE2EWithStubRequest' ./cmd/prizmal
 
   lint:
     runs-on: ubuntu-latest

@@ -14,7 +14,7 @@ import (
 // heading — the block that presents itself to a reader as `prizmal --help`.
 func readmeUsageBlock(t *testing.T) string {
 	t.Helper()
-	raw, err := os.ReadFile("README.md")
+	raw, err := os.ReadFile("../../README.md")
 	if err != nil {
 		t.Fatalf("read README.md: %v", err)
 	}
