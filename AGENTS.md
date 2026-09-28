@@ -74,19 +74,29 @@ and the image adds the colour, weight and glyphs a reviewer needs to judge
 the change. The baseline-screenshot workflow fails a pull request that
 changes a file under `cmd/prizmal/testdata/terminal` and has no image in its body.
 
-Regenerate the baselines and save each screen with its colour codes:
+Regenerate the baselines and save each screen with its colour codes.
+Run from `cmd/prizmal`: the test binary there defines the
+`-update-baselines` flag, and a run from the repository root fails with
+`flag provided but not defined`. Without the `env -u`, a
+`PRIZMAL_SWITCH_KEY` or `PRIZMAL_SWITCH_URL` in the launch environment
+leaks into tests whose assertions read that environment and expect it
+to contain nothing, and two launcher tests fail for an unrelated
+reason. The shots directory comes from `mktemp -d`, so it is fresh per
+run and concurrent agents never share it:
 
 ```bash
-mkdir -p /tmp/shots
-PRIZMAL_TERMINAL_SHOTS=/tmp/shots go test -count=1 -run TestTerminalBaselinesClaude -update-baselines ./cmd/prizmal
+shots=$(mktemp -d)
+cd cmd/prizmal
+env -u PRIZMAL_SWITCH_KEY -u PRIZMAL_SWITCH_URL PRIZMAL_TERMINAL_SHOTS=$shots \
+  go test -count=1 -run TestTerminalBaselinesClaude -update-baselines .
 ```
 
 Then draw each changed screen with termframe at the size in its file name,
 and attach the PNG to the pull-request body:
 
 ```bash
-termframe -W 100 -H 30 -o shot.svg < /tmp/shots/claude-startup-m-smart-100x30.ansi
-rsvg-convert -z 3 -o shot.png shot.svg
+termframe -W 100 -H 30 -o "$shots/shot.svg" < "$shots/claude-startup-m-smart-100x30.ansi"
+rsvg-convert -z 3 -o "$shots/shot.png" "$shots/shot.svg"
 ```
 
 A baseline keeps the Claude Code version it was recorded with, and the
@@ -103,18 +113,12 @@ after CI fails. When a change touches a file under
 link. A body edit re-runs the check (`edited` is in the workflow's
 trigger list), but a red first cycle is noise a local pass avoids: diff
 the change for `testdata/terminal`, and when it matches, run the update
-command with `PRIZMAL_TERMINAL_SHOTS` set, render each changed screen
-with termframe at the size in its file name, and embed the PNG with the
-`attach-screenshots` skill before `gh pr create`.
-
-The `cmd/prizmal` test binary defines the `-update-baselines` flag,
-so run the update from `cmd/prizmal`, not from the repository root:
-
-```bash
-cd cmd/prizmal
-env -u PRIZMAL_SWITCH_KEY -u PRIZMAL_SWITCH_URL PRIZMAL_TERMINAL_SHOTS=/tmp/shots \
-  go test -count=1 -run 'TestTerminalBaselinesClaude/<case>' -update-baselines .
-```
+command above with `PRIZMAL_TERMINAL_SHOTS` set, render each changed
+screen with termframe at the size in its file name, and embed the PNG
+with the `attach-screenshots` skill before `gh pr create`. One baseline
+update at a time per clone: two concurrent runs that share a shots
+directory overwrite each other's captures, and a `mktemp -d` directory
+per run is the default that keeps this out of the way.
 
 Without the `env -u`, a `PRIZMAL_SWITCH_KEY` or `PRIZMAL_SWITCH_URL` in
 the launch environment leaks into tests whose assertions read that
