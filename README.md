@@ -21,6 +21,32 @@ prizmal cline
   - inline config JSON (OpenCode),
 - **launch** the harness as a child process with your model selected.
 
+## Install
+
+With Homebrew:
+
+```bash
+brew install PrizmalAi/tap/prizmal
+```
+
+With Go:
+
+```bash
+go install github.com/PrizmalAi/prizmal-cli@latest
+```
+
+Or build from source:
+
+```bash
+git clone https://github.com/PrizmalAi/prizmal-cli
+cd prizmal-cli
+go build .
+```
+
+`go install` and `go build` name the binary `prizmal-cli`, after the module path. The Homebrew cask and the release archives name it `prizmal`.
+
+On first run, `prizmal` prompts for your API key (see [Credentials](#credentials)).
+
 ## Credentials
 
 `prizmal` stores its Prizmal Switch API key in a single config file at `~/.prizmal/config.json`, created on first run and written with `0600` permissions (`0700` on the directory). On first launch it prompts for the key. Type a key and `prizmal` writes it to the file. Leave it empty and the next run prompts again. To run without the prompt, set the key with `--api-key` or `$PRIZMAL_SWITCH_KEY`, or write the file yourself.
@@ -75,22 +101,6 @@ A launch that already has its model continues after the warning, without the ext
 | `opencode` | OpenCode | | `provider.prizmal.options.apiKey` |
 | `cline` | Cline | | `OPENAI_API_KEY`, which cline reads when `providers.openai-compatible.settings` has no `apiKey` |
 | `pi` | Pi coding agent | | `PRIZMAL_SWITCH_KEY`, which `"apiKey": "$PRIZMAL_SWITCH_KEY"` in `~/.pi/agent/models.json` refers to (pi 0.77.0 or later) |
-
-## Install
-
-```bash
-go install github.com/PrizmalAi/prizmal-cli@latest
-```
-
-Or build from source:
-
-```bash
-git clone https://github.com/PrizmalAi/prizmal-cli
-cd prizmal-cli
-go build .
-```
-
-On first run, `prizmal` prompts for your API key (see [Credentials](#credentials)).
 
 ## Usage
 
