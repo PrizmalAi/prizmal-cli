@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
@@ -172,7 +171,7 @@ func claudeChildEnv(model string, rows []ModelRow) []string {
 	env := make([]string, 0, len(os.Environ())+len(fixed)+1)
 	for _, kv := range os.Environ() {
 		name, _, _ := strings.Cut(kv, "=")
-		if drop[name] || fixedNames[name] || name == claudeCapabilitiesVar {
+		if drop[name] || fixedNames[name] {
 			continue
 		}
 		env = append(env, kv)
@@ -199,67 +198,7 @@ func claudeChildEnv(model string, rows []ModelRow) []string {
 		env = append(env, "CLAUDE_CODE_SUBAGENT_MODEL="+claudeModelName(sub))
 	}
 
-	if caps := claudeModelCapabilities(os.Getenv(claudeCapabilitiesVar), model, rows); caps != "" {
-		env = append(env, claudeCapabilitiesVar+"="+caps)
-	}
-
 	return env
-}
-
-// claudeCapabilitiesVar overrides the capabilities Claude Code assumes for a
-// model. The public docs don't describe it. The format below comes from the
-// Claude Code 2.1.280 binary:
-//
-//   - A ";" separates entries, and each entry is "pattern=cap1,cap2".
-//   - A pattern matches the model name exactly, or as a prefix when it ends in
-//     "*". Claude Code removes [1m] from the name before it compares.
-//   - A leading "-" sets the capability to false.
-//   - Claude Code applies every matching entry in order, so the last match for
-//     a capability sets its value.
-const claudeCapabilitiesVar = "CLAUDE_CODE_MODEL_CAPABILITIES"
-
-// claudeModelCapabilities returns the CLAUDE_CODE_MODEL_CAPABILITIES value for
-// a launch: the inherited value, then one entry per model name the launch
-// hands Claude Code, each setting rejects_disabled_thinking to false.
-//
-// WebSearch sends its own request with web_search as a required tool and
-// thinking turned off. Claude Code keeps that required tool choice only for a
-// model it knows accepts thinking turned off, and its built-in list has
-// Anthropic names only. For any other name it drops the thinking field and
-// rewrites tool_choice to auto. The launched model then often answers in
-// prose, and WebSearch reports no results. Each entry marks a launched name as
-// accepting thinking turned off, so WebSearch keeps the required choice.
-//
-// The patterns are exact bare names. A "claude-*" wildcard would also match
-// models this launch never picked. The launch entries follow the inherited
-// ones, so the operator's other overrides stay in effect and the launch entry
-// is the last match for its names.
-func claudeModelCapabilities(inherited, model string, rows []ModelRow) string {
-	names := []string{model, selectedSubagentModel()}
-	for _, row := range rows {
-		names = append(names, row.Model)
-	}
-	tiers := make([]string, 0, len(claudeFamilyIDs))
-	for tier := range claudeFamilyIDs {
-		tiers = append(tiers, claudeTierModel(tier))
-	}
-	slices.Sort(tiers)
-	names = append(names, tiers...)
-
-	var entries []string
-	if inherited != "" {
-		entries = append(entries, inherited)
-	}
-	seen := make(map[string]bool, len(names))
-	for _, name := range names {
-		bare := strings.TrimSuffix(claudeModelName(name), oneMillionSuffix)
-		if bare == "" || seen[bare] {
-			continue
-		}
-		seen[bare] = true
-		entries = append(entries, bare+"=-rejects_disabled_thinking")
-	}
-	return strings.Join(entries, ";")
 }
 
 // oneMillionSuffix is Claude Code's own context-budgeting instruction. It is

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -540,91 +539,16 @@ func TestClaudeLaunchWritesNoSettingsFile(t *testing.T) {
 	}
 }
 
-// capabilityEntries splits a CLAUDE_CODE_MODEL_CAPABILITIES value into its
-// ;-separated entries.
-func capabilityEntries(value string) []string {
-	if value == "" {
-		return nil
-	}
-	return strings.Split(value, ";")
-}
-
-// launchEnvWithCapabilities builds the child environment for model and rows,
-// with subagent as the picked subagent model and inherited as the operator's
-// exported CLAUDE_CODE_MODEL_CAPABILITIES.
-func launchEnvWithCapabilities(t *testing.T, subagent, inherited, model string, rows []ModelRow) []string {
-	t.Helper()
+// The launch leaves CLAUDE_CODE_MODEL_CAPABILITIES to the operator: an
+// exported value reaches Claude Code as it was, and the launch adds no entry.
+func TestClaudeChildEnvPassesCapabilitiesThrough(t *testing.T) {
 	resetAPIKey(t)
-	SetSubagentModel(subagent)
-	t.Cleanup(func() { SetSubagentModel("") })
-	t.Setenv(claudeCapabilitiesVar, inherited)
-	return claudeChildEnv(model, rows)
-}
+	const inherited = "my-model=effort"
+	t.Setenv("CLAUDE_CODE_MODEL_CAPABILITIES", inherited)
 
-// Claude Code keeps WebSearch's required tool choice only for a model it knows
-// accepts thinking turned off. A Prizmal name is missing from its built-in list,
-// so without this entry WebSearch sends tool_choice auto and the model may
-// answer in prose.
-func TestClaudeChildEnvMarksTheLaunchedModelAsAcceptingDisabledThinking(t *testing.T) {
-	env := launchEnvWithCapabilities(t, "", "", "claude-ollama-elecnix-sdlc-china-1[1m]", nil)
+	env := claudeChildEnv("claude-row-a", []ModelRow{{Label: "a", Model: "claude-row-a"}})
 
-	entries := capabilityEntries(envValue(env, claudeCapabilitiesVar+"="))
-	want := "claude-ollama-elecnix-sdlc-china-1=-rejects_disabled_thinking"
-	if !slices.Contains(entries, want) {
-		t.Fatalf("%s entries = %q, want one entry %q", claudeCapabilitiesVar, entries, want)
-	}
-}
-
-// Every name the launch hands Claude Code gets an entry: the subagent model,
-// each /model row and each tier remap target. A session switched to another
-// row, or a request resolved through a tier id, keeps the required tool choice.
-func TestClaudeChildEnvMarksEveryLaunchedModelName(t *testing.T) {
-	rows := []ModelRow{
-		{Label: "a", Model: "claude-row-a"},
-		{Label: "b", Model: "claude-row-b[1m]"},
-	}
-	env := launchEnvWithCapabilities(t, "cheap-model", "", "claude-row-a", rows)
-
-	entries := capabilityEntries(envValue(env, claudeCapabilitiesVar+"="))
-	wantNames := []string{"claude-row-a", "cheap-model", "claude-row-b"}
-	for tier := range claudeFamilyIDs {
-		wantNames = append(wantNames, claudeTierModel(tier))
-	}
-	for _, name := range wantNames {
-		if !slices.Contains(entries, name+"=-rejects_disabled_thinking") {
-			t.Errorf("no entry for %s in %q", name, entries)
-		}
-	}
-	// Exact names only: a wildcard would reach models this launch never picked.
-	for _, entry := range entries {
-		pattern, _, _ := strings.Cut(entry, "=")
-		if strings.HasSuffix(pattern, "*") || strings.Contains(pattern, oneMillionSuffix) {
-			t.Errorf("entry %q is not an exact bare model name", entry)
-		}
-	}
-	if len(entries) != len(wantNames) {
-		t.Errorf("got %d entries, want %d, one per distinct name: %q", len(entries), len(wantNames), entries)
-	}
-}
-
-// An operator's own overrides survive, and the launch entries come after them.
-// Claude Code applies every matching entry in order, so the last match for a
-// capability sets its value and the launch entry takes effect.
-func TestClaudeChildEnvAppendsToAnInheritedCapabilitiesValue(t *testing.T) {
-	env := launchEnvWithCapabilities(t, "", "my-model=effort;claude-x=rejects_disabled_thinking", "claude-x", nil)
-
-	got := envValue(env, claudeCapabilitiesVar+"=")
-	want := "my-model=effort;claude-x=rejects_disabled_thinking;claude-x=-rejects_disabled_thinking;"
-	if !strings.HasPrefix(got, want) {
-		t.Fatalf("%s = %q, want it to start with %q", claudeCapabilitiesVar, got, want)
-	}
-	count := 0
-	for _, name := range envNames(env) {
-		if name == claudeCapabilitiesVar {
-			count++
-		}
-	}
-	if count != 1 {
-		t.Fatalf("%s appears %d times, want once", claudeCapabilitiesVar, count)
+	if got := envValue(env, "CLAUDE_CODE_MODEL_CAPABILITIES="); got != inherited {
+		t.Fatalf("CLAUDE_CODE_MODEL_CAPABILITIES = %q, want %q", got, inherited)
 	}
 }
