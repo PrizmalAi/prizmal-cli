@@ -18,13 +18,34 @@ import (
 // StubKey is the API key tests should pass via envconfig.SetAPIKey.
 const StubKey = "stub-key"
 
+// Reply is the placeholder text of every answer. It is distinctive so that a
+// test can find it in a harness's output, where the bare word "stub" could
+// also come from a model id or an error message.
+const Reply = "PRIZMAL-STUB-REPLY"
+
 // New returns a running httptest.Server that speaks all three dialects.
 // Callers must defer Close it.
 func New() *httptest.Server {
-	return httptest.NewServer(handler())
+	return httptest.NewServer(handler(nil))
 }
 
-func handler() http.HandlerFunc {
+// NewWithModels returns a running stub server whose /v1/models lists exactly
+// ids, each as text-only, in place of the default fixture. It is for tests
+// that render a catalog, where the names on screen are the point.
+func NewWithModels(ids ...string) *httptest.Server {
+	models := make([]map[string]any, 0, len(ids))
+	for _, id := range ids {
+		models = append(models, map[string]any{
+			"id":                id,
+			"input_modalities":  []string{"text"},
+			"output_modalities": []string{"text"},
+		})
+	}
+	return httptest.NewServer(handler(models))
+}
+
+// handler serves the stub API. A nil models serves the default fixture.
+func handler(models []map[string]any) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Auth check: require either Authorization: Bearer or x-api-key.
 		if !hasAuth(r) {
@@ -39,7 +60,7 @@ func handler() http.HandlerFunc {
 
 		switch {
 		case method == http.MethodGet && path == "/v1/models":
-			handleModels(w)
+			handleModels(w, models)
 
 		case method == http.MethodPost && path == "/v1/chat/completions":
 			handleChatCompletions(w, r)
@@ -136,7 +157,12 @@ func wantsStream(body map[string]any) bool {
 	return ok && s
 }
 
-func handleModels(w http.ResponseWriter) {
+func handleModels(w http.ResponseWriter, models []map[string]any) {
+	if models != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": models})
+		return
+	}
+
 	// The Switch reports per-entry input modalities here, and omits the field
 	// on some entries. Both shapes are in the fixture on purpose: an entry
 	// without input_modalities is unknown, not text-only, and the launcher's
@@ -172,41 +198,47 @@ func handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	stream := wantsStream(body)
 
 	if stream {
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		flusher, ok := w.(http.Flusher)
+		flusher, ok := startSSE(w)
 		if !ok {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": map[string]any{"message": "streaming not supported"}})
 			return
 		}
 
-		if toolCall {
-			chunk := map[string]any{
-				"choices": []map[string]any{{
-					"delta": map[string]any{
-						"tool_calls": []map[string]any{{
-							"id":       "call_stub",
-							"type":     "function",
-							"function": map[string]any{"name": "stub_tool", "arguments": "{}"},
-						}},
-					},
-				}},
+		// Each chunk carries the id, object and model a client checks, and
+		// the last one carries finish_reason and usage: pi fails a stream
+		// that ends without a finish_reason.
+		chunk := func(delta map[string]any, finish any) map[string]any {
+			return map[string]any{
+				"id":      "chatcmpl_stub",
+				"object":  "chat.completion.chunk",
+				"created": 0,
+				"model":   "prizmal/stub",
+				"choices": []map[string]any{{"index": 0, "delta": delta, "finish_reason": finish}},
 			}
-			writeSSE(w, flusher, chunk)
-		} else {
-			chunk := map[string]any{
-				"choices": []map[string]any{{
-					"delta": map[string]any{"role": "assistant", "content": "stub"},
-				}},
-			}
-			writeSSE(w, flusher, chunk)
 		}
+		finish := "stop"
+		if toolCall {
+			finish = "tool_calls"
+			writeSSE(w, flusher, chunk(map[string]any{
+				"role": "assistant",
+				"tool_calls": []map[string]any{{
+					"index":    0,
+					"id":       "call_stub",
+					"type":     "function",
+					"function": map[string]any{"name": "stub_tool", "arguments": "{}"},
+				}},
+			}, nil))
+		} else {
+			writeSSE(w, flusher, chunk(map[string]any{"role": "assistant", "content": Reply}, nil))
+		}
+		last := chunk(map[string]any{}, finish)
+		last["usage"] = map[string]any{"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
+		writeSSE(w, flusher, last)
 		_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
 		flusher.Flush()
 		return
 	}
 
-	message := map[string]any{"role": "assistant", "content": "stub"}
+	message := map[string]any{"role": "assistant", "content": Reply}
 	if toolCall {
 		message = map[string]any{
 			"role": "assistant",
@@ -231,32 +263,79 @@ func handleResponses(w http.ResponseWriter, r *http.Request) {
 	body := requestBody(r)
 	toolCall := wantsToolCall(body)
 
-	output := []map[string]any{{
-		"type": "message",
-		"role": "assistant",
+	item := map[string]any{
+		"type":   "message",
+		"id":     "msg_stub",
+		"status": "completed",
+		"role":   "assistant",
 		"content": []map[string]any{{
-			"type": "output_text",
-			"text": "stub",
+			"type":        "output_text",
+			"text":        Reply,
+			"annotations": []any{},
 		}},
-	}}
-
+	}
 	if toolCall {
-		output = []map[string]any{{
+		item = map[string]any{
 			"type":      "function_call",
-			"id":        "call_stub",
+			"id":        "fc_stub",
+			"call_id":   "call_stub",
+			"status":    "completed",
 			"name":      "stub_tool",
 			"arguments": "{}",
-		}}
+		}
 	}
-
-	writeJSON(w, http.StatusOK, map[string]any{
+	response := map[string]any{
 		"id":     "resp_stub",
 		"object": "response",
 		"status": "completed",
 		"model":  "prizmal/stub",
-		"output": output,
+		"output": []map[string]any{item},
 		"usage":  map[string]any{"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
-	})
+	}
+
+	if !wantsStream(body) {
+		writeJSON(w, http.StatusOK, response)
+		return
+	}
+
+	flusher, ok := startSSE(w)
+	if !ok {
+		return
+	}
+	// Codex reads a turn as finished only on response.completed, and takes the
+	// output items from response.output_item.done, so both are sent. The text
+	// deltas are what a harness prints while the turn streams.
+	created := map[string]any{}
+	for k, v := range response {
+		created[k] = v
+	}
+	created["status"] = "in_progress"
+	created["output"] = []any{}
+	writeSSEEvent(w, flusher, "response.created", map[string]any{"type": "response.created", "response": created})
+	writeSSEEvent(w, flusher, "response.output_item.added", map[string]any{"type": "response.output_item.added", "output_index": 0, "item": item})
+	if !toolCall {
+		writeSSEEvent(w, flusher, "response.output_text.delta", map[string]any{
+			"type": "response.output_text.delta", "item_id": "msg_stub", "output_index": 0, "content_index": 0, "delta": Reply,
+		})
+		writeSSEEvent(w, flusher, "response.output_text.done", map[string]any{
+			"type": "response.output_text.done", "item_id": "msg_stub", "output_index": 0, "content_index": 0, "text": Reply,
+		})
+	}
+	writeSSEEvent(w, flusher, "response.output_item.done", map[string]any{"type": "response.output_item.done", "output_index": 0, "item": item})
+	writeSSEEvent(w, flusher, "response.completed", map[string]any{"type": "response.completed", "response": response})
+}
+
+// startSSE sets the event-stream headers. It reports false, after answering
+// with an error, when the writer cannot flush.
+func startSSE(w http.ResponseWriter) (http.Flusher, bool) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": map[string]any{"message": "streaming not supported"}})
+		return nil, false
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	return flusher, true
 }
 
 func handleMessages(w http.ResponseWriter, r *http.Request) {
@@ -265,40 +344,48 @@ func handleMessages(w http.ResponseWriter, r *http.Request) {
 	stream := wantsStream(body)
 
 	if stream {
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		flusher, ok := w.(http.Flusher)
+		flusher, ok := startSSE(w)
 		if !ok {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": map[string]any{"message": "streaming not supported"}})
 			return
 		}
 
-		// message_start
+		// The full Anthropic event sequence: a harness assembles the text
+		// block between content_block_start and content_block_stop, and reads
+		// the stop reason from message_delta.
 		writeSSEEvent(w, flusher, "message_start", map[string]any{
 			"type": "message_start",
 			"message": map[string]any{
-				"id":    "msg_stub",
-				"type":  "message",
-				"role":  "assistant",
-				"model": "prizmal/stub",
-				"usage": map[string]any{"input_tokens": 1, "output_tokens": 0},
+				"id":            "msg_stub",
+				"type":          "message",
+				"role":          "assistant",
+				"model":         "prizmal/stub",
+				"content":       []any{},
+				"stop_reason":   nil,
+				"stop_sequence": nil,
+				"usage":         map[string]any{"input_tokens": 1, "output_tokens": 0},
 			},
 		})
-
-		// content_block_delta
-		delta := map[string]any{"type": "text_delta", "text": "stub"}
+		writeSSEEvent(w, flusher, "content_block_start", map[string]any{
+			"type":          "content_block_start",
+			"index":         0,
+			"content_block": map[string]any{"type": "text", "text": ""},
+		})
 		writeSSEEvent(w, flusher, "content_block_delta", map[string]any{
 			"type":  "content_block_delta",
 			"index": 0,
-			"delta": delta,
+			"delta": map[string]any{"type": "text_delta", "text": Reply},
 		})
-
-		// message_stop
+		writeSSEEvent(w, flusher, "content_block_stop", map[string]any{"type": "content_block_stop", "index": 0})
+		writeSSEEvent(w, flusher, "message_delta", map[string]any{
+			"type":  "message_delta",
+			"delta": map[string]any{"stop_reason": "end_turn", "stop_sequence": nil},
+			"usage": map[string]any{"output_tokens": 1},
+		})
 		writeSSEEvent(w, flusher, "message_stop", map[string]any{"type": "message_stop"})
 		return
 	}
 
-	content := []map[string]any{{"type": "text", "text": "stub"}}
+	content := []map[string]any{{"type": "text", "text": Reply}}
 	if toolCall {
 		content = []map[string]any{{"type": "tool_use", "id": "toolu_stub", "name": "stub_tool", "input": map[string]any{}}}
 	}

@@ -222,3 +222,110 @@ func TestStreamingMessages(t *testing.T) {
 		t.Fatal("expected SSE stream to contain message_stop event")
 	}
 }
+
+func TestNewWithModelsListsTheGivenIDs(t *testing.T) {
+	srv := NewWithModels("claude-sonnet-house", "glm-5.1")
+	defer srv.Close()
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/v1/models", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+StubKey)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var body struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, m := range body.Data {
+		ids = append(ids, m.ID)
+	}
+	if len(ids) != 2 || ids[0] != "claude-sonnet-house" || ids[1] != "glm-5.1" {
+		t.Fatalf("ids = %v, want [claude-sonnet-house glm-5.1]", ids)
+	}
+}
+
+// sseEvents posts body to path and returns the event names of the SSE stream
+// and the concatenated data lines.
+func sseEvents(t *testing.T, url, body string) ([]string, string) {
+	t.Helper()
+	resp := postWithAuth(t, url, body)
+	defer func() { _ = resp.Body.Close() }()
+	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Fatalf("Content-Type = %q, want text/event-stream", ct)
+	}
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var events []string
+	var data bytes.Buffer
+	for _, line := range bytes.Split(raw, []byte("\n")) {
+		switch {
+		case bytes.HasPrefix(line, []byte("event: ")):
+			events = append(events, string(line[len("event: "):]))
+		case bytes.HasPrefix(line, []byte("data: ")):
+			data.Write(line[len("data: "):])
+			data.WriteByte('\n')
+		}
+	}
+	return events, data.String()
+}
+
+func TestResponsesStreamEndsWithCompleted(t *testing.T) {
+	srv := New()
+	defer srv.Close()
+
+	events, data := sseEvents(t, srv.URL+"/v1/responses", `{"model":"smart","input":"hi","stream":true}`)
+	if len(events) == 0 || events[len(events)-1] != "response.completed" {
+		t.Fatalf("events = %v, want a stream ending in response.completed", events)
+	}
+	if !bytes.Contains([]byte(data), []byte(Reply)) {
+		t.Fatalf("stream data does not carry %q:\n%s", Reply, data)
+	}
+}
+
+func TestMessagesStreamFramesTheTextBlock(t *testing.T) {
+	srv := New()
+	defer srv.Close()
+
+	events, data := sseEvents(t, srv.URL+"/v1/messages", `{"model":"smart","max_tokens":10,"stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+	want := []string{"message_start", "content_block_start", "content_block_delta", "content_block_stop", "message_delta", "message_stop"}
+	if len(events) != len(want) {
+		t.Fatalf("events = %v, want %v", events, want)
+	}
+	for i := range want {
+		if events[i] != want[i] {
+			t.Fatalf("events = %v, want %v", events, want)
+		}
+	}
+	if !bytes.Contains([]byte(data), []byte(Reply)) {
+		t.Fatalf("stream data does not carry %q:\n%s", Reply, data)
+	}
+}
+
+func TestChatCompletionsStreamSendsFinishReason(t *testing.T) {
+	srv := New()
+	defer srv.Close()
+
+	_, data := sseEvents(t, srv.URL+"/v1/chat/completions", `{"model":"smart","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+	if !bytes.Contains([]byte(data), []byte(`"finish_reason":"stop"`)) {
+		t.Fatalf("stream has no finish_reason stop:\n%s", data)
+	}
+	if !bytes.Contains([]byte(data), []byte(Reply)) {
+		t.Fatalf("stream data does not carry %q:\n%s", Reply, data)
+	}
+	if !bytes.HasSuffix(bytes.TrimSpace([]byte(data)), []byte("[DONE]")) {
+		t.Fatalf("stream does not end with [DONE]:\n%s", data)
+	}
+}

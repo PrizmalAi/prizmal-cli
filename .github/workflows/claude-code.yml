@@ -1,0 +1,75 @@
+name: Claude Code
+
+# Checks prizmal's Claude Code integration. Each harness has its own workflow
+# of this kind (claude-code.yml, codex.yml, ...), so the harnesses run in
+# parallel and report under their own names.
+#
+# launch runs the latest Claude Code through prizmal with a one-shot prompt,
+# against a stub switch that answers every turn with a placeholder reply, and
+# passes when that reply reaches stdout. No Switch key is involved.
+# PRIZMAL_HARNESS_LAUNCH=require turns a missing harness into a failure.
+#
+# terminal-baselines renders the prizmal model picker and Claude Code's
+# screens in a fixed-size tmux terminal, against a stub switch that serves
+# GET /v1/models, and compares their text to cmd/prizmal/testdata/terminal/claude. See
+# the "Terminal baselines" section of AGENTS.md.
+#
+# Claude Code is installed at the version in
+# cmd/prizmal/testdata/terminal/claude/claude-code-version, because its screens change
+# with each release. PRIZMAL_TERMINAL_BASELINES=require turns a missing tmux
+# or a different Claude Code version into a failure, so this job cannot pass
+# by skipping every case.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: claude-code-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The launcher sets ENABLE_TOOL_SEARCH=true on the child environment. Do
+  # not declare it in the step env below: the launcher's own value is what
+  # this job checks.
+  launch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: stable
+          cache: true
+      - name: Install claude
+        run: |
+          curl -fsSL https://claude.ai/install.sh | bash
+          echo "$HOME/.local/bin" >>"$GITHUB_PATH"
+      - name: Launch claude through prizmal
+        env:
+          PRIZMAL_HARNESS_LAUNCH: require
+        run: go test -count=1 -v -run 'TestHarnessLaunchClaude$' ./cmd/prizmal
+
+  terminal-baselines:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: stable
+          cache: true
+      - name: Install tmux
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq tmux
+      - name: Install the pinned Claude Code
+        run: |
+          curl -fsSL https://claude.ai/install.sh | bash -s "$(cat cmd/prizmal/testdata/terminal/claude/claude-code-version)"
+          echo "$HOME/.local/bin" >>"$GITHUB_PATH"
+      - name: Compare terminal baselines
+        env:
+          PRIZMAL_TERMINAL_BASELINES: require
+        run: go test -count=1 -v -run TestTerminalBaselinesClaude ./cmd/prizmal

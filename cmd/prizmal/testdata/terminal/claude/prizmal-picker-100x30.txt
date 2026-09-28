@@ -1,0 +1,5 @@
+Select a model
+▸ smart
+  flash
+
+  ↑/k up • ↓/j down • / filter • enter apply • esc clear filter • esc quit without saving

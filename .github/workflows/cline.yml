@@ -1,0 +1,47 @@
+name: Cline
+
+# Checks prizmal's Cline integration. Each harness has its own workflow of
+# this kind, so the harnesses run in parallel and report under their own
+# names.
+#
+# launch runs Cline through prizmal with a one-shot prompt,
+# against a stub switch that answers every turn with a placeholder reply, and
+# passes when that reply reaches stdout. No Switch key is involved.
+# PRIZMAL_HARNESS_LAUNCH=require turns a missing harness into a failure, so
+# the job cannot pass by skipping.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cline-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  launch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: stable
+          cache: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      # Pinned below latest: cline 3.0.65, the latest on 2026-09-28, depends
+      # on @ai-sdk/provider@4.0.19, which is not on npm, so it cannot be
+      # installed. Move the pin back to latest once a release installs.
+      - name: Install cline
+        run: |
+          npm install -g cline@3.0.62
+      - name: Launch cline through prizmal
+        env:
+          PRIZMAL_HARNESS_LAUNCH: require
+        run: go test -count=1 -v -run 'TestHarnessLaunchCline$' ./cmd/prizmal
