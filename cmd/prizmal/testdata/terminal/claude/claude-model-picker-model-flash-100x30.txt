@@ -15,13 +15,13 @@
 
 
 
+
 ▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔ ● high · /effort ▔
    Select model
    Switch between Claude models. Your pick becomes the default for new sessions. For
    other/previous model names, specify with --model.
 
-     1. Default (recommended)  Use the default model (currently Opus 5.5 (1M context)) · $4/$20
-                               per Mtok
+     1. Default (recommended)  Use the default model (currently flash)
    ❯ 2. flash ✔                Custom model (flash[1m])
      3. smart                  Custom model (smart[1m])
 
