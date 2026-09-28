@@ -374,6 +374,12 @@ func newPickerModel(rows []ModelRow) pickerModel {
 	// nothing here. Only the bindings that work are populated, so the one help
 	// line names exactly the keys an operator can press.
 	l.KeyMap = pickerKeyMap()
+	// Re-derive which bindings are enabled. list.New sized the default map for
+	// the list's filter state, and the swap replaced its bindings with fresh
+	// ones that are all enabled, so without this the help line offers the
+	// filtering keys before anything is typed. Every path that touches the
+	// keymap afterwards (SetFilterState, filter edits) re-runs this itself.
+	l.SetFilterState(list.Unfiltered)
 	l.SetShowHelp(true)
 	l.Help.Styles.ShortKey = lipgloss.NewStyle()
 	l.Help.Styles.ShortDesc = lipgloss.NewStyle().Faint(true)
