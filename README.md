@@ -191,6 +191,34 @@ the configured `--url` host. That rule matches a rotated key, and a key
 from another tenant, as well as the current one. A key for any other
 endpoint is yours, and the backup that has it stays.
 
+## Claude Code without prizmal
+
+You can start Claude Code against the Prizmal Switch with environment variables alone, without installing `prizmal`. Export your switch key as `PRIZMAL_SWITCH_KEY`, then run:
+
+```bash
+ANTHROPIC_BASE_URL=https://api.prizmal.ai ANTHROPIC_AUTH_TOKEN="$PRIZMAL_SWITCH_KEY" ANTHROPIC_API_KEY= ENABLE_TOOL_SEARCH=true ENABLE_CLAUDEAI_MCP_SERVERS=false CLAUDE_CODE_ATTRIBUTION_HEADER=0 DISABLE_ERROR_REPORTING=1 DISABLE_FEEDBACK_COMMAND=1 CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1 claude
+```
+
+The first two variables connect Claude Code to the Switch. The others match what `prizmal claude` sets:
+
+| Variable | Purpose |
+|---|---|
+| `ANTHROPIC_BASE_URL=` | The Switch URL. Leave off `/v1`, because Claude Code adds it. |
+| `ANTHROPIC_AUTH_TOKEN=` | Your switch key, sent as `Authorization: Bearer`. |
+| `ANTHROPIC_API_KEY=` | Empty, so an Anthropic key exported in your shell stays out of Switch requests. Keep your switch key out of this variable too, because Claude Code asks for approval before the first turn when it finds a key there. |
+| `ENABLE_TOOL_SEARCH=true` | Claude Code turns tool search off for any host other than Anthropic's. Without it, each request sends the full tool list. |
+| `ENABLE_CLAUDEAI_MCP_SERVERS=false` | Hides the startup warning about claude.ai connectors, which need a claude.ai login that this launch doesn't use. |
+| `CLAUDE_CODE_ATTRIBUTION_HEADER=0`, `DISABLE_ERROR_REPORTING=1`, `DISABLE_FEEDBACK_COMMAND=1`, `CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1` | Turn off the attribution header, error reports to Anthropic, `/feedback`, and the feedback survey. |
+
+Claude Code flags work as usual, so `claude --model sonnet` and `claude --resume <session-id>` go on the end of the same line.
+
+`prizmal claude` adds a few things this command leaves out:
+
+- The `/model` menu lists your tenant's models. Without `prizmal`, it shows Claude Code's built-in list.
+- It marks each model it launches as accepting a request with thinking turned off. WebSearch sends that request, and for a model name outside Claude Code's built-in list it returns no results without the mark.
+- It removes model variables such as `ANTHROPIC_MODEL` that your shell exports, so they can't change the model a launch runs.
+- It installs Claude Code when the `claude` binary is missing.
+
 ## Building
 
 Requires Go 1.25+.
