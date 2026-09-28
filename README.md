@@ -196,7 +196,16 @@ endpoint is yours, and the backup that has it stays.
 You can start Claude Code against the Prizmal Switch with environment variables alone, without installing the Prizmal CLI. Export your switch key as `PRIZMAL_SWITCH_KEY`, then run:
 
 ```bash
-ANTHROPIC_BASE_URL=https://api.prizmal.ai ANTHROPIC_AUTH_TOKEN="$PRIZMAL_SWITCH_KEY" ANTHROPIC_API_KEY= ENABLE_TOOL_SEARCH=true ENABLE_CLAUDEAI_MCP_SERVERS=false CLAUDE_CODE_ATTRIBUTION_HEADER=0 DISABLE_ERROR_REPORTING=1 DISABLE_FEEDBACK_COMMAND=1 CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1 claude
+ANTHROPIC_BASE_URL=https://api.prizmal.ai \
+ANTHROPIC_AUTH_TOKEN="$PRIZMAL_SWITCH_KEY" \
+ANTHROPIC_API_KEY= \
+ENABLE_TOOL_SEARCH=true \
+ENABLE_CLAUDEAI_MCP_SERVERS=false \
+CLAUDE_CODE_ATTRIBUTION_HEADER=0 \
+DISABLE_ERROR_REPORTING=1 \
+DISABLE_FEEDBACK_COMMAND=1 \
+CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1 \
+claude
 ```
 
 The first two variables connect Claude Code to the Switch. The others match what `prizmal claude` sets:
@@ -210,7 +219,7 @@ The first two variables connect Claude Code to the Switch. The others match what
 | `ENABLE_CLAUDEAI_MCP_SERVERS=false` | Hides the startup warning about claude.ai connectors, which need a claude.ai login that this launch doesn't use. |
 | `CLAUDE_CODE_ATTRIBUTION_HEADER=0`, `DISABLE_ERROR_REPORTING=1`, `DISABLE_FEEDBACK_COMMAND=1`, `CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1` | Turn off the attribution header, error reports to Anthropic, `/feedback`, and the feedback survey. |
 
-Claude Code flags work as usual, so `claude --model sonnet` and `claude --resume <session-id>` go on the end of the same line.
+Claude Code flags work as usual, so `claude --model sonnet` and `claude --resume <session-id>` go after `claude` on the last line.
 
 `prizmal claude` adds a few things this command leaves out:
 
