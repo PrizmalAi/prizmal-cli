@@ -55,11 +55,11 @@ jobs:
     name: pr body format
     runs-on: ubuntu-latest
     steps:
-      # Pinned to v1.1.0 (16953182e3b991b7d081d844b395754fdfb91880), which is
-      # also the head of the action's main at install time. Full-SHA pinning:
-      # a mutable tag ref would let a pushed tag change what runs here.
+      # Full-SHA pinning: a mutable tag ref would let a pushed tag change what
+      # runs here. v1.2.1 is the first release that also pins its own nested
+      # actions/setup-node, which this repository's SHA-pinning policy requires.
       - name: Check PR body formatting
-        uses: elecnix/gh-pr-body-action@16953182e3b991b7d081d844b395754fdfb91880 # v1.1.0
+        uses: elecnix/gh-pr-body-action@08c74dc0736abe295e90d6363abd55cf7ea63ef3 # v1.2.1
         with:
           repo: ${{ github.repository }}
           pr: ${{ github.event.pull_request.number }}
