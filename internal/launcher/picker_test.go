@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 )
 
@@ -478,6 +479,47 @@ func TestPickerEscClearsTheFilterBeforeQuitting(t *testing.T) {
 	}
 	if fs := got.list.FilterState(); fs == list.Filtering {
 		t.Errorf("filter state = %v, want the filter cleared", fs)
+	}
+}
+
+// pickerHelpLine is the help text the picker draws on its last line, stripped
+// of styling.
+func pickerHelpLine(m tea.Model) string {
+	lines := strings.Split(m.View(), "\n")
+	return ansi.Strip(lines[len(lines)-1])
+}
+
+// A fresh picker's help line names only the keys that work before any search:
+// moving, starting a filter, and quitting. The filtering keys (enter to apply,
+// esc to clear) appear once a search starts.
+//
+// The picker swaps in its own keymap after bubbles has already set each
+// binding for the list's filter state. The new bindings arrive enabled, so a
+// fresh menu once advertised "enter apply" and "esc clear filter" with nothing
+// typed yet, and the line corrected itself only after a filter round-trip.
+func TestPickerHelpLineNamesFilteringKeysOnlyWhileFiltering(t *testing.T) {
+	var model tea.Model = newPickerModel([]ModelRow{{Label: "a", Model: "a"}, {Label: "b", Model: "b"}})
+
+	browsing := pickerHelpLine(model)
+	for _, want := range []string{"up", "down", "/ filter", "esc quit without saving"} {
+		if !strings.Contains(browsing, want) {
+			t.Errorf("help line before a search = %q, want it to name %q", browsing, want)
+		}
+	}
+	for _, unwanted := range []string{"apply", "clear filter"} {
+		if strings.Contains(browsing, unwanted) {
+			t.Errorf("help line before a search = %q, want no %q", browsing, unwanted)
+		}
+	}
+
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+
+	filtering := pickerHelpLine(model)
+	for _, want := range []string{"enter apply", "esc clear filter"} {
+		if !strings.Contains(filtering, want) {
+			t.Errorf("help line while filtering = %q, want it to name %q", filtering, want)
+		}
 	}
 }
 
