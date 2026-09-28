@@ -8,7 +8,7 @@ before:
 
 builds:
   - id: prizmal
-    main: .
+    main: ./cmd/prizmal
     binary: prizmal
     ldflags:
       - -s -w

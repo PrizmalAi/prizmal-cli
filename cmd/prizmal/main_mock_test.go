@@ -25,7 +25,7 @@ import (
 
 const (
 	// mockBinPkg is the package the mock harness binary is built from.
-	mockBinPkg = "./internal/launcher/mockbin/cmd/mockbin"
+	mockBinPkg = "github.com/PrizmalAi/prizmal-cli/internal/launcher/mockbin/cmd/mockbin"
 )
 
 // harnessExpectation describes what the mock for a given harness must see.
