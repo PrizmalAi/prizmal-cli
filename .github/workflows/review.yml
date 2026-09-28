@@ -1,0 +1,49 @@
+name: review
+
+on: pull_request
+
+# Least privilege for Cite (elecnix/cite@9c2964b0298b7ae110a2d4111fd84d7aa5b5b739):
+# - contents: read — fetch the PR diff and instruction files from the base ref
+#   via the GitHub API. No write to the repository is ever made (Cite never
+#   pushes commits or opens PRs; docs/security.md).
+# - pull-requests: write — post the review: one PR review with line-anchored
+#   comments, plus replies/dismissals on its own review threads.
+# - checks: write — publish the merge-gate check run on the PR head SHA.
+# `models: read` is intentionally NOT granted: it would enable the zero-secret
+# GitHub-Models fallback path, which is not wanted here — this repo uses
+# OpenRouter via the MODEL_API_KEY secret (injected below). With the secret set
+# the fallback is unreachable anyway, but withholding the permission keeps the
+# failure explicit instead of silently reviewing on the rate-limited ambient
+# token if the secret is ever removed.
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+concurrency:
+  # One review at a time per PR: Cite posts one review and one check run per
+  # head; racing runs on rapid pushes would interleave reviews.
+  group: review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      # Pinned to the full commit SHA of tag v0.11.1 (no v1 tag exists upstream).
+      # `version: v0.11.1` additionally pins the downloaded cite binary to the
+      # same release instead of tracking releases/latest. Bump both together:
+      # each one names the version on its own, and a lone SHA bump would leave
+      # the older binary running.
+      #
+      # v0.11.0 added a `reasoning_effort` input whose default is "none". That
+      # default matters for this provider: OpenRouter answers a 400 to a model
+      # that cannot run without reasoning, and GLM 5.3 Flash is one. DeepSeek
+      # V4.1 Flash accepts the default, so no override is needed.
+      - name: Review pull request
+        uses: elecnix/cite@9c2964b0298b7ae110a2d4111fd84d7aa5b5b739 # v0.11.1
+        with:
+          model_api_key: ${{ secrets.MODEL_API_KEY }}
+          model_base_url: https://openrouter.ai/api/v1
+          model_id: deepseek/deepseek-v4.1-flash
+          version: v0.11.1

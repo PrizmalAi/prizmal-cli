@@ -1,0 +1,20 @@
+# Advisory duplication check: dupdelta scans the branch against its
+# merge-base and reports only the duplication a change introduces,
+# warning inline on the diff. It never fails the build by design.
+name: Duplication
+
+on: pull_request
+
+permissions:
+  contents: read
+  pull-requests: read
+  checks: write # diff annotations go through the Checks API
+
+jobs:
+  dupdelta:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0 # the merge-base must be reachable — without this it cannot work
+      - uses: elecnix/dupdelta@658504a2c2fc19ced01337e2e84c79aa4699a7a7 # v0.2.0

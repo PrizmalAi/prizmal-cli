@@ -1,0 +1,524 @@
+package launch
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"slices"
+	"strings"
+
+	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
+)
+
+// Claude implements Runner for Claude Code integration.
+type Claude struct{}
+
+func (c *Claude) String() string { return "Claude Code" }
+
+// ShowsModelList reports that a launch hands Claude Code the whole catalog
+// rather than the one model it runs, because Claude Code displays the tenant's
+// models as its own /model rows.
+//
+// Runners without this method are given only the model they launch. pi and
+// cline read models[0] as the model to select and write into their config, so
+// widening their list would silently change what a bare launch selects.
+func (c *Claude) ShowsModelList() bool { return true }
+
+func (c *Claude) args(settingsJSON string, extra []string) []string {
+	var args []string
+	if settingsJSON != "" {
+		args = append(args, "--settings", settingsJSON)
+	}
+	args = append(args, extra...)
+	return args
+}
+
+func (c *Claude) findPath() (string, error) {
+	if p, err := exec.LookPath("claude"); err == nil {
+		return p, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	name := "claude"
+	if runtime.GOOS == "windows" {
+		name = "claude.exe"
+	}
+	for _, fallback := range []string{
+		filepath.Join(home, ".local", "bin", name),
+		filepath.Join(home, ".claude", "local", name),
+	} {
+		if _, err := os.Stat(fallback); err == nil {
+			return fallback, nil
+		}
+	}
+	return "", fmt.Errorf("claude binary not found")
+}
+
+func (c *Claude) Run(model string, models []LaunchModel, args []string) error {
+	claudePath, err := ensureClaudeInstalled()
+	if err != nil {
+		return err
+	}
+
+	settings, err := claudeSettingsJSON(model, ModelRows(models))
+	if err != nil {
+		return err
+	}
+
+	cmd := exec.Command(claudePath, c.args(settings, args)...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	cmd.Env = claudeChildEnv(model, ModelRows(models))
+	return cmd.Run()
+}
+
+// envVars is the environment Claude Code is launched with, before the
+// inherited variables are merged in. It carries the endpoint, the credential
+// and behavior switches only. The model arrives in the inline --settings JSON,
+// so nothing here names a model.
+func (c *Claude) envVars() []string {
+	return []string{
+		"ANTHROPIC_BASE_URL=" + claudeBaseURL(envconfig.Host().String()),
+		// The switch key travels as ANTHROPIC_AUTH_TOKEN, Claude Code's
+		// gateway credential (Authorization: Bearer), and nothing else.
+		// ANTHROPIC_API_KEY is its Anthropic-console key: set alongside the
+		// token it draws a "Both ... set · auth may not work as expected"
+		// warning, and on its own it asks for approval before the first
+		// interactive turn. It is emptied, not left alone, so a key exported
+		// in the operator's shell for Anthropic itself never reaches the
+		// Switch as an x-api-key header.
+		"ANTHROPIC_AUTH_TOKEN=" + envconfig.APIKey(),
+		"ANTHROPIC_API_KEY=",
+		// Claude Code treats any non-claude.ai auth source as taking
+		// precedence over a stored claude.ai login, which is what a launch
+		// uses: the Switch token. Connectors can never load under a launch,
+		// but the stored login is still there, and Claude Code prints a
+		// startup warning that tells the operator to unset the credential this
+		// CLI set. The variable is read before that precedence check, so a
+		// launch that sets it never reaches the branch recording the warning.
+		//
+		// It gates the auto-fetch only. A server named through --mcp-config,
+		// the settings mcpServers block, .mcp.json or the SDK keeps the normal
+		// MCP trust flow, so this is not an MCP switch.
+		"ENABLE_CLAUDEAI_MCP_SERVERS=false",
+		"CLAUDE_CODE_ATTRIBUTION_HEADER=0",
+		"DISABLE_ERROR_REPORTING=1",
+		"DISABLE_FEEDBACK_COMMAND=1",
+		"CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1",
+		// Claude Code enables tool search (tool definitions withheld from the
+		// system prompt, fetched on demand through tool_reference blocks) by
+		// default only when ANTHROPIC_BASE_URL names a first-party Anthropic
+		// host, so routing through the Switch silently turns it off and every
+		// request carries the full tool list. The Switch parses and forwards
+		// tool_reference blocks, so turn it back on explicitly.
+		"ENABLE_TOOL_SEARCH=true",
+	}
+}
+
+// claudeInheritedModelVars are the model-selecting variables the CLI never
+// passes on to the child.
+//
+// A launch states its model in the inline settings JSON, which outranks every
+// one of these. They are removed from the inherited environment anyway, so the
+// child's model comes from exactly one place: a value exported in the
+// operator's shell for Anthropic itself must not ride along and re-route a
+// launch the operator did not aim at Anthropic.
+//
+// CLAUDE_CODE_SUBAGENT_MODEL is in this list and is also the one variable the
+// CLI sets for real, from claudeChildEnv below. It is removed here so that a
+// stale shell export cannot give subagents a model the operator never picked;
+// the only value that reaches the child is the one a launch asked for.
+var claudeInheritedModelVars = []string{
+	"ANTHROPIC_DEFAULT_OPUS_MODEL",
+	"ANTHROPIC_DEFAULT_SONNET_MODEL",
+	"ANTHROPIC_DEFAULT_HAIKU_MODEL",
+	"ANTHROPIC_DEFAULT_FABLE_MODEL",
+	"ANTHROPIC_MODEL",
+	"ANTHROPIC_SMALL_FAST_MODEL",
+	"CLAUDE_CODE_SUBAGENT_MODEL",
+}
+
+// claudeChildEnv builds Claude Code's environment explicitly: the inherited
+// environment with every model-selecting variable dropped, then the fixed
+// launch variables, then the model capability overrides for model and rows.
+//
+// The filter is what makes the inline settings JSON authoritative. The result
+// is keyed by name, so the CLI's own value always wins over an inherited one
+// and a variable can never appear twice.
+func claudeChildEnv(model string, rows []ModelRow) []string {
+	drop := make(map[string]bool, len(claudeInheritedModelVars))
+	for _, name := range claudeInheritedModelVars {
+		drop[name] = true
+	}
+
+	// The launch's own variables are collected first, so the inherited pass can
+	// skip every name they define. A name defined twice would leave the child's
+	// value depending on which copy the OS reads first, and the launch value
+	// must be the one that wins.
+	fixed := (&Claude{}).envVars()
+	fixedNames := make(map[string]bool, len(fixed))
+	for _, kv := range fixed {
+		name, _, _ := strings.Cut(kv, "=")
+		fixedNames[name] = true
+	}
+
+	env := make([]string, 0, len(os.Environ())+len(fixed)+1)
+	for _, kv := range os.Environ() {
+		name, _, _ := strings.Cut(kv, "=")
+		if drop[name] || fixedNames[name] || name == claudeCapabilitiesVar {
+			continue
+		}
+		env = append(env, kv)
+	}
+	env = append(env, fixed...)
+
+	// The one model variable a launch sets, and only when a dedicated
+	// subagent model was picked. Subagents run the model it names; omitting it
+	// leaves them on the session model, which is Claude Code's "inherit"
+	// default. There is no settings-JSON equivalent, so this variable is the
+	// only channel that gives subagents a different model than the parent.
+	if sub := selectedSubagentModel(); sub != "" {
+		env = append(env, "CLAUDE_CODE_SUBAGENT_MODEL="+claudeModelName(sub))
+	}
+
+	if caps := claudeModelCapabilities(os.Getenv(claudeCapabilitiesVar), model, rows); caps != "" {
+		env = append(env, claudeCapabilitiesVar+"="+caps)
+	}
+
+	return env
+}
+
+// claudeCapabilitiesVar overrides the capabilities Claude Code assumes for a
+// model. The public docs don't describe it. The format below comes from the
+// Claude Code 2.1.280 binary:
+//
+//   - A ";" separates entries, and each entry is "pattern=cap1,cap2".
+//   - A pattern matches the model name exactly, or as a prefix when it ends in
+//     "*". Claude Code removes [1m] from the name before it compares.
+//   - A leading "-" sets the capability to false.
+//   - Claude Code applies every matching entry in order, so the last match for
+//     a capability sets its value.
+const claudeCapabilitiesVar = "CLAUDE_CODE_MODEL_CAPABILITIES"
+
+// claudeModelCapabilities returns the CLAUDE_CODE_MODEL_CAPABILITIES value for
+// a launch: the inherited value, then one entry per model name the launch
+// hands Claude Code, each setting rejects_disabled_thinking to false.
+//
+// WebSearch sends its own request with web_search as a required tool and
+// thinking turned off. Claude Code keeps that required tool choice only for a
+// model it knows accepts thinking turned off, and its built-in list has
+// Anthropic names only. For any other name it drops the thinking field and
+// rewrites tool_choice to auto. The launched model then often answers in
+// prose, and WebSearch reports no results. Each entry marks a launched name as
+// accepting thinking turned off, so WebSearch keeps the required choice.
+//
+// The patterns are exact bare names. A "claude-*" wildcard would also match
+// models this launch never picked. The launch entries follow the inherited
+// ones, so the operator's other overrides stay in effect and the launch entry
+// is the last match for its names.
+func claudeModelCapabilities(inherited, model string, rows []ModelRow) string {
+	names := []string{model, selectedSubagentModel()}
+	for _, row := range rows {
+		names = append(names, row.Model)
+	}
+	tiers := make([]string, 0, len(claudeFamilyIDs))
+	for tier := range claudeFamilyIDs {
+		tiers = append(tiers, claudeTierModel(tier))
+	}
+	slices.Sort(tiers)
+	names = append(names, tiers...)
+
+	var entries []string
+	if inherited != "" {
+		entries = append(entries, inherited)
+	}
+	seen := make(map[string]bool, len(names))
+	for _, name := range names {
+		bare := strings.TrimSuffix(claudeModelName(name), oneMillionSuffix)
+		if bare == "" || seen[bare] {
+			continue
+		}
+		seen[bare] = true
+		entries = append(entries, bare+"=-rejects_disabled_thinking")
+	}
+	return strings.Join(entries, ";")
+}
+
+// oneMillionSuffix is Claude Code's own context-budgeting instruction. It is
+// not part of any model id: Claude Code strips the suffix from the name before
+// it sends the request and budgets a 1M context window for that name.
+const oneMillionSuffix = "[1m]"
+
+// claudeModelName returns the model name to hand Claude Code: the switch's own
+// name with exactly one [1m] suffix, whatever the switch sent. Every trailing
+// suffix is stripped before the one is added, so the result ends with exactly
+// one whether the id arrived bare, suffixed, or doubly suffixed.
+//
+// The suffix is a client-side budgeting instruction. Claude Code strips it
+// before building the request, so the wire carries the bare name and the
+// switch routes it as usual. Without it Claude Code assumes a 200k window and
+// compacts a long session early.
+func claudeModelName(model string) string {
+	if model == "" {
+		return ""
+	}
+	// Strip every trailing suffix, not just one: the switch's own ids are
+	// already bare, but a value that reached here through a config file or a
+	// shell export may carry one, and the result must still end with exactly
+	// one suffix rather than accumulating them.
+	bare := model
+	for {
+		stripped := strings.TrimSuffix(bare, oneMillionSuffix)
+		if stripped == bare {
+			break
+		}
+		bare = stripped
+	}
+	return bare + oneMillionSuffix
+}
+
+// claudeSettingsJSON builds the inline --settings JSON for a launch: the model
+// to run, the tier remaps, and the picker rows.
+//
+// It is one argument on the command line, so it is scoped to the launched
+// process and persists nowhere. Nothing is written to ~/.claude.
+func claudeSettingsJSON(model string, rows []ModelRow) (string, error) {
+	if model == "" {
+		return "", nil
+	}
+
+	settings := map[string]any{"model": claudeModelName(model)}
+	if overrides := claudeModelOverrides(); len(overrides) > 0 {
+		settings["modelOverrides"] = overrides
+	}
+	if len(rows) > 0 {
+		settings["modelPicker"] = claudeModelPicker(rows)
+	}
+
+	data, err := json.Marshal(settings)
+	if err != nil {
+		return "", fmt.Errorf("build Claude Code settings: %w", err)
+	}
+	return string(data), nil
+}
+
+// claudeModelOverrides maps Claude Code's own model ids to the tenant's names
+// for them.
+//
+// Claude Code resolves a tier word (sonnet, opus, haiku, fable) to a baked-in
+// catalog id first, and a session or request can also name any catalog id
+// directly, then applies this mapping to whatever id it resolved. So the keys
+// are Claude Code's own ids and not the tier words. A tenant that has not
+// provisioned a tier alias simply has no entry: the mapping never invents a
+// name, and a launch that never names a tier is unaffected by it.
+//
+// The keys cover the whole first-party lineage the catalog knows, not just the
+// current generation. A request that names an older model (a subagent pinned to
+// an agent's claude-sonnet-4-6, a settings model field, a picker row) resolves
+// to that older id and must still route to the tier the tenant chose. Without
+// the entry it would reach the Switch as the older id, and the Switch would
+// route it by whatever alias or fallback that id matches.
+//
+// Three ids are deliberately absent. The Bedrock variant strings
+// claude-haiku-4-5-20251001-v1 and claude-fable-5-mythos-5 are not first-party
+// ids in the catalog, and the mythos family (claude-mythos-5, claude-mythos-5-1)
+// has no tier alias. An override key that is not a first-party id the running
+// build knows is silently dropped, verified on the wire: a keyed entry for any
+// of these passes through as the id itself. Adding them would be the silent
+// no-op this mapping exists to avoid.
+//
+// Each key is the dated snapshot id where the catalog carries one
+// (claude-haiku-4-5-20251001, claude-sonnet-4-5-20250929, claude-opus-4-20250514,
+// claude-opus-4-1-20250805, claude-opus-4-5-20251101). The undated
+// claude-haiku-4-5 is a catalog name, not a first-party id, and an override
+// keyed on it is silently ignored. The valid keys are release-fragile by
+// construction: any model that rolls a named snapshot acquires a dated
+// first-party id, and yesterday's undated key stops matching while the tier
+// word still works. The pinned-key test below documents the working set.
+//
+// Each value carries the [1m] suffix, like the pinned model and the picker
+// rows. A request that resolves through a tier short name takes this value as
+// its model, so a value without the suffix would budget a 200k window and
+// compact a long session early, which is the outcome the suffix prevents.
+func claudeModelOverrides() map[string]string {
+	overrides := make(map[string]string)
+	for tier, ids := range claudeFamilyIDs {
+		for _, id := range ids {
+			overrides[id] = claudeModelName(claudeTierModel(tier))
+		}
+	}
+	return overrides
+}
+
+// claudeFamilyIDs maps each Claude Code model family to the catalog ids a
+// request can resolve to for that family. The ids are the provider_ids
+// first_party strings from the installed Claude Code binary catalog.
+//
+// The mythos family is absent: it has no tier alias (a request for
+// claude-mythos-5 or -5-1 passes through unmapped, reaching the Switch as the
+// id itself), so no entry belongs here.
+var claudeFamilyIDs = map[modelTier][]string{
+	modelTierOpus: {
+		"claude-opus-5",
+		"claude-opus-4-8",
+		"claude-opus-4-7",
+		"claude-opus-4-6",
+		"claude-opus-4-5-20251101",
+		"claude-opus-4-20250514",
+		"claude-opus-4-1-20250805",
+	},
+	modelTierSonnet: {
+		"claude-sonnet-5",
+		"claude-sonnet-4-6",
+		"claude-sonnet-4-5-20250929",
+		"claude-sonnet-4-20250514",
+		"claude-3-7-sonnet-20250219",
+		"claude-3-5-sonnet-20241022",
+	},
+	modelTierHaiku: {
+		"claude-haiku-4-5-20251001",
+		"claude-3-5-haiku-20241022",
+	},
+	modelTierFable: {
+		"claude-fable-5-1",
+		"claude-fable-5",
+	},
+}
+
+// claudeTierModel is the model a tier runs, as the tenant named it.
+func claudeTierModel(tier modelTier) string {
+	return claudeModelPrefix + "tier-" + string(tier)
+}
+
+// claudeModelPicker is the settings block that defines Claude Code's /model
+// rows.
+//
+// replaceBuiltInOptions hides the built-in lineup and the gateway-discovered
+// rows, so the rows defined here are the only rows and a discovered duplicate
+// cannot appear beside them.
+//
+// Each row's model is the id that routes, and its behavesAs is only how the
+// row is displayed. Routing is decided by the model id the row sends to the
+// switch, never by the tier hint.
+func claudeModelPicker(rows []ModelRow) map[string]any {
+	options := make([]any, 0, len(rows))
+	for _, row := range rows {
+		option := map[string]any{
+			"label": row.Label,
+			"model": claudeModelName(row.Model),
+		}
+		if row.BehavesAs != "" {
+			option["behavesAs"] = row.BehavesAs
+		}
+		options = append(options, option)
+	}
+	return map[string]any{
+		"replaceBuiltInOptions": true,
+		"options":               options,
+	}
+}
+
+// claudeBaseURL strips one trailing /v1 from the Switch host. Claude Code
+// appends /v1 to ANTHROPIC_BASE_URL itself, so a host configured with the
+// suffix already on it would send gateway discovery to /v1/v1/models, which
+// 404s and drops the picker back to the built-in list.
+func claudeBaseURL(host string) string {
+	if trimmed, ok := strings.CutSuffix(host, "/v1"); ok {
+		return trimmed
+	}
+	return host
+}
+
+func ensureClaudeInstalled() (string, error) {
+	if path, err := (&Claude{}).findPath(); err == nil {
+		return path, nil
+	}
+
+	if err := checkClaudeInstallerDependencies(); err != nil {
+		return "", err
+	}
+
+	ok, err := ConfirmPrompt("Claude Code is not installed. Install now?")
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", fmt.Errorf("claude installation cancelled")
+	}
+
+	bin, args, err := claudeInstallerCommand(runtime.GOOS)
+	if err != nil {
+		return "", err
+	}
+
+	fmt.Fprintf(os.Stderr, "\nInstalling Claude Code...\n")
+	cmd := exec.Command(bin, args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("failed to install claude: %w", err)
+	}
+
+	path, err := (&Claude{}).findPath()
+	if err != nil {
+		return "", fmt.Errorf("claude was installed but the binary was not found on PATH\n\nYou may need to restart your shell")
+	}
+
+	fmt.Fprintf(os.Stderr, "%sClaude Code installed successfully%s\n\n", ansiGreen, ansiReset)
+	return path, nil
+}
+
+func checkClaudeInstallerDependencies() error {
+	switch runtime.GOOS {
+	case "windows":
+		if _, err := exec.LookPath("powershell"); err != nil {
+			return fmt.Errorf("claude is not installed and required dependencies are missing\n\nInstall the following first:\n  PowerShell: https://learn.microsoft.com/powershell/\n\nThen re-run:\n  prizmal claude")
+		}
+	default:
+		var missing []string
+		if _, err := exec.LookPath("curl"); err != nil {
+			missing = append(missing, "curl: https://curl.se/")
+		}
+		if _, err := exec.LookPath("bash"); err != nil {
+			missing = append(missing, "bash: https://www.gnu.org/software/bash/")
+		}
+		if len(missing) > 0 {
+			return fmt.Errorf("claude is not installed and required dependencies are missing\n\nInstall the following first:\n  %s\n\nThen re-run:\n  prizmal claude", strings.Join(missing, "\n  "))
+		}
+	}
+	return nil
+}
+
+func claudeInstallerCommand(goos string) (string, []string, error) {
+	switch goos {
+	case "windows":
+		return "powershell", []string{
+			"-NoProfile",
+			"-ExecutionPolicy",
+			"Bypass",
+			"-Command",
+			"irm https://claude.ai/install.ps1 | iex",
+		}, nil
+	case "darwin", "linux":
+		return "bash", []string{
+			"-c",
+			"curl -fsSL https://claude.ai/install.sh | bash",
+		}, nil
+	default:
+		return "", nil, fmt.Errorf("unsupported platform for claude install: %s", goos)
+	}
+}
+
+// modelEnvVars is gone: no tier variable is set on a launch. The inline
+// settings JSON's modelOverrides maps the tier ids to the tenant's names, and
+// its top-level model pins the launch, so the environment carries no model at
+// all. That leaves CLAUDE_CODE_SUBAGENT_MODEL as the only model variable a
+// launch sets, which claudeChildEnv adds when a subagent model was picked.

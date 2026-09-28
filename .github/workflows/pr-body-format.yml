@@ -1,0 +1,66 @@
+# pr-body-format — flags a pull-request description that will render badly on
+# GitHub, before it reaches review. GitHub renders a PR body in comment mode,
+# where a single newline becomes a `<br>`, so a body hard-wrapped at 80 columns
+# arrives as a ragged column of broken lines that the author never sees (the
+# editor shows the source, not the render). The check flags:
+#
+#   1. hard-newline-in-paragraph  — a prose line continuing mid-sentence
+#   2. hard-newline-in-list-item  — a list item followed by column-zero prose
+#   3. collapsed-table            — a table's rows collapsed onto one line
+#   4. unparsable-mermaid         — a ```mermaid block the mermaid parser
+#     rejects (renders as an error box); runs the real mermaid.parse() on the
+#     11.x major GitHub renders with
+#
+# ADVISORY, on purpose: on the action's own calibration corpus (the 100 most
+# recent PR bodies of its source repo) the check flags 11 of the 94
+# human-authored bodies — all already merged — so making it required would
+# redden the trunk over descriptions nobody will rewrite (README section
+# "Advisory, on purpose"). Advisory here means the check goes RED without
+# blocking the merge; the author reads the finding and fixes it or dismisses it
+# with a stated reason. Do not add this job to any required-checks ruleset.
+#
+# `edited` is in the type list on purpose: the default list
+# ([opened, synchronize, reopened]) omits the type that fires when an author
+# fixes the body, and without it the original red result would stand forever.
+#
+# The concurrency group is keyed per PR and `cancel-in-progress` is false for
+# `edited`: a body/title edit seconds after creation fires a second run on the
+# same head, and an unconditional cancel-in-progress would kill the `opened`
+# run and leave a `cancelled` no-verdict row on the PR page permanently.
+#
+# Fork PRs: a pull_request event from a fork gets a read-only GITHUB_TOKEN.
+# This check only READS the PR body via the API (`pull-requests: read`
+# suffices, see the action's token input) and never comments, labels, or
+# writes, so it runs and reports normally on fork PRs. If a fork PR's body
+# cannot be read, the action exits 2 — the run goes red and reports the read
+# failure rather than a false "clean".
+
+name: pr-body-format
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, edited, reopened, synchronize]
+
+concurrency:
+  group: pr-body-format-${{ github.event.pull_request.number }}
+  cancel-in-progress: ${{ github.event.action != 'edited' }}
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  pr-body-format:
+    name: pr body format
+    runs-on: ubuntu-latest
+    steps:
+      # Pinned to v1.1.0 (16953182e3b991b7d081d844b395754fdfb91880), which is
+      # also the head of the action's main at install time. Full-SHA pinning:
+      # a mutable tag ref would let a pushed tag change what runs here.
+      - name: Check PR body formatting
+        uses: elecnix/gh-pr-body-action@16953182e3b991b7d081d844b395754fdfb91880 # v1.1.0
+        with:
+          repo: ${{ github.repository }}
+          pr: ${{ github.event.pull_request.number }}
+          token: ${{ secrets.GITHUB_TOKEN }}

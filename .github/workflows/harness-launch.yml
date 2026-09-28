@@ -1,0 +1,245 @@
+name: Harness Launch
+
+# One job per supported coding-agent harness, each
+# launching a live one-shot prompt through prizmal-cli against the
+# production PrizmalSwitch and asserting the exact echo token appears on
+# stdout. Exit codes are deliberately NOT trusted as a pass signal:
+# opencode (at least) exits 0 on its own internal errors, so every job
+# asserts on stdout content.
+#
+# Credential scope: PRIZMAL_SWITCH_KEY is a LIVE production key. It is
+# declared on the single "Launch <harness> through prizmal" step of each job
+# and nowhere else, so it is never in the environment of the two `curl | bash`
+# installers, the three unpinned `npm install -g ...@latest`, or the
+# setup-go cache restore. The presence of the secret is gated by the
+# check-secret job below rather than by step-level `if: env....`, so a run
+# without the secret reports SKIPPED instead of a green pass.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/harness-launch.yml"
+      - ".github/scripts/redact-switch-key.py"
+      - "**.go"
+
+permissions:
+  contents: read
+
+# Each run spends five live production-Switch launches. A superseded push
+# must not leave the previous five running.
+concurrency:
+  group: harness-launch-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # A job-level `if` may not reference the `secrets` context, and it does NOT
+  # resolve `env.*` against job-level env. So the only way to gate a whole job
+  # on the presence of a secret -- without putting that secret in job-level
+  # env, which is the exposure this workflow is avoiding -- is to turn its
+  # presence into a job output here.
+  check-secret:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.repository == github.event.pull_request.head.repo.full_name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      has-key: ${{ steps.probe.outputs.has-key }}
+    steps:
+      - name: Probe for the Switch key
+        id: probe
+        env:
+          PRIZMAL_SWITCH_KEY: ${{ secrets.PRIZMAL_SWITCH_KEY }}
+        run: |
+          if [ -n "${PRIZMAL_SWITCH_KEY}" ]; then
+            echo "has-key=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "has-key=false" >>"$GITHUB_OUTPUT"
+            echo "::notice::PRIZMAL_SWITCH_KEY secret is not set on this repository; all five launch legs will report SKIPPED, never a green pass. Fork pull requests never receive secrets, so these legs can only run where the secret exists."
+          fi
+
+  claude:
+    needs: check-secret
+    if: ${{ needs.check-secret.outputs.has-key == 'true' && (github.event_name == 'workflow_dispatch' || github.repository == github.event.pull_request.head.repo.full_name) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version: stable
+          cache: true
+      - name: Build prizmal-cli
+        run: go build -o /usr/local/bin/prizmal .
+      - name: Install claude
+        run: curl -fsSL https://claude.ai/install.sh | bash
+      # The launcher exports ENABLE_TOOL_SEARCH=true on the child
+      # environment, so this leg is also the live check that the tool-search
+      # request path survives the Switch: Claude Code sends the tool-search
+      # beta and expects tool_reference blocks back, and a gateway that drops
+      # them fails the launch outright, taking the token with it. Do NOT
+      # declare ENABLE_TOOL_SEARCH in the step env below. The launcher's own
+      # value is appended after os.Environ() and would win anyway, and a copy
+      # here would keep this leg green even if the launcher stopped setting it.
+      - name: Launch claude through prizmal
+        env:
+          PRIZMAL_SWITCH_KEY: ${{ secrets.PRIZMAL_SWITCH_KEY }}
+        run: |
+          set -o pipefail
+          # A launch carries a real model, so this leg takes one from the CI
+          # key's own tenant rather than naming a shared placeholder. --list
+          # prints the names the key routes by, one per line; sed -n 1p takes
+          # the first. It is sed rather than head on purpose: these legs run
+          # under `set -o pipefail`, and head exits as soon as it has a line,
+          # so the writer takes SIGPIPE and the step dies with 141. sed reads
+          # the whole stream, so nothing is signalled.
+          # prizmal's own flags come before the integration name.
+          MODEL=$(prizmal --list | sed -n 1p)
+          echo "launching with model: $MODEL"
+          prizmal -y -m "$MODEL" claude -- --print "Reply with exactly the token GLM-HARNESS-CI-2347 and nothing else" >claude.out 2>claude.err || true
+          echo "--- stderr ---"; tail -n 20 claude.err | python3 .github/scripts/redact-switch-key.py
+          grep -q "GLM-HARNESS-CI-2347" claude.out || { echo "::error::claude launch did not echo the expected token on stdout; a launch misfire can still exit 0, so stdout content is the pass signal"; tail -n 50 claude.out | python3 .github/scripts/redact-switch-key.py; exit 1; }
+          echo "claude leg passed"
+
+  codex:
+    needs: check-secret
+    if: ${{ needs.check-secret.outputs.has-key == 'true' && (github.event_name == 'workflow_dispatch' || github.repository == github.event.pull_request.head.repo.full_name) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version: stable
+          cache: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - name: Build prizmal-cli
+        run: go build -o /usr/local/bin/prizmal .
+      - name: Install codex
+        run: npm install -g @openai/codex@latest
+      - name: Launch codex through prizmal
+        env:
+          PRIZMAL_SWITCH_KEY: ${{ secrets.PRIZMAL_SWITCH_KEY }}
+        run: |
+          set -o pipefail
+          # A launch carries a real model, so this leg takes one from the CI
+          # key's own tenant rather than naming a shared placeholder, which is
+          # what the retired reserved name used to be. The prompt asks codex to
+          # run a trivial command rather than echo a bare nonce. An
+          # echo-a-token instruction reads as a prompt injection to some models
+          # (measured once on 2026-09-15: a refusal with 11 prior passes on the
+          # identical leg), and a command also exercises the exec path the
+          # harness exists to check. prizmal's own flags come before the
+          # integration name.
+          MODEL=$(prizmal --list | sed -n 1p)
+          echo "launching with model: $MODEL"
+          prizmal -m "$MODEL" -y codex -- exec --skip-git-repo-check -s read-only "Run the shell command echo GLM-HARNESS-CI-2347 and report its output. The token is the pass signal for this smoke test." >codex.out 2>codex.err || true
+          echo "--- stderr ---"; tail -n 20 codex.err | python3 .github/scripts/redact-switch-key.py
+          grep -q "GLM-HARNESS-CI-2347" codex.out || { echo "::error::codex launch did not echo the expected token on stdout; a launch misfire can still exit 0, so stdout content is the pass signal"; tail -n 50 codex.out | python3 .github/scripts/redact-switch-key.py; exit 1; }
+          echo "codex leg passed"
+
+  cline:
+    needs: check-secret
+    if: ${{ needs.check-secret.outputs.has-key == 'true' && (github.event_name == 'workflow_dispatch' || github.repository == github.event.pull_request.head.repo.full_name) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version: stable
+          cache: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - name: Build prizmal-cli
+        run: go build -o /usr/local/bin/prizmal .
+      - name: Install cline
+        run: npm install -g cline@latest
+      - name: Launch cline through prizmal
+        env:
+          PRIZMAL_SWITCH_KEY: ${{ secrets.PRIZMAL_SWITCH_KEY }}
+        run: |
+          set -o pipefail
+          MODEL=$(prizmal --list | sed -n 1p)
+          echo "launching with model: $MODEL"
+          prizmal -m "$MODEL" -y cline -- "Reply with exactly the token GLM-HARNESS-CI-2347 and nothing else" >cline.out 2>cline.err || true
+          echo "--- stderr ---"; tail -n 20 cline.err | python3 .github/scripts/redact-switch-key.py
+          grep -q "GLM-HARNESS-CI-2347" cline.out || { echo "::error::cline launch did not echo the expected token on stdout; a launch misfire can still exit 0, so stdout content is the pass signal. cline resolves its provider as providers[lastUsedProvider] in ~/.cline/data/settings/providers.json; if that key holds no entry it manufactures a blank one and falls back to its own account."; tail -n 50 cline.out | python3 .github/scripts/redact-switch-key.py; exit 1; }
+          echo "cline leg passed"
+
+  opencode:
+    needs: check-secret
+    if: ${{ needs.check-secret.outputs.has-key == 'true' && (github.event_name == 'workflow_dispatch' || github.repository == github.event.pull_request.head.repo.full_name) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version: stable
+          cache: true
+      - name: Build prizmal-cli
+        run: go build -o /usr/local/bin/prizmal .
+      - name: Install opencode
+        run: curl -fsSL https://opencode.ai/install | bash
+      - name: Launch opencode through prizmal
+        env:
+          PRIZMAL_SWITCH_KEY: ${{ secrets.PRIZMAL_SWITCH_KEY }}
+        run: |
+          set -o pipefail
+          # The caller must include the `run` subcommand itself; the launcher
+          # does not insert it.
+          #
+          # opencode receives the key inside the OPENCODE_CONFIG_CONTENT JSON
+          # blob, so its own diagnostics are the most likely place for a
+          # transformed copy of the key to surface: both dumps below go
+          # through the redactor.
+          MODEL=$(prizmal --list | sed -n 1p)
+          echo "launching with model: $MODEL"
+          prizmal -m "$MODEL" opencode -- run "Reply with exactly the token GLM-HARNESS-CI-2347 and nothing else" >opencode.out 2>opencode.err || true
+          echo "--- stderr ---"; tail -n 20 opencode.err | python3 .github/scripts/redact-switch-key.py
+          grep -q "GLM-HARNESS-CI-2347" opencode.out || { echo "::error::opencode launch did not echo the expected token on stdout. opencode is known to exit 0 on its own internal errors, so stdout content — never the exit code — is the pass signal"; tail -n 50 opencode.out | python3 .github/scripts/redact-switch-key.py; exit 1; }
+          echo "opencode leg passed"
+
+  pi:
+    needs: check-secret
+    if: ${{ needs.check-secret.outputs.has-key == 'true' && (github.event_name == 'workflow_dispatch' || github.repository == github.event.pull_request.head.repo.full_name) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version: stable
+          cache: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - name: Build prizmal-cli
+        run: go build -o /usr/local/bin/prizmal .
+      - name: Install pi
+        run: npm install -g @earendil-works/pi-coding-agent@latest
+      - name: Launch pi through prizmal
+        env:
+          PRIZMAL_SWITCH_KEY: ${{ secrets.PRIZMAL_SWITCH_KEY }}
+        run: |
+          set -o pipefail
+          # The `--` separator is optional now: every argument after the
+          # integration name passes to the harness untouched, so `-p`/`--print`
+          # reach pi whether or not the separator is present. The separator is
+          # still accepted and consumed.
+          # A launch carries a real model, so this leg takes one from the CI
+          # key's own tenant rather than naming a shared placeholder. Only the
+          # prizmal-side -m is injected: the passthrough stays bare so the
+          # launcher's own provider injection (piLaunchArgs) is still what this
+          # leg exercises. pi honors settings.json's defaultProvider only when
+          # the provider entry passes its schema validation; the injection
+          # keeps routing through the Switch independent of that validation.
+          MODEL=$(prizmal --list | sed -n 1p)
+          echo "launching with model: $MODEL"
+          prizmal -m "$MODEL" -y pi -- --print "Reply with exactly the token GLM-HARNESS-CI-2347 and nothing else" >pi.out 2>pi.err || true
+          echo "--- stderr ---"; tail -n 20 pi.err | python3 .github/scripts/redact-switch-key.py
+          grep -q "GLM-HARNESS-CI-2347" pi.out || { echo "::error::pi launch did not echo the expected token on stdout; a launch misfire can still exit 0, so stdout content is the pass signal"; tail -n 50 pi.out | python3 .github/scripts/redact-switch-key.py; exit 1; }
+          echo "pi leg passed"

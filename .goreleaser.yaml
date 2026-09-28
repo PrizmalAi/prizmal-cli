@@ -1,0 +1,74 @@
+version: 2
+
+project_name: prizmal-cli
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: prizmal
+    main: .
+    binary: prizmal
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+    env:
+      - CGO_ENABLED=0
+    # Every row but windows/arm64 runs the test suite in ci.yml.
+    # windows/arm64 is carried by cross-compilation alone.
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  # The id must match homebrew_casks.ids, which filter by archive id.
+  # Unset, the archive is named "default" and the cask step fails after the build.
+  - id: prizmal
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+# release.yml mints HOMEBREW_TAP_TOKEN from a GitHub App that can write to the tap only.
+# Without the App, the token is empty and skip_upload skips the push instead of failing the release.
+homebrew_casks:
+  - name: prizmal
+    ids: [prizmal]
+    binaries: [prizmal]
+    repository:
+      owner: PrizmalAi
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: https://github.com/PrizmalAi/prizmal-cli
+    description: Use Prizmal Switch with any coding-agent harness
+    license: MIT
+    skip_upload: '{{ if not (index .Env "HOMEBREW_TAP_TOKEN") }}true{{ end }}'
+    # macOS quarantines downloaded binaries; strip the flag so first run does not hit Gatekeeper.
+    hooks:
+      post:
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/prizmal"]
+          end

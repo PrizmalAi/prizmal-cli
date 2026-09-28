@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: stable
+          cache: true
+      - name: Build
+        run: go build ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test -race ./...
+      # Windows harness-launch visibility step: the log must show which
+      # harness e2e tests actually executed on Windows. Do NOT add -short to
+      # the test commands: the subprocess harness tests (TestMockHarnessLaunch,
+      # TestClaudeCodeE2EWithStubRequest) skip under -short, and the in-test
+      # zero-ran guard in TestMockHarnessLaunch then goes quiet — the exact
+      # silently-skipped-Windows-leg failure this workflow exists to catch.
+      - name: Windows harness e2e (observed)
+        if: matrix.os == 'windows-latest'
+        run: go test -race -count=1 -v -run 'TestMockHarnessLaunch|TestMockHarnessLaunchFailure|TestClaudeCodeE2EWithStubRequest' .
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: stable
+          cache: true
+      - uses: golangci/golangci-lint-action@4afd733a84b1f43292c63897423277bb7f4313a9 # v8
+        with:
+          args: --timeout=5m
