@@ -131,10 +131,10 @@ func (c *Claude) envVars() []string {
 // operator's shell for Anthropic itself must not ride along and re-route a
 // launch the operator did not aim at Anthropic.
 //
-// CLAUDE_CODE_SUBAGENT_MODEL is in this list and is also the one variable the
-// CLI sets for real, from claudeChildEnv below. It is removed here so that a
-// stale shell export cannot give subagents a model the operator never picked;
-// the only value that reaches the child is the one a launch asked for.
+// ANTHROPIC_DEFAULT_OPUS_MODEL and CLAUDE_CODE_SUBAGENT_MODEL are in this list
+// and are also the two variables the CLI sets for real, from claudeChildEnv
+// below. A stale shell export must not give the child a model the operator
+// never picked. The child sees only the value the launch asked for.
 var claudeInheritedModelVars = []string{
 	"ANTHROPIC_DEFAULT_OPUS_MODEL",
 	"ANTHROPIC_DEFAULT_SONNET_MODEL",
@@ -179,7 +179,18 @@ func claudeChildEnv(model string, rows []ModelRow) []string {
 	}
 	env = append(env, fixed...)
 
-	// The one model variable a launch sets, and only when a dedicated
+	// Claude Code builds the /model picker's Default row from the Opus tier,
+	// and ANTHROPIC_DEFAULT_OPUS_MODEL is the first place it reads that tier
+	// from. The settings JSON has no field for the row's text. Unset, the row
+	// shows the Opus model from Claude Code's own catalog, whatever the launch
+	// routes to. Setting it to the pinned model makes the row show that model.
+	// It also makes the "opus" alias resolve to the pinned model, the one
+	// target this launch routes to.
+	if model != "" {
+		env = append(env, "ANTHROPIC_DEFAULT_OPUS_MODEL="+claudeModelName(model))
+	}
+
+	// The subagent model variable, set only when a dedicated
 	// subagent model was picked. Subagents run the model it names; omitting it
 	// leaves them on the session model, which is Claude Code's "inherit"
 	// default. There is no settings-JSON equivalent, so this variable is the
@@ -517,8 +528,8 @@ func claudeInstallerCommand(goos string) (string, []string, error) {
 	}
 }
 
-// modelEnvVars is gone: no tier variable is set on a launch. The inline
-// settings JSON's modelOverrides maps the tier ids to the tenant's names, and
-// its top-level model pins the launch, so the environment carries no model at
-// all. That leaves CLAUDE_CODE_SUBAGENT_MODEL as the only model variable a
-// launch sets, which claudeChildEnv adds when a subagent model was picked.
+// modelEnvVars is gone. The inline settings JSON's modelOverrides maps the
+// tier ids to the tenant's names, and its top-level model pins the launch.
+// claudeChildEnv sets two model variables: ANTHROPIC_DEFAULT_OPUS_MODEL, so
+// the /model picker's Default row shows the pinned model, and
+// CLAUDE_CODE_SUBAGENT_MODEL, when a subagent model was picked.

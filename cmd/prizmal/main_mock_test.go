@@ -460,8 +460,8 @@ func TestClaudeCodeE2EWithStubRequest(t *testing.T) {
 	}
 
 	// Observed effect 2: the model is named in an inline --settings JSON
-	// argument, and no model environment variable is set. The env dump below
-	// is the check for the second half: ANTHROPIC_DEFAULT_*_MODEL must be
+	// argument. The env dump below checks the environment: the Opus tier
+	// variable carries the launch model, and the other tier variables must be
 	// absent, not merely empty.
 	argsLine := string(argsData)
 	if !strings.Contains(argsLine, "--settings") {
@@ -472,7 +472,8 @@ func TestClaudeCodeE2EWithStubRequest(t *testing.T) {
 	}
 
 	// Observed effect 3: the env prizmal emitted carries the stub server's URL
-	// and key from the config file, and no model variable at all. The key rides
+	// and key from the config file, and the launch model in the Opus tier
+	// variable only. The key rides
 	// on the gateway token alone; the mock's forbiddenEnv check above already
 	// failed the launch if ANTHROPIC_API_KEY carried a value.
 	envFile := filepath.Join(expDir, "claude.called.env")
@@ -493,15 +494,17 @@ func TestClaudeCodeE2EWithStubRequest(t *testing.T) {
 			t.Errorf("claude env %s = %q, want %q", check.name, got, check.want)
 		}
 	}
+	if got := envDumpValue(envDump, "ANTHROPIC_DEFAULT_OPUS_MODEL"); got != mockLaunchModel+"[1m]" {
+		t.Errorf("claude env ANTHROPIC_DEFAULT_OPUS_MODEL = %q, want %q; the /model Default row reads it\nenv dump:\n%s", got, mockLaunchModel+"[1m]", envDump)
+	}
 	for _, name := range []string{
-		"ANTHROPIC_DEFAULT_OPUS_MODEL",
 		"ANTHROPIC_DEFAULT_SONNET_MODEL",
 		"ANTHROPIC_DEFAULT_HAIKU_MODEL",
 		"ANTHROPIC_DEFAULT_FABLE_MODEL",
 		"CLAUDE_CODE_SUBAGENT_MODEL",
 	} {
 		if strings.Contains(envDump, name+"=") {
-			t.Errorf("claude env carries %s; the settings JSON defines the model and the launch picked no subagent model\nenv dump:\n%s", name, envDump)
+			t.Errorf("claude env carries %s; only the Opus tier follows the launch model, and the launch picked no subagent model\nenv dump:\n%s", name, envDump)
 		}
 	}
 

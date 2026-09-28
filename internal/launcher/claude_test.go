@@ -132,9 +132,8 @@ func TestClaudeEnvVarsDoNotEnableGatewayModelDiscovery(t *testing.T) {
 	}
 }
 
-// The one model variable a launch may set is CLAUDE_CODE_SUBAGENT_MODEL, and
-// only when a dedicated subagent model was picked. No tier variable is set at
-// all: the settings JSON's modelOverrides already maps the tier ids.
+// envVars sets no model variable. claudeChildEnv adds the two a launch sets,
+// once it knows the pinned model and the subagent model.
 func TestClaudeEnvVarsSetNoModelVariables(t *testing.T) {
 	resetAPIKey(t)
 
@@ -217,6 +216,33 @@ func TestClaudeChildEnvSetsSubagentModelOnlyWhenPicked(t *testing.T) {
 	env := claudeChildEnv("", nil)
 	if got := envValue(env, "CLAUDE_CODE_SUBAGENT_MODEL="); got != "cheap-model[1m]" {
 		t.Fatalf("CLAUDE_CODE_SUBAGENT_MODEL = %q, want cheap-model[1m]", got)
+	}
+}
+
+// ANTHROPIC_DEFAULT_OPUS_MODEL carries the launch's pinned model. Claude Code
+// reads it for the /model picker's Default row, which otherwise names the
+// Opus model from its own catalog whatever the launch routes to. An inherited
+// value must not survive: the launch value is the only copy the child sees.
+func TestClaudeChildEnvSetsOpusModelToPinnedModel(t *testing.T) {
+	resetAPIKey(t)
+	t.Setenv("ANTHROPIC_DEFAULT_OPUS_MODEL", "inherited-should-not-survive")
+
+	env := claudeChildEnv("smart", nil)
+	if got := envValue(env, "ANTHROPIC_DEFAULT_OPUS_MODEL="); got != "smart[1m]" {
+		t.Fatalf("ANTHROPIC_DEFAULT_OPUS_MODEL = %q, want smart[1m]", got)
+	}
+	count := 0
+	for _, name := range envNames(env) {
+		if name == "ANTHROPIC_DEFAULT_OPUS_MODEL" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("ANTHROPIC_DEFAULT_OPUS_MODEL appears %d times, want once: %v", count, envNames(env))
+	}
+
+	if env := claudeChildEnv("", nil); strings.Contains(strings.Join(env, "\n"), "ANTHROPIC_DEFAULT_OPUS_MODEL=") {
+		t.Fatalf("ANTHROPIC_DEFAULT_OPUS_MODEL is set with no pinned model:\n%v", env)
 	}
 }
 
