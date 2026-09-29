@@ -1,0 +1,3 @@
+using api key from: config file (~/.prizmal/config.json)
+PRIZMAL-STUB-REPLY
+[prizmal exited 0]

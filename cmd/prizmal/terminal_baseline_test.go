@@ -62,6 +62,11 @@ const (
 // /model menu. It lists the reserved placeholder too, which both must hide.
 var baselineCatalog = []string{"smart", "flash", "default"}
 
+// tierCatalog is a tenant whose model names carry Claude Code tier words, the
+// case where a launch maps each row onto a model Claude Code knows. One name
+// hides its tier inside a longer id, as tenant-named models do.
+var tierCatalog = []string{"team-opus-blend", "claude-tier-sonnet", "claude-tier-haiku", "claude-tier-fable", "smart", "default"}
+
 // claudeVersionPattern matches the version in Claude Code's banner. A baseline
 // keeps the version it was recorded with, and the comparison reads the
 // banner as that version, so moving to a new release changes no baseline
@@ -75,6 +80,8 @@ type baselineStep struct {
 	literal string
 	key     string
 	waitFor string
+	// andFor is a second string the screen must show, when set.
+	andFor string
 }
 
 type baselineCase struct {
@@ -82,6 +89,8 @@ type baselineCase struct {
 	cols, rows int
 	// args are prizmal's own arguments.
 	args []string
+	// catalog is the tenant the stub switch serves. Empty means baselineCatalog.
+	catalog []string
 	// claude marks a case that runs the real Claude Code. The other cases put
 	// a stand-in on PATH, because prizmal asks to install Claude Code before
 	// it opens its picker when none is found.
@@ -89,12 +98,31 @@ type baselineCase struct {
 	steps  []baselineStep
 }
 
+// claudeLogoOpen is the logo's top row with its eyes open.
+const claudeLogoOpen = "▐▛███▛█"
+
+// claudeLogoFrame matches the logo's top row on any animation frame: seven
+// block glyphs before the banner text. The eyes blink and glance aside, and a
+// capture can land on any frame.
+var claudeLogoFrame = regexp.MustCompile(`(?m)^ [▐▌▛▜▟▙█▀▄▝▘▗▖]{7}(   Claude Code v)`)
+
+// claudeLogo is a row of the logo in Claude Code's startup banner. Claude Code
+// can draw the prompt before the logo, and a busy machine can hold the screen
+// still for a second in between, so a startup step waits for both.
+const claudeLogo = "▝▜██████▀"
+
 var (
 	stepPrizmalPicker = baselineStep{waitFor: "Select a model"}
-	stepPickFirst     = baselineStep{key: "Enter", waitFor: "shift+tab to cycle"}
-	stepClaudePrompt  = baselineStep{waitFor: "shift+tab to cycle"}
+	stepPickFirst     = baselineStep{key: "Enter", waitFor: "shift+tab to cycle", andFor: claudeLogo}
+	stepClaudePrompt  = baselineStep{waitFor: "shift+tab to cycle", andFor: claudeLogo}
 	stepOpenModel     = baselineStep{literal: "/model", waitFor: "/model"}
 	stepModelPicker   = baselineStep{key: "Enter", waitFor: "Esc to cancel"}
+	stepTypeContext   = baselineStep{literal: "/context", waitFor: "/context"}
+	stepShowContext   = baselineStep{key: "Enter", waitFor: "Free space"}
+	stepPrizmalExit   = baselineStep{waitFor: "[prizmal exited"}
+	// stepClaudeReady waits for the prompt's footer in any permission mode. A
+	// haiku session starts in manual mode, whose footer has no shift+tab hint.
+	stepClaudeReady = baselineStep{waitFor: "for agents", andFor: claudeLogo}
 )
 
 var claudeBaselineCases = []baselineCase{
@@ -141,6 +169,45 @@ var claudeBaselineCases = []baselineCase{
 		name: "claude-model-picker-model-flash-100x30", cols: 100, rows: 30,
 		args: []string{"--model", "flash", "claude"}, claude: true,
 		steps: []baselineStep{stepClaudePrompt, stepOpenModel, stepModelPicker},
+	},
+	// A --model after the integration name is prizmal's own flag. Forwarded to
+	// Claude Code, it outranked the settings model and dropped its [1m], so
+	// the session fell back to the 200k window of a model Claude Code does not
+	// know. /context shows the window and the model the session runs as, the
+	// /model picker shows one row per model with its tier, and a print run
+	// shows any unknown-model warning.
+	{
+		name: "claude-context-model-opus-100x40", cols: 100, rows: 40,
+		args: []string{"claude", "--model", "team-opus-blend"}, catalog: tierCatalog, claude: true,
+		steps: []baselineStep{stepClaudeReady, stepTypeContext, stepShowContext},
+	},
+	{
+		name: "claude-model-picker-model-opus-100x40", cols: 100, rows: 40,
+		args: []string{"claude", "--model", "team-opus-blend"}, catalog: tierCatalog, claude: true,
+		steps: []baselineStep{stepClaudeReady, stepOpenModel, stepModelPicker},
+	},
+	{
+		name: "claude-print-model-opus-100x40", cols: 100, rows: 40,
+		args: []string{"claude", "--model", "team-opus-blend", "-p", "hi"}, catalog: tierCatalog, claude: true,
+		steps: []baselineStep{stepPrizmalExit},
+	},
+	// A haiku alias runs as Haiku 4.5 with its 200k window. The alias is also a
+	// modelOverrides value, and with sorted keys it ran as the retired Claude
+	// 3.5 Haiku. Its /model row needs no [1m], which drops the row.
+	{
+		name: "claude-context-model-haiku-100x40", cols: 100, rows: 40,
+		args: []string{"claude", "--model", "claude-tier-haiku"}, catalog: tierCatalog, claude: true,
+		steps: []baselineStep{stepClaudeReady, stepTypeContext, stepShowContext},
+	},
+	{
+		name: "claude-model-picker-model-haiku-100x40", cols: 100, rows: 40,
+		args: []string{"claude", "--model", "claude-tier-haiku"}, catalog: tierCatalog, claude: true,
+		steps: []baselineStep{stepClaudeReady, stepOpenModel, stepModelPicker},
+	},
+	{
+		name: "claude-print-model-haiku-100x40", cols: 100, rows: 40,
+		args: []string{"claude", "--model", "claude-tier-haiku", "-p", "hi"}, catalog: tierCatalog, claude: true,
+		steps: []baselineStep{stepPrizmalExit},
 	},
 }
 
@@ -251,7 +318,11 @@ func pinnedClaudeDir(t *testing.T) (string, string) {
 func renderBaseline(t *testing.T, tmuxPath, prizmalBin, claudeDir string, tc baselineCase) (string, string) {
 	t.Helper()
 
-	srv := stubserver.NewWithModels(baselineCatalog...)
+	catalog := tc.catalog
+	if len(catalog) == 0 {
+		catalog = baselineCatalog
+	}
+	srv := stubserver.NewWithModels(catalog...)
 	t.Cleanup(srv.Close)
 
 	// Claude Code keeps writing into HOME while tmux closes it, so a
@@ -353,19 +424,33 @@ func renderBaseline(t *testing.T, tmuxPath, prizmalBin, claudeDir string, tc bas
 		}
 		// A screen that never shows the marker is itself a change, so the
 		// remaining keys are skipped and the comparison below prints the diff.
-		if !waitForSettledScreen(func() string { return capture(false) }, step.waitFor, timeout) {
-			t.Errorf("screen did not show %q within %s", step.waitFor, timeout)
+		want := []string{step.waitFor}
+		if step.andFor != "" {
+			want = append(want, step.andFor)
+		}
+		if !waitForSettledScreen(func() string { return capture(false) }, want, timeout) {
+			t.Errorf("screen did not show all of %q within %s", want, timeout)
 			break
 		}
 	}
 	return normalizeScreen(capture(false)), capture(true)
 }
 
+// containsAll reports whether screen shows every string in want.
+func containsAll(screen string, want []string) bool {
+	for _, w := range want {
+		if !strings.Contains(screen, w) {
+			return false
+		}
+	}
+	return true
+}
+
 // waitForSettledScreen polls until the screen shows want and then stays the
 // same for a second. Claude Code draws its startup in several passes, and a
 // capture between two of them would make the baseline depend on timing. It
 // reports false when the screen did not settle on want before the timeout.
-func waitForSettledScreen(capture func() string, want string, timeout time.Duration) bool {
+func waitForSettledScreen(capture func() string, want []string, timeout time.Duration) bool {
 	const (
 		interval = 200 * time.Millisecond
 		settle   = 5
@@ -376,7 +461,7 @@ func waitForSettledScreen(capture func() string, want string, timeout time.Durat
 	for time.Now().Before(deadline) {
 		screen := capture()
 		switch {
-		case !strings.Contains(screen, want):
+		case !containsAll(screen, want):
 			same = 0
 		case screen == last:
 			same++
@@ -427,10 +512,12 @@ func writeJSONFile(t *testing.T, path string, v any) {
 	}
 }
 
-// normalizeScreen drops the padding tmux adds: trailing spaces on each row and
-// the blank rows below the last line of text. The rows above keep their
-// position, so a layout change still shows in the diff.
+// normalizeScreen reads every frame of the logo's top row as the open one, and
+// drops the padding tmux adds: trailing spaces on each row and the blank rows
+// below the last line of text. The rows above keep their position, so a layout
+// change still shows in the diff.
 func normalizeScreen(screen string) string {
+	screen = claudeLogoFrame.ReplaceAllString(screen, " "+claudeLogoOpen+"$1")
 	lines := strings.Split(screen, "\n")
 	for i, line := range lines {
 		lines[i] = strings.TrimRight(line, " ")
@@ -472,4 +559,22 @@ func shellJoin(args []string) string {
 		quoted[i] = shellQuote(a)
 	}
 	return strings.Join(quoted, " ")
+}
+
+// Claude Code's logo animates: the top row of the logo draws the eyes open,
+// blinking, or glancing aside. A capture taken on any frame must still match
+// the baseline, so the comparison reads every frame of that row as the open
+// one. Text beside the logo still counts.
+func TestNormalizeScreenReadsEveryLogoFrameAsOpen(t *testing.T) {
+	open := " ▐▛███▛█   Claude Code v2.1.283\n▝▜██████▀  smart\n"
+	for _, frame := range []string{"▐▛███▛█", "▐▟███▟█", "▐█▟███▟", "▐▛███▛▌"} {
+		screen := " " + frame + "   Claude Code v2.1.283\n▝▜██████▀  smart\n"
+		if got := normalizeScreen(screen); got != open {
+			t.Errorf("normalizeScreen(%q) = %q, want %q", frame, got, open)
+		}
+	}
+	changed := " ▐▟███▟█   Claude Code v2.1.283 beta\n"
+	if got := normalizeScreen(changed); got != " ▐▛███▛█   Claude Code v2.1.283 beta\n" {
+		t.Errorf("normalizeScreen(%q) = %q, want the logo read as open and the text kept", changed, got)
+	}
 }

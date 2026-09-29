@@ -1,12 +1,14 @@
 package launch
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
@@ -228,22 +230,25 @@ func claudeChildEnv(model string, rows []ModelRow) []string {
 const oneMillionSuffix = "[1m]"
 
 // claudeModelName returns the model name to hand Claude Code: the switch's own
-// name with exactly one [1m] suffix, whatever the switch sent. Every trailing
-// suffix is stripped before the one is added, so the result ends with exactly
-// one whether the id arrived bare, suffixed, or doubly suffixed.
+// name with exactly one [1m] suffix, or none for a haiku name, whatever the
+// switch sent. Every trailing suffix is stripped first, so the result does not
+// depend on whether the id arrived bare, suffixed, or doubly suffixed.
 //
 // The suffix is a client-side budgeting instruction. Claude Code strips it
 // before building the request, so the wire carries the bare name and the
 // switch routes it as usual. Without it Claude Code assumes a 200k window and
 // compacts a long session early.
+//
+// A name whose tier has no 1M window, which is haiku, gets no suffix. Claude
+// Code drops a /model row that asks for 1M on such a model, and budgets the
+// tier's own window without the suffix.
 func claudeModelName(model string) string {
 	if model == "" {
 		return ""
 	}
 	// Strip every trailing suffix, not just one: the switch's own ids are
 	// already bare, but a value that reached here through a config file or a
-	// shell export may carry one, and the result must still end with exactly
-	// one suffix rather than accumulating them.
+	// shell export may carry one, and suffixes must not accumulate.
 	bare := model
 	for {
 		stripped := strings.TrimSuffix(bare, oneMillionSuffix)
@@ -251,6 +256,9 @@ func claudeModelName(model string) string {
 			break
 		}
 		bare = stripped
+	}
+	if tier, ok := inferTier(bare); ok && !tierProfiles[tier].oneMillion {
+		return bare
 	}
 	return bare + oneMillionSuffix
 }
@@ -266,7 +274,7 @@ func claudeSettingsJSON(model string, rows []ModelRow) (string, error) {
 	}
 
 	settings := map[string]any{"model": claudeModelName(model)}
-	if overrides := claudeModelOverrides(); len(overrides) > 0 {
+	if overrides := claudeOrderedModelOverrides(); len(overrides) > 0 {
 		settings["modelOverrides"] = overrides
 	}
 	if len(rows) > 0 {
@@ -314,10 +322,15 @@ func claudeSettingsJSON(model string, rows []ModelRow) (string, error) {
 // first-party id, and yesterday's undated key stops matching while the tier
 // word still works. The pinned-key test below documents the working set.
 //
-// Each value carries the [1m] suffix, like the pinned model and the picker
-// rows. A request that resolves through a tier short name takes this value as
-// its model, so a value without the suffix would budget a 200k window and
-// compact a long session early, which is the outcome the suffix prevents.
+// Each value is spelled by claudeModelName, like the pinned model and the
+// picker rows. A request that resolves through a tier short name takes this
+// value as its model, so a value without the [1m] suffix would budget a 200k
+// window and compact a long session early. The haiku value is bare because
+// Haiku 4.5 has no 1M window.
+//
+// The newest ids (claude-opus-5-5, claude-sonnet-5-5) are ones only recent
+// Claude Code releases know. An older release drops those keys, and it never
+// resolves a tier to them either.
 func claudeModelOverrides() map[string]string {
 	overrides := make(map[string]string)
 	for tier, ids := range claudeFamilyIDs {
@@ -328,8 +341,63 @@ func claudeModelOverrides() map[string]string {
 	return overrides
 }
 
+// modelOverride is one modelOverrides entry.
+type modelOverride struct{ key, value string }
+
+// orderedModelOverrides is the modelOverrides object with its key order kept.
+//
+// The order is part of the contract. Claude Code identifies a model whose
+// name equals an override value as the first key, in the object's order, that
+// maps to that value and that the running build knows. Every key of one tier
+// maps to the same alias, so the first key decides which model's profile a
+// session on the alias runs. encoding/json sorts map keys, which puts the
+// oldest id first: the haiku alias would run as the retired Claude 3.5 Haiku.
+type orderedModelOverrides []modelOverride
+
+func (o orderedModelOverrides) MarshalJSON() ([]byte, error) {
+	var b bytes.Buffer
+	b.WriteByte('{')
+	for i, entry := range o {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		key, err := json.Marshal(entry.key)
+		if err != nil {
+			return nil, err
+		}
+		value, err := json.Marshal(entry.value)
+		if err != nil {
+			return nil, err
+		}
+		b.Write(key)
+		b.WriteByte(':')
+		b.Write(value)
+	}
+	b.WriteByte('}')
+	return b.Bytes(), nil
+}
+
+// claudeOrderedModelOverrides is claudeModelOverrides in the order Claude
+// Code reads it: tier by tier, and within a tier the id its rows behave as
+// first, then the rest of the lineage. A build that does not know the first
+// id skips it and takes the next.
+func claudeOrderedModelOverrides() orderedModelOverrides {
+	overrides := claudeModelOverrides()
+	ordered := make(orderedModelOverrides, 0, len(overrides))
+	for _, tier := range tierWords {
+		profile := tierProfiles[tier].behavesAs
+		ids := append([]string{profile}, slices.DeleteFunc(slices.Clone(claudeFamilyIDs[tier]), func(id string) bool {
+			return id == profile
+		})...)
+		for _, id := range ids {
+			ordered = append(ordered, modelOverride{key: id, value: overrides[id]})
+		}
+	}
+	return ordered
+}
+
 // claudeFamilyIDs maps each Claude Code model family to the catalog ids a
-// request can resolve to for that family. The ids are the provider_ids
+// request can resolve to for that family, newest first. The ids are the provider_ids
 // first_party strings from the installed Claude Code binary catalog.
 //
 // The mythos family is absent: it has no tier alias (a request for
@@ -337,6 +405,7 @@ func claudeModelOverrides() map[string]string {
 // id itself), so no entry belongs here.
 var claudeFamilyIDs = map[modelTier][]string{
 	modelTierOpus: {
+		"claude-opus-5-5",
 		"claude-opus-5",
 		"claude-opus-4-8",
 		"claude-opus-4-7",
@@ -346,6 +415,7 @@ var claudeFamilyIDs = map[modelTier][]string{
 		"claude-opus-4-1-20250805",
 	},
 	modelTierSonnet: {
+		"claude-sonnet-5-5",
 		"claude-sonnet-5",
 		"claude-sonnet-4-6",
 		"claude-sonnet-4-5-20250929",
@@ -375,9 +445,10 @@ func claudeTierModel(tier modelTier) string {
 // rows, so the rows defined here are the only rows and a discovered duplicate
 // cannot appear beside them.
 //
-// Each row's model is the id that routes, and its behavesAs is only how the
-// row is displayed. Routing is decided by the model id the row sends to the
-// switch, never by the tier hint.
+// Each row's model is the id that routes. Its behavesAs picks the client-side
+// profile Claude Code runs the model with, and its description is the row's
+// text. Routing is decided by the model id the row sends to the switch, never
+// by either field.
 func claudeModelPicker(rows []ModelRow) map[string]any {
 	options := make([]any, 0, len(rows))
 	for _, row := range rows {
@@ -387,6 +458,9 @@ func claudeModelPicker(rows []ModelRow) map[string]any {
 		}
 		if row.BehavesAs != "" {
 			option["behavesAs"] = row.BehavesAs
+		}
+		if row.Description != "" {
+			option["description"] = row.Description
 		}
 		options = append(options, option)
 	}

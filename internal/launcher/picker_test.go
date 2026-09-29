@@ -15,8 +15,8 @@ import (
 )
 
 // A model whose name carries a tier word behaves as that tier, matched anywhere
-// in the name and case-insensitively. The tier is how the row is displayed in
-// the harness's picker; it never decides what serves the request.
+// in the name and case-insensitively. The tier sets how Claude Code runs and
+// shows the model. It never decides what serves the request.
 func TestInferTier(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -77,11 +77,65 @@ func TestModelRowsBuildsRows(t *testing.T) {
 	if len(rows) != 3 {
 		t.Fatalf("built %d rows, want 3: %+v", len(rows), rows)
 	}
-	if rows[0].Model != "claude-tier-opus" || rows[0].Label != "tier-opus" || rows[0].BehavesAs != "opus" {
+	if rows[0].Model != "claude-tier-opus" || rows[0].Label != "tier-opus" || rows[0].BehavesAs != "claude-opus-5" {
 		t.Errorf("row 0 = %+v, want the opus tier with a bare label", rows[0])
 	}
-	if rows[2].Model != "gpt-oss:20b" || rows[2].BehavesAs != "" {
-		t.Errorf("row 2 = %+v, want no behavesAs for a name with no tier word", rows[2])
+	if rows[2].Model != "gpt-oss:20b" || rows[2].BehavesAs != "" || rows[2].Description != "" {
+		t.Errorf("row 2 = %+v, want no behavesAs and no description for a name with no tier word", rows[2])
+	}
+}
+
+// A row's behavesAs is the id of a model Claude Code knows. Claude Code reads
+// the field through its model catalog, so a tier word such as "opus" resolves
+// to nothing: the launch warns that the model is unknown and runs on the
+// unknown-model prompt profile. Each id is one every supported Claude Code
+// release carries, and one the tier's modelOverrides lineage already names.
+func TestModelRowsMapEachTierToAFirstPartyID(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		tier modelTier
+		want string
+	}{
+		{name: "claude-tier-opus", tier: modelTierOpus, want: "claude-opus-5"},
+		{name: "claude-tier-sonnet", tier: modelTierSonnet, want: "claude-sonnet-5"},
+		{name: "claude-tier-haiku", tier: modelTierHaiku, want: "claude-haiku-4-5-20251001"},
+		{name: "claude-tier-fable", tier: modelTierFable, want: "claude-fable-5-1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rows := ModelRows([]LaunchModel{{Name: tc.name}})
+			if len(rows) != 1 {
+				t.Fatalf("built %d rows, want 1", len(rows))
+			}
+			if rows[0].BehavesAs != tc.want {
+				t.Fatalf("behavesAs = %q, want %q", rows[0].BehavesAs, tc.want)
+			}
+			if !slices.Contains(claudeFamilyIDs[tc.tier], rows[0].BehavesAs) {
+				t.Fatalf("behavesAs %q is not in the %s lineage %v", rows[0].BehavesAs, tc.tier, claudeFamilyIDs[tc.tier])
+			}
+		})
+	}
+}
+
+// Claude Code shows a row's description as its text and falls back to
+// "Custom model (<model>)" without one. behavesAs never changes that text, so
+// a tier row names its tier through the description.
+func TestModelRowsDescribeTheirTier(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		want string
+	}{
+		{name: "claude-tier-opus", want: "Opus tier"},
+		{name: "claude-tier-sonnet", want: "Sonnet tier"},
+		{name: "claude-tier-haiku", want: "Haiku tier"},
+		{name: "claude-tier-fable", want: "Fable tier"},
+		{name: "gpt-oss:20b", want: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rows := ModelRows([]LaunchModel{{Name: tc.name}})
+			if len(rows) != 1 || rows[0].Description != tc.want {
+				t.Fatalf("rows = %+v, want one row described %q", rows, tc.want)
+			}
+		})
 	}
 }
 
