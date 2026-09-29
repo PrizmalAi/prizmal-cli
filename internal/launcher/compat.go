@@ -222,6 +222,18 @@ type Runner interface {
 	String() string
 }
 
+// OwningModelFlag is a runner whose launch model is set only from prizmal's
+// own resolution, never from a --model the operator typed after the integration
+// name. The CLI consumes such an argument before dispatch and hands the runner
+// the resolved model instead.
+//
+// A runner opts in when it has no other meaning for --model. pi uses a
+// provider-qualified --model to choose a provider, and codex already refuses
+// the flag as one it manages, so neither is an owner.
+type OwningModelFlag interface {
+	OwnsModelFlag() bool
+}
+
 // Editor can edit config files for integrations that support model configuration.
 type Editor interface {
 	Paths() []string

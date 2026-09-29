@@ -26,13 +26,34 @@ func (c *Claude) String() string { return "Claude Code" }
 // widening their list would silently change what a bare launch selects.
 func (c *Claude) ShowsModelList() bool { return true }
 
-func (c *Claude) args(settingsJSON string, extra []string) []string {
+// OwnsModelFlag reports that prizmal owns Claude Code's model decision. A
+// --model the operator types after the integration name is consumed by the CLI
+// as prizmal's own flag: the launch states the model itself, and forwarding the
+// operator's value let Claude Code's flag outrank the settings prizmal wrote,
+// which is how a launch lost its 1M window and warned that the model was
+// unknown.
+func (c *Claude) OwnsModelFlag() bool { return true }
+
+// args builds the command line for a Claude Code launch.
+//
+// The launch states the model in two places that must agree. The inline
+// settings JSON is the child's configuration; the --model flag outranks it and
+// replaces the whole string. Both carry the same [1m] spelling, so whichever
+// one Claude Code resolves the model from, the 1M window holds.
+//
+// The flag is appended here rather than taken from the caller's arguments.
+// prizmal owns the model decision, so the harness receives it as a value
+// prizmal produced, never as one the operator typed. A caller-supplied --model
+// is consumed by the CLI before this point.
+func (c *Claude) args(model, settingsJSON string, extra []string) []string {
 	var args []string
 	if settingsJSON != "" {
 		args = append(args, "--settings", settingsJSON)
 	}
-	args = append(args, extra...)
-	return args
+	if named := claudeModelName(model); named != "" {
+		args = append(args, "--model", named)
+	}
+	return append(args, extra...)
 }
 
 func (c *Claude) findPath() (string, error) {
@@ -69,7 +90,7 @@ func (c *Claude) Run(model string, models []LaunchModel, args []string) error {
 		return err
 	}
 
-	cmd := exec.Command(claudePath, c.args(settings, args)...)
+	cmd := exec.Command(claudePath, c.args(model, settings, args)...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

@@ -298,26 +298,97 @@ func TestClaudeModelNameEndsWithExactlyOneSuffix(t *testing.T) {
 	}
 }
 
-// A launch passes the model through the inline settings JSON rather than the
-// --model flag, so a value set in the operator's settings.json or shell cannot
-// outrank it.
+// A launch states the model in two places that must agree: the inline settings
+// JSON, which the child reads as its configuration, and the --model flag, which
+// outranks it. Both carry the same [1m] spelling, so whichever one Claude Code
+// resolves the model from, the 1M window holds.
 func TestClaudeArgsCarryInlineSettings(t *testing.T) {
 	settings, err := claudeSettingsJSON("some-model", []ModelRow{{Label: "some-model", Model: "some-model"}})
 	if err != nil {
 		t.Fatalf("claudeSettingsJSON: %v", err)
 	}
-	args := (&Claude{}).args(settings, []string{"--verbose"})
+	args := (&Claude{}).args("some-model", settings, []string{"--verbose"})
 
-	want := []string{"--settings", settings, "--verbose"}
+	want := []string{"--settings", settings, "--model", "some-model[1m]", "--verbose"}
 	if strings.Join(args, " ") != strings.Join(want, " ") {
 		t.Fatalf("args = %v, want %v", args, want)
 	}
-	if strings.Contains(strings.Join(args, " "), "--model") {
-		t.Fatalf("args carry --model; the settings JSON pins the model instead: %v", args)
+
+	// The flag's value and the settings model are the same name, so the flag
+	// cannot silently replace the settings model with a different one.
+	var flagModel string
+	for i, a := range args {
+		if a == "--model" && i+1 < len(args) {
+			flagModel = args[i+1]
+		}
+	}
+	if got := claudeModelName("some-model"); flagModel != got {
+		t.Fatalf("--model value = %q, want %q (the settings model's spelling)", flagModel, got)
 	}
 
-	if args := (&Claude{}).args("", []string{"--verbose"}); strings.Join(args, " ") != "--verbose" {
-		t.Fatalf("args with no settings = %v, want [--verbose]", args)
+	if args := (&Claude{}).args("", "", []string{"--verbose"}); strings.Join(args, " ") != "--verbose" {
+		t.Fatalf("args with no settings and no model = %v, want [--verbose]", args)
+	}
+}
+
+// prizmal owns the model decision, so the launcher states it on the command
+// line rather than patching a value the operator typed. The appended --model
+// carries the [1m] suffix, which is what buys the 1M-token window; a bare value
+// would outrank the settings JSON's model and drop the suffix, and the session
+// would budget the 200k unknown-model window and warn.
+func TestClaudeArgsStateTheModelThemselves(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		model    string
+		settings string
+		extra    []string
+		want     []string
+	}{
+		{
+			name:  "the model is appended with its suffix",
+			model: "smart",
+			want:  []string{"--model", "smart[1m]"},
+		},
+		{
+			name:  "the suffix is not doubled",
+			model: "smart[1m]",
+			want:  []string{"--model", "smart[1m]"},
+		},
+		{
+			name:     "the settings JSON comes first",
+			model:    "smart",
+			settings: "{}",
+			want:     []string{"--settings", "{}", "--model", "smart[1m]"},
+		},
+		{
+			name:  "harness arguments follow, and -m is permission mode",
+			model: "smart",
+			extra: []string{"--resume", "abc", "-m", "plan"},
+			want:  []string{"--model", "smart[1m]", "--resume", "abc", "-m", "plan"},
+		},
+		{
+			name:  "no model appends nothing",
+			model: "",
+			extra: []string{"--verbose"},
+			want:  []string{"--verbose"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := (&Claude{}).args(tc.model, tc.settings, tc.extra)
+			if strings.Join(got, " ") != strings.Join(tc.want, " ") {
+				t.Fatalf("args(%q, %q, %v) = %v, want %v", tc.model, tc.settings, tc.extra, got, tc.want)
+			}
+		})
+	}
+}
+
+// args returns a new slice, so the caller's slice is never rewritten behind its
+// back.
+func TestClaudeArgsDoNotMutateTheCallersSlice(t *testing.T) {
+	extra := []string{"--resume", "abc"}
+	_ = (&Claude{}).args("smart", "", extra)
+	if strings.Join(extra, " ") != "--resume abc" {
+		t.Fatalf("the caller's slice was rewritten: %v", extra)
 	}
 }
 

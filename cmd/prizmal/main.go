@@ -289,12 +289,20 @@ func runnerShowsModelList(runner launcher.Runner) bool {
 //
 // cfg may be nil on a machine with no config file. Then a pick still launches
 // with the model the operator chose; there is simply nowhere to save it.
-func resolveLaunchModel(cfg *config.Config) (string, []launcher.LaunchModel, error) {
+//
+// harnessModel is the model taken from a --model written after the integration
+// name, which is empty for a runner that does not own that flag. It ranks with
+// the --model flag: it is consulted first and overrides the saved default
+// exactly as the flag does.
+func resolveLaunchModel(cfg *config.Config, harnessModel string) (string, []launcher.LaunchModel, error) {
 	ctx := context.Background()
 
 	switch {
 	case model != "":
 		return model, launcher.BestEffortCatalog(ctx, os.Stderr), nil
+
+	case harnessModel != "":
+		return harnessModel, launcher.BestEffortCatalog(ctx, os.Stderr), nil
 
 	case cfg != nil && cfg.DefaultModel != "" && !pickFlag:
 		return cfg.DefaultModel, launcher.BestEffortCatalog(ctx, os.Stderr), nil
@@ -438,6 +446,73 @@ func restoreReport(name, removed string, outcome launcher.RestoreOutcome) string
 	return removed + " Put back " + strings.Join(outcome.Reinstated, ", ") + "."
 }
 
+// takeModelFlag removes every --model from the harness arguments and returns
+// the values it found, in order. It rewrites extra in place, so the caller's
+// slice is the harness's argument list with the model flags gone.
+//
+// prizmal owns the model decision: it resolves the model from --model, the
+// saved default, or the picker, and hands the harness that value. A --model
+// the operator typed after the integration name is the same question asked in a
+// second place, so it is answered here rather than forwarded. Forwarding it let
+// the harness's own flag outrank the settings prizmal wrote, which is how a
+// launch lost its 1M window and warned that the model was unknown.
+//
+// Tokens after a `--` separator are harness text, not prizmal's flags, so the
+// scan stops there. A trailing --model with no value is left for the harness to
+// reject: the operator aimed it at the harness, not at prizmal.
+func takeModelFlag(extra *[]string) []string {
+	var found []string
+	args := *extra
+	out := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--":
+			out = append(out, args[i:]...)
+			*extra = out
+			return found
+		case args[i] == "--model":
+			if i+1 == len(args) {
+				out = append(out, args[i])
+				break
+			}
+			found = append(found, args[i+1])
+			i++
+		case strings.HasPrefix(args[i], "--model="):
+			found = append(found, strings.TrimPrefix(args[i], "--model="))
+		default:
+			out = append(out, args[i])
+		}
+	}
+	*extra = out
+	return found
+}
+
+// reconcileModel settles the model when both prizmal's --model and a --model
+// after the integration name are present.
+//
+// Two different names are two answers to one question, and silently picking the
+// first is how a launch runs a model the operator did not ask for. One name,
+// written once or twice, is a single decision and proceeds.
+func reconcileModel(flagModel string, harnessModels []string) (string, error) {
+	if len(harnessModels) == 0 {
+		return flagModel, nil
+	}
+	harness := harnessModels[0]
+	for _, m := range harnessModels[1:] {
+		if m != harness {
+			return "", fmt.Errorf(
+				"conflicting --model: %q and %q name different models; pass one model, before or after the integration name",
+				harness, m)
+		}
+	}
+	if flagModel != "" && flagModel != harness {
+		return "", fmt.Errorf(
+			"conflicting --model: %q before the integration name and %q after it name different models; pass one model",
+			flagModel, harness)
+	}
+	return harness, nil
+}
+
 func launch(name string, extraArgs []string, cfg *config.Config) error {
 	spec, err := launcher.LookupIntegrationSpec(name)
 	if err != nil {
@@ -486,11 +561,31 @@ func launch(name string, extraArgs []string, cfg *config.Config) error {
 		return err
 	}
 
-	// Every launch runs a real model: --model, or the saved default, or a
-	// choice the operator makes here. Nothing falls back to a placeholder
-	// name, so an empty model is a stopped launch rather than a request the
-	// switch has to interpret.
-	chosen, catalog, err := resolveLaunchModel(cfg)
+	// prizmal owns the model decision for a runner that opts in, so a --model
+	// the operator typed after the integration name becomes prizmal's own flag.
+	// It is consumed before the harness is dispatched, and it takes the rank the
+	// flag form has: above the saved default, and equal to a --model written
+	// before the integration name. Two different names are refused rather than
+	// silently losing.
+	//
+	// A runner that does not opt in keeps the flag: pi reads a
+	// provider-qualified --model as a provider choice, so consuming it would
+	// change which provider runs.
+	harnessModel := ""
+	if owner, ok := runner.(launcher.OwningModelFlag); ok && owner.OwnsModelFlag() {
+		if harnessModels := takeModelFlag(&extraArgs); len(harnessModels) > 0 {
+			harnessModel, err = reconcileModel(model, harnessModels)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	// Every launch runs a real model: the model flag in either position, the
+	// saved default, or a choice the operator makes here. Nothing falls back to
+	// a placeholder name, so an empty model is a stopped launch rather than a
+	// request the switch has to interpret.
+	chosen, catalog, err := resolveLaunchModel(cfg, harnessModel)
 	if err != nil {
 		return err
 	}

@@ -160,7 +160,7 @@ func TestDefaultModelIsUsedWhenNoFlagIsGiven(t *testing.T) {
 	setPick(t, false)
 	stubTerminal(t, false)
 
-	chosen, _, err := resolveLaunchModel(cfg)
+	chosen, _, err := resolveLaunchModel(cfg, "")
 	if err != nil {
 		t.Fatalf("resolveLaunchModel: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestModelFlagOverridesDefaultModel(t *testing.T) {
 	setModel(t, "flag-model")
 	setPick(t, false)
 
-	chosen, _, err := resolveLaunchModel(cfg)
+	chosen, _, err := resolveLaunchModel(cfg, "")
 	if err != nil {
 		t.Fatalf("resolveLaunchModel: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestPickSavesTheChosenModelAsDefault(t *testing.T) {
 	stubTerminal(t, true)
 	stubPicker(t, "picked-model", nil)
 
-	chosen, _, err := resolveLaunchModel(cfg)
+	chosen, _, err := resolveLaunchModel(cfg, "")
 	if err != nil {
 		t.Fatalf("resolveLaunchModel: %v", err)
 	}
@@ -225,7 +225,7 @@ func TestPickSkipsTheSavedDefault(t *testing.T) {
 	stubTerminal(t, true)
 	stubPicker(t, "fresh-choice", nil)
 
-	chosen, _, err := resolveLaunchModel(cfg)
+	chosen, _, err := resolveLaunchModel(cfg, "")
 	if err != nil {
 		t.Fatalf("resolveLaunchModel: %v", err)
 	}
@@ -403,7 +403,7 @@ func TestModelFlagIsUnambiguousInALaunch(t *testing.T) {
 	setModel(t, "flag-model")
 	setPick(t, true)
 
-	chosen, _, err := resolveLaunchModel(cfg)
+	chosen, _, err := resolveLaunchModel(cfg, "")
 	if err != nil {
 		t.Fatalf("resolveLaunchModel: %v", err)
 	}
@@ -421,7 +421,7 @@ func TestNoModelAndNoTerminalFails(t *testing.T) {
 	setPick(t, false)
 	stubTerminal(t, false)
 
-	_, _, err := resolveLaunchModel(cfg)
+	_, _, err := resolveLaunchModel(cfg, "")
 	if err == nil {
 		t.Fatal("a launch with no model and no terminal must fail")
 	}
@@ -462,7 +462,7 @@ func TestBareLaunchOnATerminalOpensThePicker(t *testing.T) {
 	var sawRows []string
 	stubPicker(t, "chosen-here", &sawRows)
 
-	chosen, catalog, err := resolveLaunchModel(cfg)
+	chosen, catalog, err := resolveLaunchModel(cfg, "")
 	if err != nil {
 		t.Fatalf("resolveLaunchModel: %v", err)
 	}
@@ -501,7 +501,7 @@ func TestNoLaunchPathResolvesPrizmalDefault(t *testing.T) {
 			stubTerminal(t, true)
 			stubPicker(t, "picked-model", nil)
 
-			chosen, _, err := resolveLaunchModel(cfg)
+			chosen, _, err := resolveLaunchModel(cfg, "")
 			if err != nil {
 				t.Fatalf("resolveLaunchModel: %v", err)
 			}
@@ -521,9 +521,9 @@ func TestPickWithoutAConfigStillLaunches(t *testing.T) {
 	stubTerminal(t, true)
 	stubPicker(t, "picked-model", nil)
 
-	chosen, _, err := resolveLaunchModel(nil)
+	chosen, _, err := resolveLaunchModel(nil, "")
 	if err != nil {
-		t.Fatalf("resolveLaunchModel(nil): %v", err)
+		t.Fatalf("resolveLaunchModel(nil, empty): %v", err)
 	}
 	if chosen != "picked-model" {
 		t.Fatalf("resolved %q, want picked-model", chosen)
@@ -571,7 +571,7 @@ func TestPickerRefusesAKeylessRemoteFetch(t *testing.T) {
 	stubTerminal(t, true)
 	stubPicker(t, "picked-model", nil)
 
-	_, _, err := resolveLaunchModel(cfg)
+	_, _, err := resolveLaunchModel(cfg, "")
 	if err == nil {
 		t.Fatal("a keyless picker run must be refused")
 	}
@@ -594,7 +594,7 @@ func TestCatalogFetchFailureDoesNotStopAModelFlagLaunch(t *testing.T) {
 	setModel(t, "flag-model")
 	setPick(t, false)
 
-	chosen, catalog, err := resolveLaunchModel(cfg)
+	chosen, catalog, err := resolveLaunchModel(cfg, "")
 	if err != nil {
 		t.Fatalf("resolveLaunchModel: %v", err)
 	}
@@ -616,7 +616,7 @@ func TestCatalogFetchFailureStopsThePicker(t *testing.T) {
 	stubTerminal(t, true)
 	stubPicker(t, "picked-model", nil)
 
-	_, _, err := resolveLaunchModel(cfg)
+	_, _, err := resolveLaunchModel(cfg, "")
 	if err == nil {
 		t.Fatal("the picker must not open when the model list could not be read")
 	}
