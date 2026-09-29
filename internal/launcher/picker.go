@@ -19,8 +19,8 @@ import (
 // valid and the tenant is reachable, it simply has no models.
 var ErrNoModels = errors.New("this switch key's tenant serves no models")
 
-// modelTier is the Claude Code tier a model behaves as. The value is what
-// lands in a picker row's behavesAs field.
+// modelTier is the Claude Code model family a model is recognised as, from a
+// tier word in its name.
 type modelTier string
 
 const (
@@ -34,6 +34,31 @@ const (
 // are tried. A name carrying more than one is pathological; the first match
 // wins and the row still routes by its own model id.
 var tierWords = []modelTier{modelTierOpus, modelTierSonnet, modelTierHaiku, modelTierFable}
+
+// tierProfile is how Claude Code treats a model of one tier.
+type tierProfile struct {
+	// behavesAs is the first-party id whose client-side handling (prompt
+	// profile, capability and effort defaults) Claude Code applies to the
+	// model. Claude Code resolves the field through its own model catalog, so
+	// a tier word would resolve to nothing: the session would warn that the
+	// model is unknown and run on the unknown-model profile. Each id is one
+	// every supported Claude Code release carries.
+	behavesAs string
+	// oneMillion reports whether that model accepts a 1M context window.
+	// Claude Code drops a /model row that asks for 1M on a model without one.
+	oneMillion bool
+	// description is the row's text in Claude Code's /model picker, which
+	// otherwise reads "Custom model (<model>)" whatever behavesAs says.
+	description string
+}
+
+// tierProfiles maps each tier to how Claude Code treats it.
+var tierProfiles = map[modelTier]tierProfile{
+	modelTierOpus:   {behavesAs: "claude-opus-5", oneMillion: true, description: "Opus tier"},
+	modelTierSonnet: {behavesAs: "claude-sonnet-5", oneMillion: true, description: "Sonnet tier"},
+	modelTierHaiku:  {behavesAs: "claude-haiku-4-5-20251001", oneMillion: false, description: "Haiku tier"},
+	modelTierFable:  {behavesAs: "claude-fable-5-1", oneMillion: true, description: "Fable tier"},
+}
 
 // claudeModelPrefix is the decoration the tenant's aliases carry so that
 // Claude Code's row filter keeps them. It is stripped from a display label
@@ -71,12 +96,13 @@ func modelDisplayLabel(name string) string {
 }
 
 // ModelRow is one row of the model picker, and one option of the launched
-// harness's own picker. Label is what a person reads, Model is the id that
-// routes, and BehavesAs is the tier the row is displayed as.
+// harness's own picker. Label is what a person reads and Model is the id that
+// routes. BehavesAs and Description are empty for a model with no tier word.
 type ModelRow struct {
-	Label     string
-	Model     string
-	BehavesAs string
+	Label       string
+	Model       string
+	BehavesAs   string
+	Description string
 }
 
 // reservedModelNames are the placeholder rows the picker never offers.
@@ -111,9 +137,10 @@ func isReservedModelName(name string) bool {
 // The reserved placeholder is skipped: choosing it would send a name the Switch
 // is retiring, and the point of the picker is to name a model that routes.
 //
-// BehavesAs is inferred from the model's name and decides only how the row is
-// displayed in the harness's picker. It never selects what serves the request:
-// that is the Model id alone, resolved by configselect.
+// A tier word in the model's name gives the row its tier's behavesAs and
+// description, which shape how Claude Code runs and shows the model. Neither
+// selects what serves the request: that is the Model id alone, resolved by
+// configselect.
 func ModelRows(models []LaunchModel) []ModelRow {
 	rows := make([]ModelRow, 0, len(models))
 	seen := make(map[string]bool, len(models))
@@ -127,7 +154,8 @@ func ModelRows(models []LaunchModel) []ModelRow {
 
 		row := ModelRow{Label: modelDisplayLabel(name), Model: name}
 		if tier, ok := inferTier(name); ok {
-			row.BehavesAs = string(tier)
+			row.BehavesAs = tierProfiles[tier].behavesAs
+			row.Description = tierProfiles[tier].description
 		}
 		rows = append(rows, row)
 	}

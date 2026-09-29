@@ -62,6 +62,11 @@ const (
 // /model menu. It lists the reserved placeholder too, which both must hide.
 var baselineCatalog = []string{"smart", "flash", "default"}
 
+// tierCatalog is a tenant whose model names carry Claude Code tier words, the
+// case where a launch maps each row onto a model Claude Code knows. One name
+// hides its tier inside a longer id, as tenant-named models do.
+var tierCatalog = []string{"team-opus-blend", "claude-tier-sonnet", "claude-tier-haiku", "claude-tier-fable", "smart", "default"}
+
 // claudeVersionPattern matches the version in Claude Code's banner. A baseline
 // keeps the version it was recorded with, and the comparison reads the
 // banner as that version, so moving to a new release changes no baseline
@@ -82,6 +87,8 @@ type baselineCase struct {
 	cols, rows int
 	// args are prizmal's own arguments.
 	args []string
+	// catalog is the tenant the stub switch serves. Empty means baselineCatalog.
+	catalog []string
 	// claude marks a case that runs the real Claude Code. The other cases put
 	// a stand-in on PATH, because prizmal asks to install Claude Code before
 	// it opens its picker when none is found.
@@ -95,6 +102,12 @@ var (
 	stepClaudePrompt  = baselineStep{waitFor: "shift+tab to cycle"}
 	stepOpenModel     = baselineStep{literal: "/model", waitFor: "/model"}
 	stepModelPicker   = baselineStep{key: "Enter", waitFor: "Esc to cancel"}
+	stepTypeContext   = baselineStep{literal: "/context", waitFor: "/context"}
+	stepShowContext   = baselineStep{key: "Enter", waitFor: "Free space"}
+	stepPrizmalExit   = baselineStep{waitFor: "[prizmal exited"}
+	// stepClaudeReady waits for the prompt's footer in any permission mode. A
+	// haiku session starts in manual mode, whose footer has no shift+tab hint.
+	stepClaudeReady = baselineStep{waitFor: "for agents"}
 )
 
 var claudeBaselineCases = []baselineCase{
@@ -141,6 +154,45 @@ var claudeBaselineCases = []baselineCase{
 		name: "claude-model-picker-model-flash-100x30", cols: 100, rows: 30,
 		args: []string{"--model", "flash", "claude"}, claude: true,
 		steps: []baselineStep{stepClaudePrompt, stepOpenModel, stepModelPicker},
+	},
+	// A --model after the integration name is prizmal's own flag. Forwarded to
+	// Claude Code, it outranked the settings model and dropped its [1m], so
+	// the session fell back to the 200k window of a model Claude Code does not
+	// know. /context shows the window and the model the session runs as, the
+	// /model picker shows one row per model with its tier, and a print run
+	// shows any unknown-model warning.
+	{
+		name: "claude-context-model-opus-100x40", cols: 100, rows: 40,
+		args: []string{"claude", "--model", "team-opus-blend"}, catalog: tierCatalog, claude: true,
+		steps: []baselineStep{stepClaudeReady, stepTypeContext, stepShowContext},
+	},
+	{
+		name: "claude-model-picker-model-opus-100x40", cols: 100, rows: 40,
+		args: []string{"claude", "--model", "team-opus-blend"}, catalog: tierCatalog, claude: true,
+		steps: []baselineStep{stepClaudeReady, stepOpenModel, stepModelPicker},
+	},
+	{
+		name: "claude-print-model-opus-100x40", cols: 100, rows: 40,
+		args: []string{"claude", "--model", "team-opus-blend", "-p", "hi"}, catalog: tierCatalog, claude: true,
+		steps: []baselineStep{stepPrizmalExit},
+	},
+	// A haiku alias runs as Haiku 4.5 with its 200k window. The alias is also a
+	// modelOverrides value, and with sorted keys it ran as the retired Claude
+	// 3.5 Haiku. Its /model row needs no [1m], which drops the row.
+	{
+		name: "claude-context-model-haiku-100x40", cols: 100, rows: 40,
+		args: []string{"claude", "--model", "claude-tier-haiku"}, catalog: tierCatalog, claude: true,
+		steps: []baselineStep{stepClaudeReady, stepTypeContext, stepShowContext},
+	},
+	{
+		name: "claude-model-picker-model-haiku-100x40", cols: 100, rows: 40,
+		args: []string{"claude", "--model", "claude-tier-haiku"}, catalog: tierCatalog, claude: true,
+		steps: []baselineStep{stepClaudeReady, stepOpenModel, stepModelPicker},
+	},
+	{
+		name: "claude-print-model-haiku-100x40", cols: 100, rows: 40,
+		args: []string{"claude", "--model", "claude-tier-haiku", "-p", "hi"}, catalog: tierCatalog, claude: true,
+		steps: []baselineStep{stepPrizmalExit},
 	},
 }
 
@@ -251,7 +303,11 @@ func pinnedClaudeDir(t *testing.T) (string, string) {
 func renderBaseline(t *testing.T, tmuxPath, prizmalBin, claudeDir string, tc baselineCase) (string, string) {
 	t.Helper()
 
-	srv := stubserver.NewWithModels(baselineCatalog...)
+	catalog := tc.catalog
+	if len(catalog) == 0 {
+		catalog = baselineCatalog
+	}
+	srv := stubserver.NewWithModels(catalog...)
 	t.Cleanup(srv.Close)
 
 	// Claude Code keeps writing into HOME while tmux closes it, so a
@@ -414,6 +470,13 @@ func seedClaudeState(t *testing.T, home, project string) {
 			project: map[string]any{"hasTrustDialogAccepted": true},
 		},
 	})
+	// The logo animates, and a capture could land on any frame.
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeJSONFile(t, filepath.Join(home, ".claude", "settings.json"), map[string]any{
+		"prefersReducedMotion": true,
+	})
 }
 
 func writeJSONFile(t *testing.T, path string, v any) {
@@ -472,4 +535,24 @@ func shellJoin(args []string) string {
 		quoted[i] = shellQuote(a)
 	}
 	return strings.Join(quoted, " ")
+}
+
+// Claude Code animates its logo: the eyes blink and glance, and the logo
+// jumps. A capture can land on any frame, so the seeded state turns animation
+// off, which Claude Code offers as its reduced-motion setting.
+func TestSeedClaudeStateTurnsOffAnimation(t *testing.T) {
+	home := t.TempDir()
+	seedClaudeState(t, home, filepath.Join(home, "project"))
+
+	data, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json"))
+	if err != nil {
+		t.Fatalf("read seeded settings: %v", err)
+	}
+	var settings map[string]any
+	if err := json.Unmarshal(data, &settings); err != nil {
+		t.Fatalf("seeded settings do not parse: %v\n%s", err, data)
+	}
+	if settings["prefersReducedMotion"] != true {
+		t.Fatalf("prefersReducedMotion = %v, want true", settings["prefersReducedMotion"])
+	}
 }

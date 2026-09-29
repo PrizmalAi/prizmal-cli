@@ -1,9 +1,11 @@
 package launch
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -279,7 +281,7 @@ func TestClaudeEnvVarsBaseURLDropsTrailingV1(t *testing.T) {
 // claudeModelName always ends with exactly one [1m], whatever the switch sent.
 // The suffix is a client-side budgeting instruction: without it Claude Code
 // assumes a 200k window and compacts a long session early.
-func TestClaudeModelNameEndsWithExactlyOneSuffix(t *testing.T) {
+func TestClaudeModelNameCarriesItsTiersSuffix(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		model string
@@ -289,6 +291,11 @@ func TestClaudeModelNameEndsWithExactlyOneSuffix(t *testing.T) {
 		{"one suffix is not doubled", "some-model[1m]", "some-model[1m]"},
 		{"two suffixes collapse to one", "some-model[1m][1m]", "some-model[1m]"},
 		{"empty name stays empty", "", ""},
+		// Haiku 4.5 has no 1M window. Claude Code drops a /model row that asks
+		// for one on a haiku-behaving model, so a haiku name carries no suffix.
+		{"a haiku name gets no suffix", "claude-tier-haiku", "claude-tier-haiku"},
+		{"a haiku name loses a suffix it arrived with", "claude-tier-haiku[1m][1m]", "claude-tier-haiku"},
+		{"the other tiers keep the suffix", "claude-tier-sonnet", "claude-tier-sonnet[1m]"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := claudeModelName(tc.model); got != tc.want {
@@ -298,36 +305,109 @@ func TestClaudeModelNameEndsWithExactlyOneSuffix(t *testing.T) {
 	}
 }
 
-// A launch passes the model through the inline settings JSON rather than the
-// --model flag, so a value set in the operator's settings.json or shell cannot
-// outrank it.
+// A launch states the model in two places that must agree: the inline settings
+// JSON, which the child reads as its configuration, and the --model flag, which
+// outranks it. Both carry the same [1m] spelling, so whichever one Claude Code
+// resolves the model from, the 1M window holds.
 func TestClaudeArgsCarryInlineSettings(t *testing.T) {
 	settings, err := claudeSettingsJSON("some-model", []ModelRow{{Label: "some-model", Model: "some-model"}})
 	if err != nil {
 		t.Fatalf("claudeSettingsJSON: %v", err)
 	}
-	args := (&Claude{}).args(settings, []string{"--verbose"})
+	args := (&Claude{}).args("some-model", settings, []string{"--verbose"})
 
-	want := []string{"--settings", settings, "--verbose"}
+	want := []string{"--settings", settings, "--model", "some-model[1m]", "--verbose"}
 	if strings.Join(args, " ") != strings.Join(want, " ") {
 		t.Fatalf("args = %v, want %v", args, want)
 	}
-	if strings.Contains(strings.Join(args, " "), "--model") {
-		t.Fatalf("args carry --model; the settings JSON pins the model instead: %v", args)
+
+	// The flag's value and the settings model are the same name, so the flag
+	// cannot silently replace the settings model with a different one.
+	var flagModel string
+	for i, a := range args {
+		if a == "--model" && i+1 < len(args) {
+			flagModel = args[i+1]
+		}
+	}
+	if got := claudeModelName("some-model"); flagModel != got {
+		t.Fatalf("--model value = %q, want %q (the settings model's spelling)", flagModel, got)
 	}
 
-	if args := (&Claude{}).args("", []string{"--verbose"}); strings.Join(args, " ") != "--verbose" {
-		t.Fatalf("args with no settings = %v, want [--verbose]", args)
+	if args := (&Claude{}).args("", "", []string{"--verbose"}); strings.Join(args, " ") != "--verbose" {
+		t.Fatalf("args with no settings and no model = %v, want [--verbose]", args)
+	}
+}
+
+// prizmal owns the model decision, so the launcher states it on the command
+// line rather than patching a value the operator typed. The appended --model
+// carries the [1m] suffix, which is what buys the 1M-token window; a bare value
+// would outrank the settings JSON's model and drop the suffix, and the session
+// would budget the 200k unknown-model window and warn.
+func TestClaudeArgsStateTheModelThemselves(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		model    string
+		settings string
+		extra    []string
+		want     []string
+	}{
+		{
+			name:  "the model is appended with its suffix",
+			model: "smart",
+			want:  []string{"--model", "smart[1m]"},
+		},
+		{
+			name:  "the suffix is not doubled",
+			model: "smart[1m]",
+			want:  []string{"--model", "smart[1m]"},
+		},
+		{
+			name:     "the settings JSON comes first",
+			model:    "smart",
+			settings: "{}",
+			want:     []string{"--settings", "{}", "--model", "smart[1m]"},
+		},
+		{
+			name:  "harness arguments follow, and -m is permission mode",
+			model: "smart",
+			extra: []string{"--resume", "abc", "-m", "plan"},
+			want:  []string{"--model", "smart[1m]", "--resume", "abc", "-m", "plan"},
+		},
+		{
+			name:  "a haiku model is appended bare, like its settings model",
+			model: "claude-tier-haiku",
+			want:  []string{"--model", "claude-tier-haiku"},
+		},
+		{
+			name:  "no model appends nothing",
+			model: "",
+			extra: []string{"--verbose"},
+			want:  []string{"--verbose"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := (&Claude{}).args(tc.model, tc.settings, tc.extra)
+			if strings.Join(got, " ") != strings.Join(tc.want, " ") {
+				t.Fatalf("args(%q, %q, %v) = %v, want %v", tc.model, tc.settings, tc.extra, got, tc.want)
+			}
+		})
+	}
+}
+
+// args returns a new slice, so the caller's slice is never rewritten behind its
+// back.
+func TestClaudeArgsDoNotMutateTheCallersSlice(t *testing.T) {
+	extra := []string{"--resume", "abc"}
+	_ = (&Claude{}).args("smart", "", extra)
+	if strings.Join(extra, " ") != "--resume abc" {
+		t.Fatalf("the caller's slice was rewritten: %v", extra)
 	}
 }
 
 // The settings JSON carries the pinned model, the tier remaps, and the picker
 // rows, with the model's [1m] suffix applied and the rows' labels bare.
 func TestClaudeSettingsJSONShape(t *testing.T) {
-	rows := []ModelRow{
-		{Label: "tier-haiku", Model: "claude-tier-haiku", BehavesAs: "haiku"},
-		{Label: "tier-sonnet", Model: "claude-tier-sonnet", BehavesAs: "sonnet"},
-	}
+	rows := ModelRows([]LaunchModel{{Name: "claude-tier-haiku"}, {Name: "claude-tier-sonnet"}})
 	settings, err := claudeSettingsJSON("claude-tier-haiku", rows)
 	if err != nil {
 		t.Fatalf("claudeSettingsJSON: %v", err)
@@ -339,9 +419,10 @@ func TestClaudeSettingsJSONShape(t *testing.T) {
 		ModelPicker    struct {
 			ReplaceBuiltInOptions bool `json:"replaceBuiltInOptions"`
 			Options               []struct {
-				Label     string `json:"label"`
-				Model     string `json:"model"`
-				BehavesAs string `json:"behavesAs"`
+				Label       string `json:"label"`
+				Model       string `json:"model"`
+				BehavesAs   string `json:"behavesAs"`
+				Description string `json:"description"`
 			} `json:"options"`
 		} `json:"modelPicker"`
 	}
@@ -349,8 +430,8 @@ func TestClaudeSettingsJSONShape(t *testing.T) {
 		t.Fatalf("settings JSON does not parse: %v\n%s", err, settings)
 	}
 
-	if got.Model != "claude-tier-haiku[1m]" {
-		t.Errorf("model = %q, want claude-tier-haiku[1m]", got.Model)
+	if got.Model != "claude-tier-haiku" {
+		t.Errorf("model = %q, want claude-tier-haiku with no suffix", got.Model)
 	}
 	if !got.ModelPicker.ReplaceBuiltInOptions {
 		t.Error("replaceBuiltInOptions is false; built-in rows would appear beside the tenant's")
@@ -361,11 +442,17 @@ func TestClaudeSettingsJSONShape(t *testing.T) {
 	if got.ModelPicker.Options[0].Label != "tier-haiku" {
 		t.Errorf("option label = %q, want tier-haiku (the suffix is stripped for display)", got.ModelPicker.Options[0].Label)
 	}
-	if got.ModelPicker.Options[0].Model != "claude-tier-haiku[1m]" {
-		t.Errorf("option model = %q, want claude-tier-haiku[1m]", got.ModelPicker.Options[0].Model)
+	if got.ModelPicker.Options[0].Model != "claude-tier-haiku" {
+		t.Errorf("option model = %q, want claude-tier-haiku with no suffix", got.ModelPicker.Options[0].Model)
 	}
-	if got.ModelPicker.Options[0].BehavesAs != "haiku" {
-		t.Errorf("option behavesAs = %q, want haiku", got.ModelPicker.Options[0].BehavesAs)
+	if got.ModelPicker.Options[0].BehavesAs != "claude-haiku-4-5-20251001" {
+		t.Errorf("option behavesAs = %q, want claude-haiku-4-5-20251001", got.ModelPicker.Options[0].BehavesAs)
+	}
+	if got.ModelPicker.Options[0].Description != "Haiku tier" {
+		t.Errorf("option description = %q, want Haiku tier", got.ModelPicker.Options[0].Description)
+	}
+	if got.ModelPicker.Options[1].Model != "claude-tier-sonnet[1m]" {
+		t.Errorf("option model = %q, want claude-tier-sonnet[1m]", got.ModelPicker.Options[1].Model)
 	}
 	if got.ModelOverrides["claude-opus-5"] != "claude-tier-opus[1m]" {
 		t.Errorf("modelOverrides[claude-opus-5] = %q, want claude-tier-opus[1m]", got.ModelOverrides["claude-opus-5"])
@@ -385,6 +472,7 @@ func TestClaudeSettingsJSONShape(t *testing.T) {
 // claude-mythos-5-1), so none appears here.
 func TestClaudeModelOverridesKeysAreCanonicalIds(t *testing.T) {
 	wantKeys := []string{
+		"claude-opus-5-5",
 		"claude-opus-5",
 		"claude-opus-4-8",
 		"claude-opus-4-7",
@@ -392,6 +480,7 @@ func TestClaudeModelOverridesKeysAreCanonicalIds(t *testing.T) {
 		"claude-opus-4-5-20251101",
 		"claude-opus-4-20250514",
 		"claude-opus-4-1-20250805",
+		"claude-sonnet-5-5",
 		"claude-sonnet-5",
 		"claude-sonnet-4-6",
 		"claude-sonnet-4-5-20250929",
@@ -427,16 +516,90 @@ func TestClaudeModelOverridesKeysAreCanonicalIds(t *testing.T) {
 	}
 }
 
-// The tier overrides carry the [1m] suffix too.
+// Claude Code identifies a model whose name equals a modelOverrides value as
+// the first key, in the settings' own key order, that maps to it and that the
+// running build knows. A tier alias the launch runs or offers as a row is such
+// a value, so the first key for each tier decides which model's profile the
+// session runs on. Sorted keys would put the oldest id first: the haiku alias
+// would run as the retired Claude 3.5 Haiku, and opus as Opus 4.1.
+func TestClaudeModelOverridesNameEachTiersProfileFirst(t *testing.T) {
+	settings, err := claudeSettingsJSON("smart", nil)
+	if err != nil {
+		t.Fatalf("claudeSettingsJSON: %v", err)
+	}
+	var raw struct {
+		ModelOverrides json.RawMessage `json:"modelOverrides"`
+	}
+	if err := json.Unmarshal([]byte(settings), &raw); err != nil {
+		t.Fatalf("settings JSON does not parse: %v\n%s", err, settings)
+	}
+
+	dec := json.NewDecoder(bytes.NewReader(raw.ModelOverrides))
+	if _, err := dec.Token(); err != nil {
+		t.Fatalf("modelOverrides is not an object: %v", err)
+	}
+	firstKey := map[string]string{}
+	for dec.More() {
+		key, err := dec.Token()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var value string
+		if err := dec.Decode(&value); err != nil {
+			t.Fatal(err)
+		}
+		if _, seen := firstKey[value]; !seen {
+			firstKey[value] = key.(string)
+		}
+	}
+
+	for tier, profile := range tierProfiles {
+		alias := claudeModelName(claudeTierModel(tier))
+		if got := firstKey[alias]; got != profile.behavesAs {
+			t.Errorf("first modelOverrides key for %s = %q, want %q, the id its rows behave as", alias, got, profile.behavesAs)
+		}
+	}
+}
+
+// The ordered form the launch sends carries the same entries as the mapping,
+// each key once. A profile id outside its tier's lineage would add a key
+// mapped to an empty model, and a lineage listing an id twice would repeat a
+// JSON key.
+func TestClaudeOrderedModelOverridesMatchTheMapping(t *testing.T) {
+	want := claudeModelOverrides()
+	ordered := claudeOrderedModelOverrides()
+
+	seen := map[string]bool{}
+	for _, entry := range ordered {
+		if seen[entry.key] {
+			t.Errorf("key %q is emitted twice", entry.key)
+		}
+		seen[entry.key] = true
+		if entry.value == "" || entry.value != want[entry.key] {
+			t.Errorf("modelOverrides[%q] = %q, want %q", entry.key, entry.value, want[entry.key])
+		}
+	}
+	if len(ordered) != len(want) {
+		t.Errorf("emitted %d keys, want %d", len(ordered), len(want))
+	}
+}
+
+// The tier overrides are spelled exactly as the pinned model and the rows are.
 //
-// A tier name without the suffix budgets a 200k window and compacts a long
-// session early, which is the outcome the suffix exists to prevent. A request
-// that resolves through a tier short name takes the modelOverrides value, so
-// that value needs the suffix exactly as the pinned model and the rows do.
-func TestClaudeModelOverridesCarryTheSuffix(t *testing.T) {
+// A request that resolves through a tier short name takes the modelOverrides
+// value. Without the [1m] suffix it budgets a 200k window and compacts a long
+// session early. The haiku tier is the exception: Haiku 4.5 has no 1M window,
+// so its value is bare, as its row is.
+func TestClaudeModelOverridesCarryTheirTiersSuffix(t *testing.T) {
 	overrides := claudeModelOverrides()
 
 	for key, value := range overrides {
+		if slices.Contains(claudeFamilyIDs[modelTierHaiku], key) {
+			if value != "claude-tier-haiku" {
+				t.Errorf("modelOverrides[%q] = %q, want claude-tier-haiku with no suffix", key, value)
+			}
+			continue
+		}
 		if !strings.HasSuffix(value, oneMillionSuffix) {
 			t.Errorf("modelOverrides[%q] = %q, want it to end in %s", key, value, oneMillionSuffix)
 		}
@@ -446,14 +609,11 @@ func TestClaudeModelOverridesCarryTheSuffix(t *testing.T) {
 	}
 }
 
-// A row's behavesAs is a display hint and never the id the row sends. Two rows
-// showing different tiers still carry their own model ids, and a row whose
-// behavesAs equals a tier word still sends the model it was built from.
-func TestClaudeSettingsRowModelsAreNotTierHints(t *testing.T) {
-	rows := []ModelRow{
-		{Label: "tier-opus", Model: "claude-tier-opus", BehavesAs: "opus"},
-		{Label: "cheap-model", Model: "cheap-model"},
-	}
+// A row's behavesAs names the model whose client-side handling Claude Code
+// applies to the row, and it is never the id the row sends. Two rows with
+// different profiles still carry their own model ids, which are what route.
+func TestClaudeSettingsRowModelsAreNotTheirProfiles(t *testing.T) {
+	rows := ModelRows([]LaunchModel{{Name: "claude-tier-opus"}, {Name: "cheap-model"}})
 	settings, err := claudeSettingsJSON("cheap-model", rows)
 	if err != nil {
 		t.Fatalf("claudeSettingsJSON: %v", err)
@@ -477,7 +637,7 @@ func TestClaudeSettingsRowModelsAreNotTierHints(t *testing.T) {
 		t.Errorf("pinned model = %q, want cheap-model[1m]", got.Model)
 	}
 
-	want := map[string]string{"claude-tier-opus": "opus", "cheap-model": ""}
+	want := map[string]string{"claude-tier-opus": "claude-opus-5", "cheap-model": ""}
 	if len(got.ModelPicker.Options) != len(want) {
 		t.Fatalf("picker options = %d, want %d: %s", len(got.ModelPicker.Options), len(want), settings)
 	}
@@ -491,9 +651,9 @@ func TestClaudeSettingsRowModelsAreNotTierHints(t *testing.T) {
 		if option.BehavesAs != tier {
 			t.Errorf("row %q behavesAs = %q, want %q", model, option.BehavesAs, tier)
 		}
-		// The hint describes the row. It must never be what the row sends.
+		// The profile shapes the client. It must never be what the row sends.
 		if option.BehavesAs != "" && option.BehavesAs == model {
-			t.Errorf("row sends its tier hint %q as its model, so the hint would steer routing", model)
+			t.Errorf("row sends its profile %q as its model, so the profile would steer routing", model)
 		}
 	}
 }

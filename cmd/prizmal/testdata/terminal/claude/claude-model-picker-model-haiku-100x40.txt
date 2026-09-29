@@ -1,0 +1,40 @@
+
+ ▐▛███▛█   Claude Code v2.1.283
+▝▜██████▀  tier-haiku · API Usage Billing
+ ▝▝   ▝▝   ~/project
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
+   Select model
+   Switch between Claude models. Your pick becomes the default for new sessions. For
+   other/previous model names, specify with --model.
+
+     1. Default (recommended)  Use the default model (currently tier-haiku)
+   ❯ 2. tier-haiku ✔           Haiku tier
+     3. team-opus-blend        Opus tier
+     4. tier-sonnet            Sonnet tier
+     5. tier-fable             Fable tier
+     6. smart                  Custom model (smart[1m])
+
+   ○ Effort not supported for tier-haiku
+
+   Enter to set as default · s to use this session only · Esc to cancel

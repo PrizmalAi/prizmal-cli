@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/config"
@@ -64,8 +65,8 @@ func TestSplitLaunchInvocation(t *testing.T) {
 		{"bare launch", []string{"claude"}, "claude", nil},
 		{"harness flags pass through", []string{"claude", "--resume", "a0b08857"},
 			"claude", []string{"--resume", "a0b08857"}},
-		{"old separator is consumed", []string{"codex", "--", "--sandbox", "workspace-write"},
-			"codex", []string{"--sandbox", "workspace-write"}},
+		{"the separator is kept for launch to read", []string{"codex", "--", "--sandbox", "workspace-write"},
+			"codex", []string{"--", "--sandbox", "workspace-write"}},
 		{"empty invocation", nil, "", nil},
 	}
 	for _, tc := range cases {
@@ -249,5 +250,158 @@ func TestRestoreSweepsSwitchCredentialsFromBackups(t *testing.T) {
 	}
 	if _, err := os.Lstat(tainted); err == nil {
 		t.Fatalf("--restore kept a backup holding a Switch key")
+	}
+}
+
+// prizmal owns the model decision, so a --model after the integration name is
+// prizmal's own and must not reach the harness. Handing it through let the
+// harness's flag outrank prizmal's settings, which is how a launch lost its 1M
+// window and warned that the model was unknown.
+func TestTakeModelFlagConsumesTheHarnessModelArgument(t *testing.T) {
+	cases := []struct {
+		name     string
+		extra    []string
+		want     []string
+		wantRest []string
+	}{
+		{
+			name:     "separate value",
+			extra:    []string{"--model", "smart"},
+			want:     []string{"smart"},
+			wantRest: nil,
+		},
+		{
+			name:     "joined value",
+			extra:    []string{"--model=smart"},
+			want:     []string{"smart"},
+			wantRest: nil,
+		},
+		{
+			name:     "both spellings together",
+			extra:    []string{"--model", "a", "--model=b"},
+			want:     []string{"a", "b"},
+			wantRest: nil,
+		},
+		{
+			name:     "other arguments survive, positions kept",
+			extra:    []string{"--verbose", "--model", "smart", "--resume", "abc"},
+			want:     []string{"smart"},
+			wantRest: []string{"--verbose", "--resume", "abc"},
+		},
+		{
+			name:     "after the separator is harness text, not prizmal's flag",
+			extra:    []string{"--", "--model", "smart"},
+			want:     nil,
+			wantRest: []string{"--", "--model", "smart"},
+		},
+		{
+			name:     "no model flag",
+			extra:    []string{"--verbose"},
+			want:     nil,
+			wantRest: []string{"--verbose"},
+		},
+		{
+			name:     "a trailing --model with no value is left for the harness to reject",
+			extra:    []string{"--model"},
+			want:     nil,
+			wantRest: []string{"--model"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			extra := slices.Clone(tc.extra)
+			got := takeModelFlag(&extra)
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("takeModelFlag(%v) = %v, want %v", tc.extra, got, tc.want)
+			}
+			if !slices.Equal(extra, tc.wantRest) {
+				t.Errorf("takeModelFlag(%v) left extra = %v, want %v", tc.extra, extra, tc.wantRest)
+			}
+		})
+	}
+}
+
+// One model, one place. A flag before the integration name and one after it are
+// two answers to the same question, so prizmal refuses the launch rather than
+// letting the second silently lose.
+func TestReconcileModelRejectsTwoDifferentModels(t *testing.T) {
+	got, err := reconcileModel("smart", []string{"flash"})
+	if err == nil {
+		t.Fatalf("two different models did not error; got %q", got)
+	}
+	if !strings.Contains(err.Error(), "smart") || !strings.Contains(err.Error(), "flash") {
+		t.Errorf("error does not name both values: %v", err)
+	}
+
+	// The same model named both ways is one decision, not a conflict. This is
+	// the `prizmal --model X claude --model X` case.
+	got, err = reconcileModel("smart", []string{"smart"})
+	if err != nil {
+		t.Fatalf("the same model twice errored: %v", err)
+	}
+	if got != "smart" {
+		t.Errorf("reconcileModel = %q, want smart", got)
+	}
+
+	// A repeated value is one decision too.
+	if got, err := reconcileModel("", []string{"smart", "smart"}); err != nil || got != "smart" {
+		t.Errorf("a repeated model = %q, %v; want smart, nil", got, err)
+	}
+
+	// No harness model leaves prizmal's own flag alone, and a harness model
+	// with no flag is the whole value. The empty flagModel is the saved-default
+	// case: the harness form must override a default, not conflict with it.
+	if got, err := reconcileModel("smart", nil); err != nil || got != "smart" {
+		t.Errorf("no harness model = %q, %v; want smart, nil", got, err)
+	}
+	if got, err := reconcileModel("", []string{"flash"}); err != nil || got != "flash" {
+		t.Errorf("harness model over a saved default = %q, %v; want flash, nil", got, err)
+	}
+}
+
+// A --model after the integration name overrides the saved default, exactly as
+// the flag form does. Only an explicit --model before the name can conflict.
+func TestHarnessModelOverridesTheSavedDefault(t *testing.T) {
+	cfg := &config.Config{DefaultModel: "saved-default"}
+
+	chosen, _, err := resolveLaunchModel(cfg, "operator-choice")
+	if err != nil {
+		t.Fatalf("resolveLaunchModel: %v", err)
+	}
+	if chosen != "operator-choice" {
+		t.Errorf("chosen = %q, want operator-choice (the harness form must outrank the default)", chosen)
+	}
+
+	chosen, _, err = resolveLaunchModel(cfg, "")
+	if err != nil {
+		t.Fatalf("resolveLaunchModel: %v", err)
+	}
+	if chosen != "saved-default" {
+		t.Errorf("chosen = %q, want saved-default", chosen)
+	}
+}
+
+// A launch reads the harness arguments the way the command line wrote them.
+// splitLaunchInvocation keeps the `--` separator so takeModelFlag can stop at
+// it: a --model after the separator is the harness's own, and the operator
+// meant it for the harness. dropSeparators then removes the separator, which
+// the harness never sees.
+func TestLaunchArgsLeaveAModelAfterTheSeparatorToTheHarness(t *testing.T) {
+	_, extra := splitLaunchInvocation([]string{"claude", "--verbose", "--", "--model", "smart"})
+	if got := takeModelFlag(&extra); got != nil {
+		t.Fatalf("takeModelFlag consumed %v from after the separator", got)
+	}
+	if got, want := dropSeparators(extra), []string{"--verbose", "--model", "smart"}; !slices.Equal(got, want) {
+		t.Fatalf("harness arguments = %v, want %v", got, want)
+	}
+}
+
+func TestDropSeparatorsRemovesOnlySeparators(t *testing.T) {
+	got := dropSeparators([]string{"--", "--sandbox", "--", "workspace-write"})
+	if want := []string{"--sandbox", "workspace-write"}; !slices.Equal(got, want) {
+		t.Fatalf("dropSeparators = %v, want %v", got, want)
+	}
+	if got := dropSeparators(nil); len(got) != 0 {
+		t.Fatalf("dropSeparators(nil) = %v, want empty", got)
 	}
 }
