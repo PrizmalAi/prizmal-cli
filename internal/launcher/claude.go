@@ -40,19 +40,20 @@ func (c *Claude) OwnsModelFlag() bool { return true }
 //
 // The launch states the model in two places that must agree. The inline
 // settings JSON is the child's configuration; the --model flag outranks it and
-// replaces the whole string. Both carry the same [1m] spelling, so whichever
-// one Claude Code resolves the model from, the 1M window holds.
+// replaces the whole string. Both spell the model as its own picker row does,
+// with [1m] when its tier has a 1M window, so whichever one Claude Code
+// resolves the model from, the session runs as that row.
 //
 // The flag is appended here rather than taken from the caller's arguments.
 // prizmal owns the model decision, so the harness receives it as a value
 // prizmal produced, never as one the operator typed. A caller-supplied --model
 // is consumed by the CLI before this point.
-func (c *Claude) args(model, settingsJSON string, extra []string) []string {
+func (c *Claude) args(model string, rows []ModelRow, settingsJSON string, extra []string) []string {
 	var args []string
 	if settingsJSON != "" {
 		args = append(args, "--settings", settingsJSON)
 	}
-	if named := claudeModelName(model); named != "" {
+	if named := claudeLaunchModelName(model, rows); named != "" {
 		args = append(args, "--model", named)
 	}
 	return append(args, extra...)
@@ -87,17 +88,18 @@ func (c *Claude) Run(model string, models []LaunchModel, args []string) error {
 		return err
 	}
 
-	settings, err := claudeSettingsJSON(model, ModelRows(models))
+	rows := ModelRows(models)
+	settings, err := claudeSettingsJSON(model, rows)
 	if err != nil {
 		return err
 	}
 
-	cmd := exec.Command(claudePath, c.args(model, settings, args)...)
+	cmd := exec.Command(claudePath, c.args(model, rows, settings, args)...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	cmd.Env = claudeChildEnv(model, ModelRows(models))
+	cmd.Env = claudeChildEnv(model, rows)
 	return cmd.Run()
 }
 
@@ -209,7 +211,7 @@ func claudeChildEnv(model string, rows []ModelRow) []string {
 	// It also makes the "opus" alias resolve to the pinned model, the one
 	// target this launch routes to.
 	if model != "" {
-		env = append(env, "ANTHROPIC_DEFAULT_OPUS_MODEL="+claudeModelName(model))
+		env = append(env, "ANTHROPIC_DEFAULT_OPUS_MODEL="+claudeLaunchModelName(model, rows))
 	}
 
 	// The subagent model variable, set only when a dedicated
@@ -263,6 +265,32 @@ func claudeModelName(model string) string {
 	return bare + oneMillionSuffix
 }
 
+// claudeRowModelName is claudeModelName for a picker row, whose tier may come
+// from the Switch rather than from its name. A row's tier decides its window.
+func claudeRowModelName(row ModelRow) string {
+	if row.tier == "" {
+		return claudeModelName(row.Model)
+	}
+	bare := strings.TrimSuffix(claudeModelName(row.Model), oneMillionSuffix)
+	if tierProfiles[row.tier].oneMillion {
+		return bare + oneMillionSuffix
+	}
+	return bare
+}
+
+// claudeLaunchModelName spells the launched model the way its own picker row
+// does, so the session model is one of the rows and runs with that row's
+// window. A model with no row is spelled from its name.
+func claudeLaunchModelName(model string, rows []ModelRow) string {
+	bare := strings.TrimSuffix(claudeModelName(model), oneMillionSuffix)
+	for _, row := range rows {
+		if row.Model == bare {
+			return claudeRowModelName(row)
+		}
+	}
+	return claudeModelName(model)
+}
+
 // claudeSettingsJSON builds the inline --settings JSON for a launch: the model
 // to run, the tier remaps, and the picker rows.
 //
@@ -273,7 +301,7 @@ func claudeSettingsJSON(model string, rows []ModelRow) (string, error) {
 		return "", nil
 	}
 
-	settings := map[string]any{"model": claudeModelName(model)}
+	settings := map[string]any{"model": claudeLaunchModelName(model, rows)}
 	if overrides := claudeOrderedModelOverrides(); len(overrides) > 0 {
 		settings["modelOverrides"] = overrides
 	}
@@ -454,7 +482,7 @@ func claudeModelPicker(rows []ModelRow) map[string]any {
 	for _, row := range rows {
 		option := map[string]any{
 			"label": row.Label,
-			"model": claudeModelName(row.Model),
+			"model": claudeRowModelName(row),
 		}
 		if row.BehavesAs != "" {
 			option["behavesAs"] = row.BehavesAs

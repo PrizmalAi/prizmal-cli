@@ -413,3 +413,41 @@ func TestBestEffortCatalogNamesKeySourceAndStatusOnFailure(t *testing.T) {
 		t.Errorf("warning leaked the key value")
 	}
 }
+
+// The Switch can tag a router config with the Claude tier it serves, and give
+// it a description. An unknown tier is dropped rather than guessed at.
+func TestParseSwitchCatalogReadsTierAndDescription(t *testing.T) {
+	models, err := parseSwitchCatalog([]byte(`{"data":[
+		{"id":"smart[1m]","tier":"Opus","description":"Fast and cheap"},
+		{"id":"flash[1m]","tier":"mythos"},
+		{"id":"plain[1m]"}]}`))
+	if err != nil {
+		t.Fatalf("parseSwitchCatalog: %v", err)
+	}
+	if len(models) != 3 {
+		t.Fatalf("parsed %d models, want 3", len(models))
+	}
+	if models[0].Tier != "opus" || models[0].Description != "Fast and cheap" {
+		t.Errorf("smart = tier %q, description %q, want opus and the Switch's text", models[0].Tier, models[0].Description)
+	}
+	if models[1].Tier != "" {
+		t.Errorf("flash tier = %q, want an unknown tier dropped", models[1].Tier)
+	}
+	if models[2].Tier != "" || models[2].Description != "" {
+		t.Errorf("plain = %+v, want no tier and no description", models[2])
+	}
+}
+
+// A description is drawn in the operator's terminal, so the CLI keeps only its
+// text: escape sequences and control characters go, and the rest collapses to
+// one line.
+func TestParseSwitchCatalogCleansTheDescription(t *testing.T) {
+	body := `{"data":[{"id":"smart[1m]","description":"Fast\n cheap\u001b]0;title\u0007 \u001b[31mred\u001b[0m\t"}]}`
+	models, err := parseSwitchCatalog([]byte(body))
+	if err != nil {
+		t.Fatalf("parseSwitchCatalog: %v", err)
+	}
+	if got := models[0].Description; got != "Fast cheap red" {
+		t.Fatalf("description = %q, want %q", got, "Fast cheap red")
+	}
+}

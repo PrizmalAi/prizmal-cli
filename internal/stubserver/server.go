@@ -44,6 +44,35 @@ func NewWithModels(ids ...string) *httptest.Server {
 	return httptest.NewServer(handler(models))
 }
 
+// Entry is one /v1/models entry for NewWithEntries. Tier and Description are
+// sent only when set.
+type Entry struct {
+	ID          string
+	Tier        string
+	Description string
+}
+
+// NewWithEntries is NewWithModels for entries that carry a tier or a
+// description.
+func NewWithEntries(entries ...Entry) *httptest.Server {
+	models := make([]map[string]any, 0, len(entries))
+	for _, e := range entries {
+		model := map[string]any{
+			"id":                e.ID,
+			"input_modalities":  []string{"text"},
+			"output_modalities": []string{"text"},
+		}
+		if e.Tier != "" {
+			model["tier"] = e.Tier
+		}
+		if e.Description != "" {
+			model["description"] = e.Description
+		}
+		models = append(models, model)
+	}
+	return httptest.NewServer(handler(models))
+}
+
 // handler serves the stub API. A nil models serves the default fixture.
 func handler(models []map[string]any) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

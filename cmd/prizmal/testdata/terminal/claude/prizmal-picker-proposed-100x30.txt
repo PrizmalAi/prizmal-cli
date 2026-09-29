@@ -1,0 +1,9 @@
+Select a model
+▸ tier-opus        Everyday coding
+  tier-sonnet      Balanced cost and speed
+  tier-haiku       Quick answers
+  tier-fable       Long, hard tasks
+  experimental
+  team-opus-blend  Team blend for refactors
+
+  ↑/k up • ↓/j down • / filter • esc quit without saving
