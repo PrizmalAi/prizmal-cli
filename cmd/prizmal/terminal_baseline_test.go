@@ -80,8 +80,6 @@ type baselineStep struct {
 	literal string
 	key     string
 	waitFor string
-	// andFor is a second string the screen must show, when set.
-	andFor string
 }
 
 type baselineCase struct {
@@ -98,23 +96,10 @@ type baselineCase struct {
 	steps  []baselineStep
 }
 
-// claudeLogoOpen is the logo's top row with its eyes open.
-const claudeLogoOpen = "▐▛███▛█"
-
-// claudeLogoFrame matches the logo's top row on any animation frame: seven
-// block glyphs before the banner text. The eyes blink and glance aside, and a
-// capture can land on any frame.
-var claudeLogoFrame = regexp.MustCompile(`(?m)^ [▐▌▛▜▟▙█▀▄▝▘▗▖]{7}(   Claude Code v)`)
-
-// claudeLogo is a row of the logo in Claude Code's startup banner. Claude Code
-// can draw the prompt before the logo, and a busy machine can hold the screen
-// still for a second in between, so a startup step waits for both.
-const claudeLogo = "▝▜██████▀"
-
 var (
 	stepPrizmalPicker = baselineStep{waitFor: "Select a model"}
-	stepPickFirst     = baselineStep{key: "Enter", waitFor: "shift+tab to cycle", andFor: claudeLogo}
-	stepClaudePrompt  = baselineStep{waitFor: "shift+tab to cycle", andFor: claudeLogo}
+	stepPickFirst     = baselineStep{key: "Enter", waitFor: "shift+tab to cycle"}
+	stepClaudePrompt  = baselineStep{waitFor: "shift+tab to cycle"}
 	stepOpenModel     = baselineStep{literal: "/model", waitFor: "/model"}
 	stepModelPicker   = baselineStep{key: "Enter", waitFor: "Esc to cancel"}
 	stepTypeContext   = baselineStep{literal: "/context", waitFor: "/context"}
@@ -122,7 +107,7 @@ var (
 	stepPrizmalExit   = baselineStep{waitFor: "[prizmal exited"}
 	// stepClaudeReady waits for the prompt's footer in any permission mode. A
 	// haiku session starts in manual mode, whose footer has no shift+tab hint.
-	stepClaudeReady = baselineStep{waitFor: "for agents", andFor: claudeLogo}
+	stepClaudeReady = baselineStep{waitFor: "for agents"}
 )
 
 var claudeBaselineCases = []baselineCase{
@@ -424,33 +409,19 @@ func renderBaseline(t *testing.T, tmuxPath, prizmalBin, claudeDir string, tc bas
 		}
 		// A screen that never shows the marker is itself a change, so the
 		// remaining keys are skipped and the comparison below prints the diff.
-		want := []string{step.waitFor}
-		if step.andFor != "" {
-			want = append(want, step.andFor)
-		}
-		if !waitForSettledScreen(func() string { return capture(false) }, want, timeout) {
-			t.Errorf("screen did not show all of %q within %s", want, timeout)
+		if !waitForSettledScreen(func() string { return capture(false) }, step.waitFor, timeout) {
+			t.Errorf("screen did not show %q within %s", step.waitFor, timeout)
 			break
 		}
 	}
 	return normalizeScreen(capture(false)), capture(true)
 }
 
-// containsAll reports whether screen shows every string in want.
-func containsAll(screen string, want []string) bool {
-	for _, w := range want {
-		if !strings.Contains(screen, w) {
-			return false
-		}
-	}
-	return true
-}
-
 // waitForSettledScreen polls until the screen shows want and then stays the
 // same for a second. Claude Code draws its startup in several passes, and a
 // capture between two of them would make the baseline depend on timing. It
 // reports false when the screen did not settle on want before the timeout.
-func waitForSettledScreen(capture func() string, want []string, timeout time.Duration) bool {
+func waitForSettledScreen(capture func() string, want string, timeout time.Duration) bool {
 	const (
 		interval = 200 * time.Millisecond
 		settle   = 5
@@ -461,7 +432,7 @@ func waitForSettledScreen(capture func() string, want []string, timeout time.Dur
 	for time.Now().Before(deadline) {
 		screen := capture()
 		switch {
-		case !containsAll(screen, want):
+		case !strings.Contains(screen, want):
 			same = 0
 		case screen == last:
 			same++
@@ -499,6 +470,13 @@ func seedClaudeState(t *testing.T, home, project string) {
 			project: map[string]any{"hasTrustDialogAccepted": true},
 		},
 	})
+	// The logo animates, and a capture could land on any frame.
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeJSONFile(t, filepath.Join(home, ".claude", "settings.json"), map[string]any{
+		"prefersReducedMotion": true,
+	})
 }
 
 func writeJSONFile(t *testing.T, path string, v any) {
@@ -512,12 +490,10 @@ func writeJSONFile(t *testing.T, path string, v any) {
 	}
 }
 
-// normalizeScreen reads every frame of the logo's top row as the open one, and
-// drops the padding tmux adds: trailing spaces on each row and the blank rows
-// below the last line of text. The rows above keep their position, so a layout
-// change still shows in the diff.
+// normalizeScreen drops the padding tmux adds: trailing spaces on each row and
+// the blank rows below the last line of text. The rows above keep their
+// position, so a layout change still shows in the diff.
 func normalizeScreen(screen string) string {
-	screen = claudeLogoFrame.ReplaceAllString(screen, " "+claudeLogoOpen+"$1")
 	lines := strings.Split(screen, "\n")
 	for i, line := range lines {
 		lines[i] = strings.TrimRight(line, " ")
@@ -561,20 +537,22 @@ func shellJoin(args []string) string {
 	return strings.Join(quoted, " ")
 }
 
-// Claude Code's logo animates: the top row of the logo draws the eyes open,
-// blinking, or glancing aside. A capture taken on any frame must still match
-// the baseline, so the comparison reads every frame of that row as the open
-// one. Text beside the logo still counts.
-func TestNormalizeScreenReadsEveryLogoFrameAsOpen(t *testing.T) {
-	open := " ▐▛███▛█   Claude Code v2.1.283\n▝▜██████▀  smart\n"
-	for _, frame := range []string{"▐▛███▛█", "▐▟███▟█", "▐█▟███▟", "▐▛███▛▌"} {
-		screen := " " + frame + "   Claude Code v2.1.283\n▝▜██████▀  smart\n"
-		if got := normalizeScreen(screen); got != open {
-			t.Errorf("normalizeScreen(%q) = %q, want %q", frame, got, open)
-		}
+// Claude Code animates its logo: the eyes blink and glance, and the logo
+// jumps. A capture can land on any frame, so the seeded state turns animation
+// off, which Claude Code offers as its reduced-motion setting.
+func TestSeedClaudeStateTurnsOffAnimation(t *testing.T) {
+	home := t.TempDir()
+	seedClaudeState(t, home, filepath.Join(home, "project"))
+
+	data, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json"))
+	if err != nil {
+		t.Fatalf("read seeded settings: %v", err)
 	}
-	changed := " ▐▟███▟█   Claude Code v2.1.283 beta\n"
-	if got := normalizeScreen(changed); got != " ▐▛███▛█   Claude Code v2.1.283 beta\n" {
-		t.Errorf("normalizeScreen(%q) = %q, want the logo read as open and the text kept", changed, got)
+	var settings map[string]any
+	if err := json.Unmarshal(data, &settings); err != nil {
+		t.Fatalf("seeded settings do not parse: %v\n%s", err, data)
+	}
+	if settings["prefersReducedMotion"] != true {
+		t.Fatalf("prefersReducedMotion = %v, want true", settings["prefersReducedMotion"])
 	}
 }

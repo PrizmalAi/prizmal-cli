@@ -65,8 +65,8 @@ func TestSplitLaunchInvocation(t *testing.T) {
 		{"bare launch", []string{"claude"}, "claude", nil},
 		{"harness flags pass through", []string{"claude", "--resume", "a0b08857"},
 			"claude", []string{"--resume", "a0b08857"}},
-		{"old separator is consumed", []string{"codex", "--", "--sandbox", "workspace-write"},
-			"codex", []string{"--sandbox", "workspace-write"}},
+		{"the separator is kept for launch to read", []string{"codex", "--", "--sandbox", "workspace-write"},
+			"codex", []string{"--", "--sandbox", "workspace-write"}},
 		{"empty invocation", nil, "", nil},
 	}
 	for _, tc := range cases {
@@ -378,5 +378,30 @@ func TestHarnessModelOverridesTheSavedDefault(t *testing.T) {
 	}
 	if chosen != "saved-default" {
 		t.Errorf("chosen = %q, want saved-default", chosen)
+	}
+}
+
+// A launch reads the harness arguments the way the command line wrote them.
+// splitLaunchInvocation keeps the `--` separator so takeModelFlag can stop at
+// it: a --model after the separator is the harness's own, and the operator
+// meant it for the harness. dropSeparators then removes the separator, which
+// the harness never sees.
+func TestLaunchArgsLeaveAModelAfterTheSeparatorToTheHarness(t *testing.T) {
+	_, extra := splitLaunchInvocation([]string{"claude", "--verbose", "--", "--model", "smart"})
+	if got := takeModelFlag(&extra); got != nil {
+		t.Fatalf("takeModelFlag consumed %v from after the separator", got)
+	}
+	if got, want := dropSeparators(extra), []string{"--verbose", "--model", "smart"}; !slices.Equal(got, want) {
+		t.Fatalf("harness arguments = %v, want %v", got, want)
+	}
+}
+
+func TestDropSeparatorsRemovesOnlySeparators(t *testing.T) {
+	got := dropSeparators([]string{"--", "--sandbox", "--", "workspace-write"})
+	if want := []string{"--sandbox", "workspace-write"}; !slices.Equal(got, want) {
+		t.Fatalf("dropSeparators = %v, want %v", got, want)
+	}
+	if got := dropSeparators(nil); len(got) != 0 {
+		t.Fatalf("dropSeparators(nil) = %v, want empty", got)
 	}
 }

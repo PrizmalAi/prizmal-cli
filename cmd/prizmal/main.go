@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/config"
@@ -416,21 +417,27 @@ func pickDefaultModel(cfg *config.Config) error {
 
 // splitLaunchInvocation splits the positional args of a launch into the
 // integration name and the harness passthrough. The integration name is the
-// first positional; everything after it is the harness's, except that a `--`
-// separator is consumed: the old parser ended flag parsing at `--` before the
-// harness ever saw it, and this keeps that behaviour.
+// first positional; everything after it is the harness's. A `--` separator is
+// kept, because takeModelFlag reads it: a --model after it is the harness's.
+// launch removes the separators with dropSeparators before dispatch.
 func splitLaunchInvocation(args []string) (string, []string) {
 	if len(args) == 0 {
 		return "", nil
 	}
-	extra := make([]string, 0, len(args)-1)
-	for _, arg := range args[1:] {
-		if arg == "--" {
-			continue
+	return args[0], slices.Clone(args[1:])
+}
+
+// dropSeparators removes every `--` separator from the harness arguments. The
+// old parser ended flag parsing at `--` before the harness ever saw it, and
+// this keeps that behaviour.
+func dropSeparators(extra []string) []string {
+	out := make([]string, 0, len(extra))
+	for _, arg := range extra {
+		if arg != "--" {
+			out = append(out, arg)
 		}
-		extra = append(extra, arg)
 	}
-	return args[0], extra
+	return out
 }
 
 // restoreReport is the line --restore prints, derived from what Restore did:
@@ -580,6 +587,7 @@ func launch(name string, extraArgs []string, cfg *config.Config) error {
 			}
 		}
 	}
+	extraArgs = dropSeparators(extraArgs)
 
 	// Every launch runs a real model: the model flag in either position, the
 	// saved default, or a choice the operator makes here. Nothing falls back to
