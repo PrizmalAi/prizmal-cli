@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -62,10 +63,25 @@ const (
 // /model menu. It lists the reserved placeholder too, which both must hide.
 var baselineCatalog = []string{"smart", "flash", "default"}
 
-// tierCatalog is a tenant whose model names carry Claude Code tier words, the
-// case where a launch maps each row onto a model Claude Code knows. One name
-// hides its tier inside a longer id, as tenant-named models do.
-var tierCatalog = []string{"team-opus-blend", "claude-tier-sonnet", "claude-tier-haiku", "claude-tier-fable", "smart", "default"}
+// tierCatalog is a tenant with a router config whose name carries a Claude
+// Code tier word, hidden inside a longer id as tenant-named models do. Like
+// every tenant, it lists router configs only. The tier aliases come from the
+// CLI.
+var tierCatalog = []string{"team-opus-blend", "smart", "default"}
+
+// proposedCatalog is a tenant whose Switch lists router configs only. Each
+// config that holds a tier alias carries that tier, and every config carries
+// its tenant's description but one. The tier rows stand for the four tier
+// configs, so only the two others get rows of their own.
+var proposedCatalog = []stubserver.Entry{
+	{ID: "default"},
+	{ID: "balanced", Tier: "sonnet", Description: "Balanced cost and speed"},
+	{ID: "deep", Tier: "fable", Description: "Long, hard tasks"},
+	{ID: "experimental"},
+	{ID: "flash", Tier: "haiku", Description: "Quick answers"},
+	{ID: "smart", Tier: "opus", Description: "Everyday coding"},
+	{ID: "team-opus-blend", Description: "Team blend for refactors"},
+}
 
 // claudeVersionPattern matches the version in Claude Code's banner. A baseline
 // keeps the version it was recorded with, and the comparison reads the
@@ -94,6 +110,8 @@ type baselineCase struct {
 	// it opens its picker when none is found.
 	claude bool
 	steps  []baselineStep
+	// entries replaces catalog when the stub must send a tier or description.
+	entries []stubserver.Entry
 }
 
 var (
@@ -192,6 +210,56 @@ var claudeBaselineCases = []baselineCase{
 	{
 		name: "claude-print-model-haiku-100x40", cols: 100, rows: 40,
 		args: []string{"claude", "--model", "claude-tier-haiku", "-p", "hi"}, catalog: tierCatalog, claude: true,
+		steps: []baselineStep{stepPrizmalExit},
+	},
+	// The first picker row is the Opus tier, which runs as Opus 5 with a 1M
+	// window. A router config without a tier word runs with a 1M window too.
+	{
+		name: "claude-context-picked-100x40", cols: 100, rows: 40,
+		args: []string{"claude"}, claude: true,
+		steps: []baselineStep{stepPrizmalPicker, stepPickFirst, stepTypeContext, stepShowContext},
+	},
+	{
+		name: "claude-context-m-smart-100x40", cols: 100, rows: 40,
+		args: []string{"-m", "smart", "claude"}, claude: true,
+		steps: []baselineStep{stepClaudePrompt, stepTypeContext, stepShowContext},
+	},
+	{
+		name: "claude-print-m-smart-100x40", cols: 100, rows: 40,
+		args: []string{"-m", "smart", "claude", "-p", "hi"}, claude: true,
+		steps: []baselineStep{stepPrizmalExit},
+	},
+	// The proposed Switch: each tier row shows the description of the config
+	// that holds the tier's alias, and that config has no row of its own
+	// unless the launch names it.
+	{
+		name: "prizmal-picker-proposed-100x30", cols: 100, rows: 30,
+		args: []string{"claude"}, entries: proposedCatalog,
+		steps: []baselineStep{stepPrizmalPicker},
+	},
+	{
+		name: "claude-model-picker-proposed-100x40", cols: 100, rows: 40,
+		args: []string{"claude"}, entries: proposedCatalog, claude: true,
+		steps: []baselineStep{stepPrizmalPicker, stepPickFirst, stepOpenModel, stepModelPicker},
+	},
+	{
+		name: "claude-context-proposed-100x40", cols: 100, rows: 40,
+		args: []string{"claude"}, entries: proposedCatalog, claude: true,
+		steps: []baselineStep{stepPrizmalPicker, stepPickFirst, stepTypeContext, stepShowContext},
+	},
+	{
+		name: "claude-print-proposed-100x40", cols: 100, rows: 40,
+		args: []string{"claude", "--model", "claude-tier-opus", "-p", "hi"}, entries: proposedCatalog, claude: true,
+		steps: []baselineStep{stepPrizmalExit},
+	},
+	{
+		name: "claude-model-picker-proposed-m-smart-100x40", cols: 100, rows: 40,
+		args: []string{"-m", "smart", "claude"}, entries: proposedCatalog, claude: true,
+		steps: []baselineStep{stepClaudePrompt, stepOpenModel, stepModelPicker},
+	},
+	{
+		name: "claude-print-proposed-experimental-100x40", cols: 100, rows: 40,
+		args: []string{"claude", "--model", "experimental", "-p", "hi"}, entries: proposedCatalog, claude: true,
 		steps: []baselineStep{stepPrizmalExit},
 	},
 }
@@ -307,7 +375,12 @@ func renderBaseline(t *testing.T, tmuxPath, prizmalBin, claudeDir string, tc bas
 	if len(catalog) == 0 {
 		catalog = baselineCatalog
 	}
-	srv := stubserver.NewWithModels(catalog...)
+	var srv *httptest.Server
+	if len(tc.entries) > 0 {
+		srv = stubserver.NewWithEntries(tc.entries...)
+	} else {
+		srv = stubserver.NewWithModels(catalog...)
+	}
 	t.Cleanup(srv.Close)
 
 	// Claude Code keeps writing into HOME while tmux closes it, so a

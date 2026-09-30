@@ -12,10 +12,6 @@
 
 
 
-
-
-
-
 ▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔ ● high · /effort ▔
    Select model
    Switch between Claude models. Your pick becomes the default for new sessions. For
@@ -23,7 +19,11 @@
 
      1. Default (recommended)  Use the default model (currently smart)
    ❯ 2. smart ✔                Custom model (smart[1m])
-     3. flash                  Custom model (flash[1m])
+     3. tier-opus              Opus tier
+     4. tier-sonnet            Sonnet tier
+     5. tier-haiku             Haiku tier
+   ↓ 6. tier-fable             Fable tier
+      … +1 model
 
    ● High effort (default) ←/→ to adjust
 

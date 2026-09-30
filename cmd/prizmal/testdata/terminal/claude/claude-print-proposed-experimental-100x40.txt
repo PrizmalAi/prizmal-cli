@@ -1,0 +1,4 @@
+using api key from: config file (~/.prizmal/config.json)
+[claude-code:unrecognized_model] {"model":"experimental[1m]","query_source":"sdk"}
+PRIZMAL-STUB-REPLY
+[prizmal exited 0]

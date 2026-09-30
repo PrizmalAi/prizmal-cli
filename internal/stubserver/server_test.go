@@ -329,3 +329,32 @@ func TestChatCompletionsStreamSendsFinishReason(t *testing.T) {
 		t.Fatalf("stream does not end with [DONE]:\n%s", data)
 	}
 }
+
+func TestNewWithEntriesSendsTierAndDescriptionOnlyWhenSet(t *testing.T) {
+	srv := NewWithEntries(Entry{ID: "smart", Tier: "opus", Description: "Fast"}, Entry{ID: "plain"})
+	defer srv.Close()
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/v1/models", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+StubKey)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var body struct {
+		Data []map[string]any `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Data) != 2 || body.Data[0]["tier"] != "opus" || body.Data[0]["description"] != "Fast" {
+		t.Fatalf("data = %v, want smart with its tier and description first", body.Data)
+	}
+	if _, ok := body.Data[1]["tier"]; ok {
+		t.Fatalf("plain = %v, want no tier field", body.Data[1])
+	}
+}

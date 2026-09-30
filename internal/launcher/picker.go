@@ -103,6 +103,9 @@ type ModelRow struct {
 	Model       string
 	BehavesAs   string
 	Description string
+
+	// tier is the row's Claude tier, empty for a model with none.
+	tier modelTier
 }
 
 // reservedModelNames are the placeholder rows the picker never offers.
@@ -147,15 +150,22 @@ func ModelRows(models []LaunchModel) []ModelRow {
 
 	for _, m := range models {
 		name := strings.TrimSuffix(m.Name, oneMillionSuffix)
-		if name == "" || seen[name] || isReservedModelName(name) {
+		if name == "" || seen[name] || isReservedModelName(name) || m.FoldedInto != "" {
 			continue
 		}
 		seen[name] = true
 
-		row := ModelRow{Label: modelDisplayLabel(name), Model: name}
-		if tier, ok := inferTier(name); ok {
+		row := ModelRow{Label: modelDisplayLabel(name), Model: name, Description: m.Description}
+		tier, ok := modelTier(m.Tier), m.Tier != ""
+		if !ok {
+			tier, ok = inferTier(name)
+		}
+		if ok {
+			row.tier = tier
 			row.BehavesAs = tierProfiles[tier].behavesAs
-			row.Description = tierProfiles[tier].description
+			if row.Description == "" {
+				row.Description = tierProfiles[tier].description
+			}
 		}
 		rows = append(rows, row)
 	}
@@ -245,8 +255,9 @@ func pickerMenuHeight(rows int) int {
 // modelItem is one selectable model in the list. bubbles/list identifies items
 // by their FilterValue, which is the text a search matches against.
 type modelItem struct {
-	label string
-	model string
+	label       string
+	model       string
+	description string
 }
 
 // FilterValue is what a typed search matches. It is the label, because that is
@@ -257,8 +268,9 @@ func (i modelItem) FilterValue() string { return i.label }
 // Title is the row's display text.
 func (i modelItem) Title() string { return i.label }
 
-// Description is empty: the label is the whole row, and a second line per model
-// would halve how many fit on screen.
+// Description is empty, so bubbles reserves no second line per model, which
+// would halve how many fit on screen. modelDelegate draws the row's
+// description on the label's own line.
 func (i modelItem) Description() string { return "" }
 
 // pickerWidth is the menu's drawing width. The list renders its rows in a
@@ -302,7 +314,9 @@ func BrandLogoStyle() lipgloss.Style {
 // with no spacing is what a list of short names wants, and the page size
 // follows from it: bubbles divides the frame's available height by
 // Height()+Spacing(), so a height of 1 and no spacing fills the frame.
-type modelDelegate struct{}
+//
+// labelWidth is the widest label, so every description starts in one column.
+type modelDelegate struct{ labelWidth int }
 
 func (modelDelegate) Height() int  { return 1 }
 func (modelDelegate) Spacing() int { return 0 }
@@ -314,7 +328,7 @@ func (modelDelegate) Update(tea.Msg, *list.Model) tea.Cmd { return nil }
 // The cursor is an arrow rather than bubbles' left border, and it replaces the
 // two leading spaces an unselected row gets, so every label starts in the same
 // column whether or not it is selected.
-func (modelDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
+func (d modelDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
 	row, ok := item.(modelItem)
 	if !ok {
 		return
@@ -331,7 +345,15 @@ func (modelDelegate) Render(w io.Writer, m list.Model, index int, item list.Item
 		prefix = pickerCursor
 		style = selectedStyle()
 	}
-	_, _ = fmt.Fprint(w, style.Render(prefix+label))
+	line := style.Render(prefix + label)
+	if row.description != "" {
+		pad := strings.Repeat(" ", max(0, d.labelWidth-ansi.StringWidth(label))+2)
+		line += pad + lipgloss.NewStyle().Faint(true).Render(row.description)
+	}
+	if m.Width() > 0 {
+		line = ansi.Truncate(line, m.Width(), "…")
+	}
+	_, _ = fmt.Fprint(w, line)
 }
 
 // quitBinding is Esc and ctrl+c, the two ways out of the menu.
@@ -376,13 +398,19 @@ type pickerModel struct {
 func newPickerModel(rows []ModelRow) pickerModel {
 	items := make([]list.Item, 0, len(rows))
 	for _, row := range rows {
-		items = append(items, modelItem{label: row.Label, model: row.Model})
+		items = append(items, modelItem{label: row.Label, model: row.Model, description: row.Description})
+	}
+	// The column is capped, so one long model name cannot push every other
+	// row's description past the menu's width.
+	labelWidth := 0
+	for _, row := range rows {
+		labelWidth = max(labelWidth, min(ansi.StringWidth(row.Label), pickerWidth/2))
 	}
 
 	delegate := list.NewDefaultDelegate()
 	delegate.ShowDescription = false
 
-	l := list.New(items, modelDelegate{}, pickerWidth, pickerMenuHeight(len(items)))
+	l := list.New(items, modelDelegate{labelWidth: labelWidth}, pickerWidth, pickerMenuHeight(len(items)))
 	// The list draws the heading in its title bar. That row is reserved anyway
 	// while filtering is available, so putting the heading there costs nothing
 	// and the bar doubles as the filter input while searching.

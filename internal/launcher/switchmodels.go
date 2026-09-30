@@ -9,6 +9,9 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
+
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	"github.com/PrizmalAi/prizmal-cli/internal/model"
@@ -32,6 +35,8 @@ const (
 type switchCatalogEntry struct {
 	ID              string   `json:"id"`
 	InputModalities []string `json:"input_modalities"`
+	Tier            string   `json:"tier"`
+	Description     string   `json:"description"`
 }
 
 // routableName is the name a caller passes back to route, which is the id with
@@ -98,6 +103,30 @@ func capabilitiesFromModalities(modalities []string) []model.Capability {
 	return capabilities
 }
 
+// knownTier returns the tier the Switch named, lowercased, or "" for a name
+// that is not one of the Claude tiers.
+func knownTier(tier string) string {
+	tier = strings.ToLower(strings.TrimSpace(tier))
+	if _, ok := tierProfiles[modelTier(tier)]; ok {
+		return tier
+	}
+	return ""
+}
+
+// cleanDescription keeps only the text of a description the switch sent. The
+// picker draws it in the operator's terminal and Claude Code draws it in
+// /model, so escape sequences and control characters are dropped, and runs of
+// white space, newlines included, become one space.
+func cleanDescription(desc string) string {
+	desc = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, ansi.Strip(desc))
+	return strings.Join(strings.Fields(desc), " ")
+}
+
 // parseSwitchCatalog turns a GET /v1/models body into LaunchModels carrying
 // only a name and the capabilities its input modalities imply.
 func parseSwitchCatalog(data []byte) ([]LaunchModel, error) {
@@ -114,6 +143,8 @@ func parseSwitchCatalog(data []byte) ([]LaunchModel, error) {
 		models = append(models, LaunchModel{
 			Name:         name,
 			Capabilities: capabilitiesFromModalities(entry.InputModalities),
+			Tier:         knownTier(entry.Tier),
+			Description:  cleanDescription(entry.Description),
 		})
 	}
 	return models, nil

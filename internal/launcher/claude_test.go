@@ -314,7 +314,7 @@ func TestClaudeArgsCarryInlineSettings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("claudeSettingsJSON: %v", err)
 	}
-	args := (&Claude{}).args("some-model", settings, []string{"--verbose"})
+	args := (&Claude{}).args("some-model", nil, settings, []string{"--verbose"})
 
 	want := []string{"--settings", settings, "--model", "some-model[1m]", "--verbose"}
 	if strings.Join(args, " ") != strings.Join(want, " ") {
@@ -333,7 +333,7 @@ func TestClaudeArgsCarryInlineSettings(t *testing.T) {
 		t.Fatalf("--model value = %q, want %q (the settings model's spelling)", flagModel, got)
 	}
 
-	if args := (&Claude{}).args("", "", []string{"--verbose"}); strings.Join(args, " ") != "--verbose" {
+	if args := (&Claude{}).args("", nil, "", []string{"--verbose"}); strings.Join(args, " ") != "--verbose" {
 		t.Fatalf("args with no settings and no model = %v, want [--verbose]", args)
 	}
 }
@@ -386,7 +386,7 @@ func TestClaudeArgsStateTheModelThemselves(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := (&Claude{}).args(tc.model, tc.settings, tc.extra)
+			got := (&Claude{}).args(tc.model, nil, tc.settings, tc.extra)
 			if strings.Join(got, " ") != strings.Join(tc.want, " ") {
 				t.Fatalf("args(%q, %q, %v) = %v, want %v", tc.model, tc.settings, tc.extra, got, tc.want)
 			}
@@ -398,7 +398,7 @@ func TestClaudeArgsStateTheModelThemselves(t *testing.T) {
 // back.
 func TestClaudeArgsDoNotMutateTheCallersSlice(t *testing.T) {
 	extra := []string{"--resume", "abc"}
-	_ = (&Claude{}).args("smart", "", extra)
+	_ = (&Claude{}).args("smart", nil, "", extra)
 	if strings.Join(extra, " ") != "--resume abc" {
 		t.Fatalf("the caller's slice was rewritten: %v", extra)
 	}
@@ -710,5 +710,50 @@ func TestClaudeChildEnvPassesCapabilitiesThrough(t *testing.T) {
 
 	if got := envValue(env, "CLAUDE_CODE_MODEL_CAPABILITIES="); got != inherited {
 		t.Fatalf("CLAUDE_CODE_MODEL_CAPABILITIES = %q, want %q", got, inherited)
+	}
+}
+
+// A row the Switch tags haiku gets no [1m], whatever its name says. Claude
+// Code drops a /model row that asks for 1M on a haiku profile.
+func TestClaudeModelPickerLeavesAHaikuTaggedRowBare(t *testing.T) {
+	picker := claudeModelPicker(ModelRows([]LaunchModel{{Name: "smart", Tier: "haiku"}, {Name: "flash", Tier: "opus"}}))
+	options := picker["options"].([]any)
+	if got := options[0].(map[string]any)["model"]; got != "smart" {
+		t.Errorf("haiku-tagged row model = %v, want smart with no [1m]", got)
+	}
+	if got := options[1].(map[string]any)["model"]; got != "flash[1m]" {
+		t.Errorf("opus-tagged row model = %v, want flash[1m]", got)
+	}
+}
+
+// The Switch's tier decides a row's window, whatever its name says.
+func TestClaudeRowTakesItsWindowFromTheSwitchsTier(t *testing.T) {
+	rows := ModelRows([]LaunchModel{{Name: "team-haiku-blend", Tier: "opus"}})
+	if got := claudeRowModelName(rows[0]); got != "team-haiku-blend[1m]" {
+		t.Fatalf("opus-tagged row named haiku = %q, want team-haiku-blend[1m]", got)
+	}
+}
+
+// A config launched by its own name runs as its own picker row does: a
+// haiku-tagged config stays bare in the settings model, the --model flag, and
+// the Opus-tier variable, or Claude Code runs a model no row matches.
+func TestClaudeLaunchSpellsATieredConfigAsItsRow(t *testing.T) {
+	rows := ModelRows([]LaunchModel{{Name: "flash", Tier: "haiku"}})
+	named := claudeLaunchModelName("flash", rows)
+	if named != "flash" {
+		t.Fatalf("launch name = %q, want flash with no [1m]", named)
+	}
+	settings, err := claudeSettingsJSON("flash", rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(settings, `"model":"flash"`) {
+		t.Errorf("settings = %s, want the model spelled flash", settings)
+	}
+	if args := (&Claude{}).args("flash", rows, "", nil); strings.Join(args, " ") != "--model flash" {
+		t.Errorf("args = %v, want --model flash", args)
+	}
+	if !slices.Contains(claudeChildEnv("flash", rows), "ANTHROPIC_DEFAULT_OPUS_MODEL=flash") {
+		t.Errorf("child env lacks ANTHROPIC_DEFAULT_OPUS_MODEL=flash")
 	}
 }

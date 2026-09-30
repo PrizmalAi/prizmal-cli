@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	"golang.org/x/term"
@@ -72,12 +73,67 @@ func catalogModels(ctx context.Context) ([]LaunchModel, error) {
 	modelCatalog.fetched = true
 
 	catalog, err := fetchSwitchCatalog(ctx)
+	if err == nil && len(catalog) == 0 {
+		// The tier rows are aliases a tenant's configs hold. With nothing
+		// listed, nothing holds them, so the menu would offer choices the
+		// tenant does not serve.
+		err = ErrNoModels
+	}
 	if err != nil {
 		modelCatalog.err = err
 		return nil, err
 	}
-	modelCatalog.models = catalog
-	return catalog, nil
+	modelCatalog.models = withClaudeTiers(catalog)
+	return modelCatalog.models, nil
+}
+
+// withClaudeTiers puts every Claude tier alias first, then the switch's own
+// entries, so an operator can pick a tier or a named router config.
+//
+// The switch lists router configs, not the tier aliases its admin writes for
+// each tier. The aliases still route, so the CLI supplies them itself. A tier
+// the switch lists too appears once, in its tier's place, with the
+// capabilities the switch gave it.
+//
+// A config the switch tags with a tier holds that tier's alias, so both names
+// route to it. The tier row stands for it: the row takes the config's
+// description and capabilities, and the config is folded out of the rows. The
+// switch gives a tier one holder. Should it send two, only the first is folded,
+// and the other keeps its own row.
+func withClaudeTiers(catalog []LaunchModel) []LaunchModel {
+	models := make([]LaunchModel, 0, len(tierWords)+len(catalog))
+	holders := make(map[string]bool, len(tierWords))
+	for _, tier := range tierWords {
+		name := claudeTierModel(tier)
+		entry, ok := findSwitchCatalogModel(catalog, name)
+		if !ok {
+			entry = LaunchModel{Name: name}
+		}
+		entry.Name = name
+		if i := slices.IndexFunc(catalog, func(m LaunchModel) bool { return m.Tier == string(tier) }); i >= 0 {
+			holder := catalog[i]
+			holders[holder.Name] = true
+			if entry.Description == "" {
+				entry.Description = holder.Description
+			}
+			if len(entry.Capabilities) == 0 {
+				entry.Capabilities = holder.Capabilities
+			}
+		}
+		models = append(models, entry)
+	}
+	for _, entry := range catalog {
+		if slices.ContainsFunc(models[:len(tierWords)], func(tier LaunchModel) bool {
+			return launchModelMatches(entry.Name, tier.Name)
+		}) {
+			continue
+		}
+		if holders[entry.Name] {
+			entry.FoldedInto = claudeTierModel(modelTier(entry.Tier))
+		}
+		models = append(models, entry)
+	}
+	return models
 }
 
 // BestEffortCatalog returns the tenant's models, or nil when they could not be
@@ -139,6 +195,8 @@ func LaunchModels(chosen string, catalog []LaunchModel, includeCatalog bool) []L
 	models := []LaunchModel{{Name: chosen}}
 	if entry, ok := findSwitchCatalogModel(catalog, chosen); ok {
 		models[0].Capabilities = entry.Capabilities
+		models[0].Tier = entry.Tier
+		models[0].Description = entry.Description
 	}
 	if !includeCatalog {
 		return models

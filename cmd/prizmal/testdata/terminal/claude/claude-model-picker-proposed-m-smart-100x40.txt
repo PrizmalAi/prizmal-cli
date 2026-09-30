@@ -1,6 +1,6 @@
 
  ▐▛███▛█   Claude Code v2.1.283
-▝▜██████▀  tier-opus · API Usage Billing
+▝▜██████▀  smart · API Usage Billing
  ▝▝   ▝▝   ~/project
 
 ▎ Auto mode is now Claude Code's default permission mode.
@@ -12,18 +12,28 @@
 
 
 
+
+
+
+
+
+
+
+
+
 ▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔ ● high · /effort ▔
    Select model
    Switch between Claude models. Your pick becomes the default for new sessions. For
    other/previous model names, specify with --model.
 
-     1. Default (recommended)  Use the default model (currently tier-opus)
-   ❯ 2. tier-opus ✔            Opus tier
-     3. tier-sonnet            Sonnet tier
-     4. tier-haiku             Haiku tier
-     5. tier-fable             Fable tier
-   ↓ 6. smart                  Custom model (smart[1m])
-      … +1 model
+     1. Default (recommended)  Use the default model (currently smart)
+   ❯ 2. smart ✔                Everyday coding
+     3. tier-opus              Everyday coding
+     4. tier-sonnet            Balanced cost and speed
+     5. tier-haiku             Quick answers
+     6. tier-fable             Long, hard tasks
+     7. experimental           Custom model (experimental[1m])
+     8. team-opus-blend        Team blend for refactors
 
    ● High effort (default) ←/→ to adjust
 

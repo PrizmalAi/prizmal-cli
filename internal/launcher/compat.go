@@ -40,6 +40,16 @@ type LaunchModel struct {
 	}
 	ContextLength   int
 	MaxOutputTokens int
+
+	// Tier is the Claude tier the Switch says this model serves, one of
+	// opus, sonnet, haiku or fable, and empty when it said none.
+	Tier string
+	// Description is the Switch's text for the model's picker row.
+	Description string
+	// FoldedInto is the tier alias whose row stands for this model. A folded
+	// model gets no row of its own, and stays in the catalog so a launch that
+	// names it still finds its tier and description.
+	FoldedInto string
 }
 
 func (m LaunchModel) HasCapability(capability model.Capability) bool {

@@ -469,11 +469,12 @@ func TestBareLaunchOnATerminalOpensThePicker(t *testing.T) {
 	if chosen != "chosen-here" {
 		t.Fatalf("resolved %q, want chosen-here", chosen)
 	}
-	if len(sawRows) != 3 {
-		t.Fatalf("the picker was offered %d rows (%v), want the whole 3-model catalog", len(sawRows), sawRows)
+	// The four Claude tiers come first, then the stub's three router configs.
+	if len(sawRows) != 7 {
+		t.Fatalf("the picker was offered %d rows (%v), want the four tiers and the whole 3-model catalog", len(sawRows), sawRows)
 	}
-	if len(catalog) != 3 {
-		t.Fatalf("catalog has %d models, want 3", len(catalog))
+	if len(catalog) != 7 {
+		t.Fatalf("catalog has %d models, want 7", len(catalog))
 	}
 	if got := readDefaultModel(t, home); got != "chosen-here" {
 		t.Fatalf("default_model = %q, want the bare launch's pick saved", got)

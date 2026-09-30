@@ -607,3 +607,70 @@ func TestOnlyClaudeOwnsTheModelFlag(t *testing.T) {
 		}
 	}
 }
+
+// A tier the Switch sends outranks the tier word in the name. The row gets the
+// tier's behavesAs, and the tier's text unless the Switch sent a description.
+func TestModelRowsTakeTheSwitchsTier(t *testing.T) {
+	rows := ModelRows([]LaunchModel{
+		{Name: "smart", Tier: "opus"},
+		{Name: "flash", Tier: "sonnet", Description: "Fast and cheap"},
+		{Name: "team-opus-blend", Tier: "haiku"},
+	})
+	if len(rows) != 3 {
+		t.Fatalf("built %d rows, want 3", len(rows))
+	}
+	if rows[0].BehavesAs != "claude-opus-5" || rows[0].Description != "Opus tier" {
+		t.Errorf("smart = %+v, want the opus profile and text", rows[0])
+	}
+	if rows[1].BehavesAs != "claude-sonnet-5" || rows[1].Description != "Fast and cheap" {
+		t.Errorf("flash = %+v, want the sonnet profile and the Switch's text", rows[1])
+	}
+	if rows[2].BehavesAs != "claude-haiku-4-5-20251001" {
+		t.Errorf("team-opus-blend = %+v, want the Switch's haiku tier over the name's opus", rows[2])
+	}
+}
+
+// The prizmal picker shows each row's description beside its label, in one
+// column, as Claude Code's /model does.
+func TestPickerShowsDescriptionsInOneColumn(t *testing.T) {
+	view := newPickerModel(ModelRows([]LaunchModel{
+		{Name: "claude-tier-opus"},
+		{Name: "smart", Tier: "sonnet"},
+		{Name: "plain"},
+	})).View()
+
+	column := -1
+	for _, want := range []struct{ label, description string }{
+		{"tier-opus", "Opus tier"},
+		{"smart", "Sonnet tier"},
+	} {
+		line := ""
+		for _, l := range strings.Split(ansi.Strip(view), "\n") {
+			if strings.Contains(l, want.label) {
+				line = l
+				break
+			}
+		}
+		at := strings.Index(line, want.description)
+		if at < 0 {
+			t.Fatalf("row %q = %q, want it to show %q\n%s", want.label, line, want.description, view)
+		}
+		at = ansi.StringWidth(line[:at])
+		if column >= 0 && at != column {
+			t.Fatalf("description of %q starts at column %d, want %d\n%s", want.label, at, column, view)
+		}
+		column = at
+	}
+}
+
+// One long model name must not push every other row's description past the
+// menu's width.
+func TestPickerCapsTheLabelColumn(t *testing.T) {
+	view := ansi.Strip(newPickerModel(ModelRows([]LaunchModel{
+		{Name: "smart", Description: "Everyday coding"},
+		{Name: strings.Repeat("x", 76)},
+	})).View())
+	if !strings.Contains(view, "Everyday coding") {
+		t.Fatalf("a long label hid the other row's description:\n%s", view)
+	}
+}
