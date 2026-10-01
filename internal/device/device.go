@@ -21,6 +21,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/PrizmalAi/prizmal-cli/internal/config"
 )
 
 // KeyFileName is the device private key file inside the prizmal directory.
@@ -240,11 +242,13 @@ func (ct *CachedToken) Save() error {
 	return ct.saveTo(dir)
 }
 
-// Dir returns the user's prizmal directory.
+// Dir returns the user's prizmal directory, the same directory the CLI's
+// config file lives in. It derives from config.Path so there is one definition
+// of where that directory is.
 func Dir() (string, error) {
-	home, err := os.UserHomeDir()
+	p, err := config.Path()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".prizmal"), nil
+	return filepath.Dir(p), nil
 }
