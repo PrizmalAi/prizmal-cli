@@ -42,6 +42,16 @@ var updateBaselines = flag.Bool("update-baselines", false, "rewrite testdata/ter
 const (
 	claudeBaselineDir = "testdata/terminal/claude"
 
+	// prizmalBaselineDir holds the screens prizmal's own subcommands draw: the
+	// first-run prompt and the device-login flow. They come from the real
+	// prizmal binary and the stub switch, with no harness involved.
+	prizmalBaselineDir = "testdata/terminal/prizmal"
+
+	// nonRoutableAppURL is the consent-page origin a login case gets. A window
+	// that opened it would reach nothing, and PRIZMAL_ENV=testing already
+	// refuses to open a browser at all.
+	nonRoutableAppURL = "http://127.0.0.1:0"
+
 	// baselineRequireEnv set to "require" turns a missing tmux or Claude Code
 	// into a failure. CI sets it, so a runner without them cannot pass by
 	// skipping every case.
@@ -95,6 +105,43 @@ var claudeVersionPattern = regexp.MustCompile(`Claude Code v[0-9]+\.[0-9]+\.[0-9
 // comparison normalizes it instead, the way it does the banner version.
 var claudeElapsedPattern = regexp.MustCompile(`(?m)^(.*Total duration \(wall\): ).*$`)
 
+// The login and first-run screens carry values that change per run and per
+// machine, so the comparison replaces each with a placeholder. The values are
+// still drawn correctly; only the baseline is made stable.
+//
+// Two of them are long enough to wrap at 100 columns, and where they wrap
+// depends on the machine (a temp path) or the hostname. So each is normalized
+// as the whole block between two stable lines, not as a token: a token match
+// would leave the wrapped continuation behind, and its position would differ
+// between the recorder's machine and the CI runner.
+//
+//   - The consent URL holds a freshly generated ed25519 public key (per run)
+//     and the machine's hostname.
+//   - The first-run screen prints the config path under the run's temp HOME.
+//   - The device fingerprint is derived from the key, so it changes too, but it
+//     is short and stays on one line.
+var (
+	baselineConsentURLPattern = regexp.MustCompile(`(?s)(To approve this device, open:\n\n).*?(\n\nDevice fingerprint: )`)
+	baselineConfigPathPattern = regexp.MustCompile(`(?s)(No configuration found at ).*?(\nSign in: )`)
+	baselineFingerprint       = regexp.MustCompile(`Device fingerprint: [0-9a-f]{4}-[0-9a-f]{4}`)
+	// baselineBrowserFailure matches the parenthetical reason the login prints
+	// when it cannot open a browser. In a baseline run the reason is always the
+	// testing guard, which is an artifact of the harness and differs on a real
+	// host, so the line is normalized to its stable prefix.
+	baselineBrowserFailure = regexp.MustCompile(`Could not open a browser automatically \([^)]*\)\.`)
+)
+
+// withStableDeviceValues replaces the per-run values on the login and first-run
+// screens with placeholders, so their baselines do not depend on the generated
+// key, the machine's hostname, or the temp directory of the run.
+func withStableDeviceValues(screen string) string {
+	screen = baselineConsentURLPattern.ReplaceAllString(screen, "${1}<consent-url>${2}")
+	screen = baselineConfigPathPattern.ReplaceAllString(screen, "${1}<config-path>${2}")
+	screen = baselineFingerprint.ReplaceAllString(screen, "Device fingerprint: <fp>")
+	screen = baselineBrowserFailure.ReplaceAllString(screen, "Could not open a browser automatically.")
+	return screen
+}
+
 // baselineStep sends keys, then waits until the screen shows waitFor and has
 // stopped changing. literal is typed as text, key is a tmux key name such as
 // Enter or Escape.
@@ -118,6 +165,25 @@ type baselineCase struct {
 	steps  []baselineStep
 	// entries replaces catalog when the stub must send a tier or description.
 	entries []stubserver.Entry
+	// dir is the baseline directory. Empty means claudeBaselineDir; prizmal's
+	// own screens live under prizmalBaselineDir.
+	dir string
+	// argsAfter are appended after a `--` separator, so a case can pass text
+	// the first integration name would otherwise capture. The first-run case
+	// uses it to name the integration the menu would otherwise have chosen.
+	argsAfter []string
+	// noConfig starts the case without a config file, so the first-run prompt
+	// fires. Every other case pre-writes the config the launch needs.
+	noConfig bool
+	// deviceApproved makes the stub approve the device refresh, so a login
+	// case draws the approved screen. The default is pending: 404.
+	deviceApproved bool
+	// deviceKey writes a device.key into HOME before the launch. It is how a
+	// case reaches the re-approve line (key present) or the no-key error
+	// (auth token with no key).
+	deviceKey bool
+	// env is extra environment for the child, on top of the fixed set.
+	env []string
 }
 
 var (
@@ -280,7 +346,88 @@ var claudeBaselineCases = []baselineCase{
 	},
 }
 
+// prizmalBaselineCases are the screens prizmal draws for its own commands: the
+// first-run prompt and the device-login flow. They run the real prizmal binary
+// against the stub switch with no harness, so a stand-in claude keeps the
+// first-run case from offering an install.
+//
+// The login cases pin PRIZMAL_APP_URL to a non-routable host. PRIZMAL_ENV=testing
+// already refuses to open a browser, and the pinned URL keeps even a stray
+// window off the production consent page. The stub decides pending (404) versus
+// approved (200), so neither needs the polling loop to advance.
+var prizmalBaselineCases = []baselineCase{
+	// The first-run menu. The config file is absent, so ensureConfig prompts.
+	{
+		name: "firstrun-menu-100x30", cols: 100, rows: 30,
+		args:      []string{"--model", "smart"},
+		argsAfter: []string{"claude"},
+		noConfig:  true,
+		steps:     []baselineStep{{waitFor: "paste a key"}},
+	},
+	// The browser login while the tenant has not approved yet. The stub answers
+	// the refresh 404, so the flow stops at "Waiting for approval..." and the
+	// wait is stable to capture: the screen has settled before it is read.
+	{
+		name: "login-pending-100x30", cols: 100, rows: 30,
+		args:  []string{"login"},
+		env:   []string{"PRIZMAL_APP_URL=" + nonRoutableAppURL},
+		steps: []baselineStep{{waitFor: "Waiting for approval"}},
+	},
+	// The approved login. The stub answers 200 with a token and a reauth_by, so
+	// the screen shows the success line and the deadline.
+	{
+		name: "login-approved-100x30", cols: 100, rows: 30,
+		args:           []string{"login"},
+		deviceApproved: true,
+		env:            []string{"PRIZMAL_APP_URL=" + nonRoutableAppURL},
+		steps:          []baselineStep{{waitFor: "This device is approved"}},
+	},
+	// Re-approving a machine that already has a device key: the same screen with
+	// the re-approve line instead of "Generated a new device key".
+	{
+		name: "login-reapprove-100x30", cols: 100, rows: 30,
+		args:           []string{"login"},
+		deviceKey:      true,
+		deviceApproved: true,
+		env:            []string{"PRIZMAL_APP_URL=" + nonRoutableAppURL},
+		steps:          []baselineStep{{waitFor: "Re-approving the device key"}},
+	},
+	// `auth token` with no device key is the only screen it draws: its success
+	// path prints the token to stdout and nothing else.
+	{
+		name: "auth-token-no-key-100x30", cols: 100, rows: 30,
+		args:  []string{"auth", "token"},
+		steps: []baselineStep{{waitFor: "run prizmal login"}},
+	},
+}
+
+// launchArgs assembles the child's argument list: prizmal's own args, then a
+// `--` separator when the case passes text after the integration name, so the
+// first-run case can name the integration the menu would otherwise capture.
+func launchArgs(tc baselineCase) []string {
+	args := append([]string{}, tc.args...)
+	if len(tc.argsAfter) > 0 {
+		args = append(args, "--")
+		args = append(args, tc.argsAfter...)
+	}
+	return args
+}
+
 func TestTerminalBaselinesClaude(t *testing.T) {
+	runBaselineCases(t, claudeBaselineCases, claudeBaselineDir, true)
+}
+
+// TestTerminalBaselinesPrizmal renders the screens prizmal draws itself: the
+// first-run prompt and the device-login flow. It needs no harness, so it runs
+// wherever tmux is, and its screens live under testdata/terminal/prizmal.
+func TestTerminalBaselinesPrizmal(t *testing.T) {
+	runBaselineCases(t, prizmalBaselineCases, prizmalBaselineDir, false)
+}
+
+// runBaselineCases renders one group of cases in parallel and compares each to
+// its baseline. needsClaude marks the group that runs the real Claude Code and
+// so needs the pinned version installed; the others skip when tmux is absent.
+func runBaselineCases(t *testing.T, cases []baselineCase, dir string, needsClaude bool) {
 	if testing.Short() {
 		t.Skip("skipping terminal baselines in short mode")
 	}
@@ -303,24 +450,36 @@ func TestTerminalBaselinesClaude(t *testing.T) {
 		t.Fatalf("build prizmal: %v\n%s", err, out)
 	}
 
-	claudeDir, claudeReason := pinnedClaudeDir(t)
+	claudeDir, claudeReason := "", ""
+	if needsClaude {
+		claudeDir, claudeReason = pinnedClaudeDir(t)
+	}
 
-	for _, tc := range claudeBaselineCases {
+	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			// Only a case that runs the real Claude Code needs the pinned
+			// version. The prizmal picker cases in the same suite do not, so
+			// they still run on a machine with another version installed.
 			if tc.claude && claudeDir == "" {
 				skipOrFail(t, "%s", claudeReason)
 			}
 			got, ansi := renderBaseline(t, tmuxPath, prizmalBin, claudeDir, tc)
 			got = withStableElapsed(got)
+			got = withStableDeviceValues(got)
 
-			if dir := os.Getenv(baselineShotsEnv); dir != "" {
-				if err := os.WriteFile(filepath.Join(dir, tc.name+".ansi"), []byte(ansi), 0o644); err != nil {
+			if shots := os.Getenv(baselineShotsEnv); shots != "" {
+				// The saved capture is the one a screenshot is drawn from, so
+				// it is cleaned of the per-run values too: the raw key, hostname
+				// and temp path must not reach an image pasted into a pull
+				// request. This is a text rewrite, so it leaves the colour
+				// escapes around those lines intact.
+				if err := os.WriteFile(filepath.Join(shots, tc.name+".ansi"), []byte(withStableDeviceValues(ansi)), 0o644); err != nil {
 					t.Errorf("save colour capture: %v", err)
 				}
 			}
 
-			path := filepath.Join(claudeBaselineDir, tc.name+".txt")
+			path := filepath.Join(dir, tc.name+".txt")
 			want, err := os.ReadFile(path)
 			if err == nil {
 				got = withBaselineVersion(got, string(want))
@@ -400,9 +559,12 @@ func renderBaseline(t *testing.T, tmuxPath, prizmalBin, claudeDir string, tc bas
 		catalog = baselineCatalog
 	}
 	var srv *httptest.Server
-	if len(tc.entries) > 0 {
+	switch {
+	case tc.deviceApproved:
+		srv = stubserver.NewWithDeviceApproval()
+	case len(tc.entries) > 0:
 		srv = stubserver.NewWithEntries(tc.entries...)
-	} else {
+	default:
 		srv = stubserver.NewWithModels(catalog...)
 	}
 	t.Cleanup(srv.Close)
@@ -427,11 +589,21 @@ func renderBaseline(t *testing.T, tmuxPath, prizmalBin, claudeDir string, tc bas
 			t.Fatal(err)
 		}
 	}
-	writeJSONFile(t, filepath.Join(home, ".prizmal", "config.json"), map[string]any{
-		"version":  1,
-		"base_url": srv.URL,
-		"api_key":  stubserver.StubKey,
-	})
+	if !tc.noConfig {
+		writeJSONFile(t, filepath.Join(home, ".prizmal", "config.json"), map[string]any{
+			"version":  1,
+			"base_url": srv.URL,
+			"api_key":  stubserver.StubKey,
+		})
+	}
+	// A device key on disk is what makes prizmal enter device mode: the login
+	// case re-approves it and the auth case without it hits the no-key error.
+	// The bytes are arbitrary; the CLI reads them only as an ed25519 seed.
+	if tc.deviceKey {
+		if err := os.WriteFile(filepath.Join(home, ".prizmal", "device.key"), make([]byte, 32), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	path := binDir
 	if tc.claude {
@@ -446,7 +618,7 @@ func renderBaseline(t *testing.T, tmuxPath, prizmalBin, claudeDir string, tc bas
 	// ANTHROPIC_* variables cannot change what it draws. The trailing echo
 	// and sleep keep the pane open when prizmal exits early, so the capture
 	// shows its error instead of an empty screen.
-	command := "env -i " + strings.Join([]string{
+	envVars := []string{
 		shellQuote("HOME=" + home),
 		shellQuote("PATH=" + path),
 		"TERM=xterm-256color",
@@ -460,8 +632,12 @@ func renderBaseline(t *testing.T, tmuxPath, prizmalBin, claudeDir string, tc bas
 		// classic renderer draws below the earlier output instead. This
 		// variable selects the alternate-screen renderer whatever the flag.
 		"CLAUDE_CODE_NO_FLICKER=1",
-	}, " ") + " sh -c " + shellQuote(
-		"cd "+shellQuote(project)+" && "+shellQuote(prizmalBin)+" "+shellJoin(tc.args)+`; echo "[prizmal exited $?]"; sleep 600`)
+	}
+	for _, kv := range tc.env {
+		envVars = append(envVars, shellQuote(kv))
+	}
+	command := "env -i " + strings.Join(envVars, " ") + " sh -c " + shellQuote(
+		"cd "+shellQuote(project)+" && "+shellQuote(prizmalBin)+" "+shellJoin(launchArgs(tc))+`; echo "[prizmal exited $?]"; sleep 600`)
 
 	socket := filepath.Join(root, "tmux.sock")
 	tmux := func(args ...string) (string, error) {

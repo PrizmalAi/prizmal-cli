@@ -11,7 +11,10 @@ name: Claude Code
 #
 # terminal-baselines renders the prizmal model picker and Claude Code's
 # screens in a fixed-size tmux terminal, against a stub switch that serves
-# GET /v1/models, and compares their text to cmd/prizmal/testdata/terminal/claude. See
+# GET /v1/models, and compares their text to cmd/prizmal/testdata/terminal/claude.
+# It also renders the screens prizmal draws for its own commands (the first-run
+# prompt and the device-login flow) and compares them to
+# cmd/prizmal/testdata/terminal/prizmal; those need tmux but no Claude Code. See
 # the "Terminal baselines" section of AGENTS.md.
 #
 # Claude Code is installed at the version in
@@ -72,4 +75,4 @@ jobs:
       - name: Compare terminal baselines
         env:
           PRIZMAL_TERMINAL_BASELINES: require
-        run: go test -count=1 -v -run TestTerminalBaselinesClaude ./cmd/prizmal
+        run: go test -count=1 -v -run 'TestTerminalBaselinesClaude|TestTerminalBaselinesPrizmal' ./cmd/prizmal

@@ -1,0 +1,14 @@
+
+Signing in with your browser...
+Generated a new device key at ~/.prizmal/device.key
+
+To approve this device, open:
+
+<consent-url>
+
+Device fingerprint: <fp>
+Confirm this matches the fingerprint shown in your browser.
+
+Could not open a browser automatically.
+Open the URL above on any machine with a browser.
+Waiting for approval...
