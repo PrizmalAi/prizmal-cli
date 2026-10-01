@@ -156,10 +156,13 @@ func TestClaudeEnvVarsSetNoModelVariables(t *testing.T) {
 }
 
 // TestClaudeChildEnvDropsInheritedModelVars is the acceptance criterion that no
-// inherited model env var reaches the child, and that ANTHROPIC_AUTH_TOKEN's
-// inherited value never survives. A value exported in the operator's shell for
-// Anthropic itself must not ride along and re-route a launch the operator aimed
-// at the Switch.
+// inherited model env var reaches the child. A value exported in the operator's
+// shell for Anthropic itself must not ride along and re-route a launch the
+// operator aimed at the Switch.
+//
+// ANTHROPIC_AUTH_TOKEN is in the drop list but is not checked here: the
+// switch-key launch sets it to the key, so it is legitimately present. Its
+// inherited value is covered by TestClaudeChildEnvAuthTokenIsTheLaunchValueNotTheInheritedOne.
 func TestClaudeChildEnvDropsInheritedModelVars(t *testing.T) {
 	resetAPIKey(t)
 	for _, name := range claudeInheritedModelVars {
@@ -168,20 +171,32 @@ func TestClaudeChildEnvDropsInheritedModelVars(t *testing.T) {
 
 	env := claudeChildEnv("", nil)
 
-	// The launch sets ANTHROPIC_AUTH_TOKEN itself (to the switch key, empty
-	// here), so the name is allowed to appear — it just must not carry the
-	// inherited value.
-	envconfig.SetDeviceMode(false)
 	for _, name := range claudeInheritedModelVars {
 		if name == "ANTHROPIC_AUTH_TOKEN" {
-			if got := envValue(env, "ANTHROPIC_AUTH_TOKEN="); got != "" {
-				t.Errorf("ANTHROPIC_AUTH_TOKEN = %q, want the launch value (empty here), not the inherited one", got)
-			}
 			continue
 		}
 		if strings.Contains(strings.Join(env, "\n"), name+"=") {
 			t.Errorf("%s reached the child environment", name)
 		}
+	}
+}
+
+// TestClaudeChildEnvAuthTokenIsTheLaunchValueNotTheInheritedOne pins the
+// switch-key path: ANTHROPIC_AUTH_TOKEN carries the launch's key, and an
+// inherited value of the same name never survives. The launch value must be
+// non-empty here, or a regression that drops it is indistinguishable from one
+// that keeps an empty entry.
+func TestClaudeChildEnvAuthTokenIsTheLaunchValueNotTheInheritedOne(t *testing.T) {
+	resetAPIKey(t)
+	envconfig.SetAPIKey("sk-launch-key")
+	t.Cleanup(func() { envconfig.SetAPIKey("") })
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "inherited-should-not-survive")
+	envconfig.SetDeviceMode(false)
+
+	env := claudeChildEnv("", nil)
+
+	if got := envValue(env, "ANTHROPIC_AUTH_TOKEN="); got != "sk-launch-key" {
+		t.Fatalf("ANTHROPIC_AUTH_TOKEN = %q, want the launch key, never the inherited one", got)
 	}
 }
 
