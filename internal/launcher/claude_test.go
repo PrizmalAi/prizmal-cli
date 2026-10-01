@@ -218,8 +218,7 @@ func TestClaudeChildEnvDeviceModeHasNoAuthToken(t *testing.T) {
 	// pass it through either.
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "inherited-should-not-survive")
 
-	env := (&Claude{}).envVars()
-	env = claudeChildEnv("", nil)
+	env := claudeChildEnv("", nil)
 
 	if strings.Contains(strings.Join(env, "\n"), "ANTHROPIC_AUTH_TOKEN=") {
 		t.Fatalf("ANTHROPIC_AUTH_TOKEN is present in device mode:\n%v", env)

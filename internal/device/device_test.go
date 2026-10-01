@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -44,19 +45,25 @@ func TestKeyFileRoundTripsAt0600InA0700Dir(t *testing.T) {
 		t.Fatalf("WriteKeyFile: %v", err)
 	}
 
-	fi, err := os.Stat(keyPath(dir))
-	if err != nil {
-		t.Fatalf("stat key file: %v", err)
-	}
-	if perm := fi.Mode().Perm(); perm != 0o600 {
-		t.Fatalf("key file mode is %o, want 600", perm)
-	}
-	di, err := os.Stat(dir)
-	if err != nil {
-		t.Fatalf("stat dir: %v", err)
-	}
-	if perm := di.Mode().Perm(); perm != 0o700 {
-		t.Fatalf("dir mode is %o, want 700", perm)
+	// Windows does not carry Unix permission bits: a file it creates reports
+	// 0666 whatever mode was requested, so the mode assertions are POSIX-only.
+	// The write still passes 0600/0700 at every call site (see config's own
+	// mode test, same exemption).
+	if runtime.GOOS != "windows" {
+		fi, err := os.Stat(keyPath(dir))
+		if err != nil {
+			t.Fatalf("stat key file: %v", err)
+		}
+		if perm := fi.Mode().Perm(); perm != 0o600 {
+			t.Fatalf("key file mode is %o, want 600", perm)
+		}
+		di, err := os.Stat(dir)
+		if err != nil {
+			t.Fatalf("stat dir: %v", err)
+		}
+		if perm := di.Mode().Perm(); perm != 0o700 {
+			t.Fatalf("dir mode is %o, want 700", perm)
+		}
 	}
 
 	loaded, err := loadKeyFrom(dir)
