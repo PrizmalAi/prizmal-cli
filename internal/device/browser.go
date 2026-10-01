@@ -1,12 +1,17 @@
 package device
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
+
+	"golang.org/x/term"
 )
 
 // EnvTesting, when set to exactly "testing", marks a process a test launched.
@@ -52,6 +57,27 @@ func BestEffortOpenBrowser(url string) error {
 		cmd, args = "xdg-open", []string{url}
 	}
 	return exec.Command(cmd, args...).Start()
+}
+
+// readConfirm waits for the operator to press Enter, after Login has printed
+// the prompt. It returns true to continue (the browser should open) and false
+// when the input is not a terminal or the answer is anything but a bare Enter,
+// so a script that runs the CLI without a person never has a browser opened on
+// its behalf.
+//
+// It reads the terminal the way the CLI's readSecret does: a TTY reads a line,
+// and a non-TTY is treated as "no" without blocking.
+func readConfirm() (bool, error) {
+	fd := int(os.Stdin.Fd())
+	if !term.IsTerminal(fd) {
+		return false, nil
+	}
+	r := bufio.NewReader(os.Stdin)
+	line, err := r.ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return false, err
+	}
+	return strings.TrimSpace(line) == "", nil
 }
 
 // WarnReauthWindow is how long before the sign-in deadline the launcher starts
