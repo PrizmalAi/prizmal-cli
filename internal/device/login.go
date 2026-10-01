@@ -91,12 +91,15 @@ func Login(client *Client, key *Key, opts LoginOptions) (*Token, error) {
 	opts = opts.withDefaults()
 
 	authURL := AuthorizeURL(opts.AuthorizeBaseURL, key, opts.DeviceName)
-	fmt.Fprintf(opts.Out, "\nTo approve this device, open:\n\n  %s\n\n", authURL)
-	fmt.Fprintf(opts.Out, "Device fingerprint: %s\n", key.Fingerprint())
-	fmt.Fprintf(opts.Out, "Confirm this matches the fingerprint shown in your browser.\n\n")
+	// Explicit discards: these write progress to the operator's terminal, and a
+	// failure (a closed pipe) is not a reason to abandon an enrollment already
+	// in flight.
+	_, _ = fmt.Fprintf(opts.Out, "\nTo approve this device, open:\n\n  %s\n\n", authURL)
+	_, _ = fmt.Fprintf(opts.Out, "Device fingerprint: %s\n", key.Fingerprint())
+	_, _ = fmt.Fprintf(opts.Out, "Confirm this matches the fingerprint shown in your browser.\n\n")
 
 	if err := opts.OpenBrowser(authURL); err != nil {
-		fmt.Fprintf(opts.Out, "Could not open a browser automatically (%v).\nOpen the URL above on any machine with a browser.\n", err)
+		_, _ = fmt.Fprintf(opts.Out, "Could not open a browser automatically (%v).\nOpen the URL above on any machine with a browser.\n", err)
 	}
 	fmt.Fprintf(opts.Out, "Waiting for approval...\n")
 

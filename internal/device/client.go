@@ -136,7 +136,7 @@ func (c *Client) Refresh(key *Key, now time.Time) (*Token, error) {
 	if err != nil {
 		return nil, fmt.Errorf("refresh device token: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 	if err != nil {

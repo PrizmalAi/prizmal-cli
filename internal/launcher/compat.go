@@ -266,7 +266,7 @@ func SupportsDeviceMode(runner Runner) bool {
 func DeviceModeRefusal(displayName string) error {
 	return fmt.Errorf("%s cannot use device login: it has no way to refresh a device token during a session\n\n"+
 		"This machine is signed in with a device key. To run %s, give it a switch key with --api-key or $%s "+
-		"for this launch, or remove ~/.prizmal/device.key to stop using device login.",
+		"for this launch, or remove ~/.prizmal/device.key to stop using device login",
 		displayName, displayName, envconfig.KeyEnvVar)
 }
 
