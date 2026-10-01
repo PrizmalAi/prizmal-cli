@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -560,15 +559,19 @@ func renderBaseline(t *testing.T, tmuxPath, prizmalBin, claudeDir string, tc bas
 	if len(catalog) == 0 {
 		catalog = baselineCatalog
 	}
-	var srv *httptest.Server
-	switch {
-	case tc.deviceApproved:
-		srv = stubserver.NewWithDeviceApproval()
-	case len(tc.entries) > 0:
-		srv = stubserver.NewWithEntries(tc.entries...)
-	default:
-		srv = stubserver.NewWithModels(catalog...)
+	// The catalog and the device answer are independent options, so a case can
+	// name a tenant and still be approved (or pending) without one field
+	// shadowing the other.
+	var opts []stubserver.ServerOption
+	if len(tc.entries) > 0 {
+		opts = append(opts, stubserver.WithEntries(tc.entries...))
+	} else {
+		opts = append(opts, stubserver.WithModels(catalog...))
 	}
+	if tc.deviceApproved {
+		opts = append(opts, stubserver.WithDeviceApproval())
+	}
+	srv := stubserver.NewServer(opts...)
 	t.Cleanup(srv.Close)
 
 	// Claude Code keeps writing into HOME while tmux closes it, so a
