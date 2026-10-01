@@ -34,6 +34,24 @@ func TestGenerateKeyDerivesIDAndFingerprint(t *testing.T) {
 	}
 }
 
+// TestIDAndFingerprintAreSafeForAnyPublicKey locks the length invariant the
+// Fingerprint slice depends on: ID() hashes the public key with SHA-256, which
+// always yields 32 bytes whatever length its input was, so the id is always 24
+// characters and the fingerprint's fixed slices cannot run short. A Key built
+// outside GenerateKey, with an empty or odd-length Pub, is covered here so the
+// slice is never left to luck.
+func TestIDAndFingerprintAreSafeForAnyPublicKey(t *testing.T) {
+	for _, n := range []int{0, 1, 16, 31, 32, 100} {
+		k := &Key{Pub: make([]byte, n)}
+		if got := len(k.ID()); got != 24 {
+			t.Errorf("Pub of %d bytes: ID length %d, want 24", n, got)
+		}
+		if fp := k.Fingerprint(); len(fp) != 9 || fp[4] != '-' {
+			t.Errorf("Pub of %d bytes: fingerprint %q is not 4-hex-dash-4-hex", n, fp)
+		}
+	}
+}
+
 func TestKeyFileRoundTripsAt0600InA0700Dir(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "prizmal")
 
