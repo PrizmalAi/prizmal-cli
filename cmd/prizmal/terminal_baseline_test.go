@@ -164,9 +164,6 @@ type baselineCase struct {
 	steps  []baselineStep
 	// entries replaces catalog when the stub must send a tier or description.
 	entries []stubserver.Entry
-	// dir is the baseline directory. Empty means claudeBaselineDir; prizmal's
-	// own screens live under prizmalBaselineDir.
-	dir string
 	// argsAfter are appended after a `--` separator, so a case can pass text
 	// the first integration name would otherwise capture. The first-run case
 	// uses it to name the integration the menu would otherwise have chosen.
