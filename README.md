@@ -43,11 +43,29 @@ cd prizmal-cli
 go build ./cmd/prizmal
 ```
 
-On first run, `prizmal` prompts for your API key (see [Credentials](#credentials)).
+On first run, `prizmal` offers two ways to sign in: approve this machine in your browser, or paste an API key (see [Credentials](#credentials)).
 
 ## Credentials
 
-`prizmal` stores its Prizmal Switch API key in a single config file at `~/.prizmal/config.json`, created on first run and written with `0600` permissions (`0700` on the directory). On first launch it prompts for the key. Type a key and `prizmal` writes it to the file. Leave it empty and the next run prompts again. To run without the prompt, set the key with `--api-key` or `$PRIZMAL_SWITCH_KEY`, or write the file yourself.
+A `prizmal` launch can use one of two credentials. You paste a **switch key** in, or this machine enrolls a **device key** once in your browser. The switch key is simplest, since it doesn't expire, while the device key means you don't type a secret on this machine and keeps a long Claude Code session working without a restart.
+
+### Device login
+
+```bash
+prizmal login
+```
+
+`prizmal login` generates an ed25519 key pair at `~/.prizmal/device.key` (mode `0600`, in the `0700` directory), prints a URL and a fingerprint, opens your browser, and waits. On the consent page you confirm the fingerprint and pick a router config. Then choose Allow. The CLI then polls until your tenant approves the device and stores the first device token in `~/.prizmal/token.json` (mode `0600`). There is no localhost listener, so this works over SSH: open the printed URL on any machine with a browser.
+
+Once your tenant approves a device, a launch uses it automatically. `prizmal claude` runs with an `apiKeyHelper` that refreshes the device token every few minutes, so a session keeps working across a laptop sleep and doesn't need a restart. A sign-in that a tenant's identity provider manages does not expire. Otherwise the device has a deadline, and `prizmal claude` warns you under 24 hours before it, and `prizmal login` again re-approves the same device key.
+
+A device token is a bearer credential that expires 10 minutes after issue, and the Switch binds it to one tenant. The private key never leaves the machine. The next refresh stops once a tenant manager revokes the device or disables the tenant, or sets the member inactive.
+
+Only Claude Code has a documented credential-refresh contract, so only it runs in device mode. Launching `codex`, `cline`, `opencode`, or `pi` on a machine signed in with a device key stops and asks for a switch key, which has no expiry and doesn't need a helper.
+
+### Switch key
+
+`prizmal` stores a Prizmal Switch API key in a single config file at `~/.prizmal/config.json`, created on first run and written with `0600` permissions (`0700` on the directory). On first launch it prompts for the key. Type a key and `prizmal` writes it to the file. Leave it empty and the next run prompts again. To run without the prompt, set the key with `--api-key` or `$PRIZMAL_SWITCH_KEY`, or write the file yourself.
 
 The key is stored as **plain text by default**. This matches how the downstream coding harnesses store their own credentials, and `prizmal` deliberately does not run a local proxy or an OS keyring, so there is no extra infrastructure. If you prefer not to keep a secret on disk, the `api_key` field is extensible to two other forms. It is one of:
 
@@ -78,6 +96,10 @@ using api key from: config file (~/.prizmal/config.json)
 
 The announcement prints the source only, never the key's value, a prefix of it, its length, or a hash.
 
+An enrolled device key takes precedence over both the config file and `$PRIZMAL_SWITCH_KEY`, since it is the credential your tenant approved for this machine. `--api-key` and `--url` still win for one launch, so you can use a switch key on a device-signed machine.
+
+`prizmal login` prints nothing on stdout. It signs in and exits. `prizmal auth token` is the internal `apiKeyHelper` command Claude Code runs: it prints one device token on stdout and nothing else, and you don't run it by hand.
+
 `--list` skips the announcement. Its output is the answer, and the line only gets in the way.
 
 ### Model discovery failures
@@ -99,6 +121,16 @@ A launch that already has its model continues after the warning, without the ext
 | `opencode` | OpenCode | | `provider.prizmal.options.apiKey` |
 | `cline` | Cline | | `OPENAI_API_KEY`, which cline reads when `providers.openai-compatible.settings` has no `apiKey` |
 | `pi` | Pi coding agent | | `PRIZMAL_SWITCH_KEY`, which `"apiKey": "$PRIZMAL_SWITCH_KEY"` in `~/.pi/agent/models.json` refers to (pi 0.77.0 or later) |
+
+On a machine signed in with a device key, only `claude` runs. The others receive a switch key once through the environment and cannot refresh a device token, so they stop and ask for one.
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `prizmal [flags] INTEGRATION` | Launch an integration (the default command) |
+| `prizmal login` | Approve this machine in your browser, or re-approve the device key it already has |
+| `prizmal auth token` | Print one device token on stdout (the Claude Code `apiKeyHelper`; internal) |
 
 ## Usage
 

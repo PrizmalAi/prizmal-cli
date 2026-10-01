@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/PrizmalAi/prizmal-cli/internal/device"
 	launcher "github.com/PrizmalAi/prizmal-cli/internal/launcher"
 	"github.com/PrizmalAi/prizmal-cli/internal/stubserver"
 )
@@ -177,6 +178,7 @@ func runHarnessLaunch(t *testing.T, harness string) {
 		"NO_COLOR=1",
 		"DISABLE_AUTOUPDATER=1",
 	}
+	cmd.Env = append(cmd.Env, device.TestingEnv()...)
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

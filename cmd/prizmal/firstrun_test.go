@@ -31,8 +31,23 @@ func configFileExists(t *testing.T, home string) bool {
 // the machine's stdin happens to be and never consumes a developer's
 // keystrokes.
 func scriptedReader(in string) keyReader {
+	line, _, _ := strings.Cut(in, "\n")
 	return func(string) (string, error) {
-		line, _, _ := strings.Cut(in, "\n")
+		return strings.TrimSpace(line), nil
+	}
+}
+
+// scriptedLineReader answers successive prompts with successive lines of in,
+// so a test can drive a multi-prompt flow (the first-run menu, then the key
+// prompt). It repeats the last line if asked for more.
+func scriptedLineReader(in string) keyReader {
+	lines := strings.Split(in, "\n")
+	i := 0
+	return func(string) (string, error) {
+		line := lines[i]
+		if i < len(lines)-1 {
+			i++
+		}
 		return strings.TrimSpace(line), nil
 	}
 }
@@ -86,7 +101,7 @@ func TestEnsureConfigBlankAnswersLeaveNoConfigFile(t *testing.T) {
 func TestEnsureConfigKeyWritesTheConfigFile(t *testing.T) {
 	home := useTempHome(t)
 
-	cfg, err := ensureConfigWith(scriptedReader("sk-typed-key\n"), true)
+	cfg, err := ensureConfigWith(scriptedLineReader("2\nsk-typed-key\n"), true)
 	if err != nil {
 		t.Fatalf("ensureConfig: %v", err)
 	}
@@ -108,6 +123,57 @@ func TestEnsureConfigKeyWritesTheConfigFile(t *testing.T) {
 	}
 }
 
+// The browser answer of the first-run menu signs in and writes no config file:
+// the device key is the credential, and a config file would shadow it.
+func TestEnsureConfigBrowserSignInWritesNoConfigFile(t *testing.T) {
+	home := useTempHome(t)
+
+	var called bool
+	cfg, err := ensureConfigWithMenu(scriptedLineReader("1\n"), true, func() error {
+		called = true
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ensureConfig: %v", err)
+	}
+	if !called {
+		t.Fatal("choosing browser sign-in did not run the sign-in")
+	}
+	if cfg != nil {
+		t.Errorf("cfg = %+v, want nil for the browser path", cfg)
+	}
+	if configFileExists(t, home) {
+		t.Error("the browser sign-in created a config file")
+	}
+}
+
+// An unexpected answer must not open a browser. The sign-in is an outward
+// action; a stray keystroke is not consent to take it.
+func TestEnsureConfigUnexpectedAnswerDoesNotSignIn(t *testing.T) {
+	useTempHome(t)
+
+	var called bool
+	if _, err := ensureConfigWithMenu(scriptedReader("yes\n"), true, func() error {
+		called = true
+		return nil
+	}); err == nil {
+		t.Fatal("an unexpected answer did not return an error")
+	}
+	if called {
+		t.Fatal("an unexpected answer opened the browser")
+	}
+}
+
+// The browser path is unreachable from the test seam: ensureConfigWith supplies
+// a no-op sign-in, so a test can never open the operator's browser or reach the
+// production consent page.
+func TestEnsureConfigWithSeamNeverSignsInBrowser(t *testing.T) {
+	useTempHome(t)
+	if _, err := ensureConfigWith(scriptedReader("1\n"), true); err != nil {
+		t.Fatalf("ensureConfig: %v", err)
+	}
+}
+
 // A non-interactive stdin never prompts and never writes, which is what keeps
 // scripts and tests from blocking or creating a config they did not ask for.
 func TestEnsureConfigNonInteractiveWritesNothing(t *testing.T) {
@@ -125,16 +191,55 @@ func TestEnsureConfigNonInteractiveWritesNothing(t *testing.T) {
 	}
 }
 
+// A machine that already signed in with a device key has no config file, and
+// the first run must not offer to replace what is working.
+func TestEnsureConfigSkipsMenuWhenDeviceKeyExists(t *testing.T) {
+	home := useTempHome(t)
+	dir := filepath.Join(home, ".prizmal")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "device.key"), make([]byte, 32), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var asked bool
+	read := func(string) (string, error) {
+		asked = true
+		return "", nil
+	}
+	cfg, err := ensureConfigWithMenu(read, true, func() error { return nil })
+	if err != nil {
+		t.Fatalf("ensureConfig: %v", err)
+	}
+	if cfg != nil {
+		t.Errorf("cfg = %+v, want nil on a device-keyed machine", cfg)
+	}
+	if asked {
+		t.Error("the first-run menu was shown on a machine that already has a device key")
+	}
+	if configFileExists(t, home) {
+		t.Error("a device-keyed machine got a config file")
+	}
+}
+
 // The prompt promised a skip it cannot deliver: an empty answer leaves no key
 // and no config file, so the next run asks again. Pin the wording.
-func TestFirstRunPromptOffersNoSkip(t *testing.T) {
-	lower := strings.ToLower(apiKeyPrompt)
+func TestFirstRunPromptOffersBothChoices(t *testing.T) {
+	lower := strings.ToLower(firstRunMenuPrompt)
+	if !strings.Contains(lower, "browser") {
+		t.Errorf("prompt %q does not offer browser sign-in", firstRunMenuPrompt)
+	}
+	if !strings.Contains(lower, "key") {
+		t.Errorf("prompt %q does not offer pasting a key", firstRunMenuPrompt)
+	}
+	lowerKey := strings.ToLower(apiKeyPrompt)
 	for _, unwanted := range []string{"empty", "skip", "optional"} {
-		if strings.Contains(lower, unwanted) {
+		if strings.Contains(lowerKey, unwanted) {
 			t.Errorf("prompt %q still offers %q; an empty answer saves nothing", apiKeyPrompt, unwanted)
 		}
 	}
-	if !strings.Contains(lower, "api key") {
+	if !strings.Contains(lowerKey, "api key") {
 		t.Errorf("prompt %q must say what it wants", apiKeyPrompt)
 	}
 }
