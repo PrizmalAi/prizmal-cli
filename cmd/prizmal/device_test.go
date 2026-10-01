@@ -162,3 +162,152 @@ func TestAppBaseURLFollowsSwitchHost(t *testing.T) {
 		t.Fatalf("appBaseURL(override) = %q", got)
 	}
 }
+
+// resetDeviceModeState clears every envconfig field enterDeviceMode touches,
+// so one test's device-mode outcome cannot leak into the next.
+func resetDeviceModeState(t *testing.T) {
+	t.Helper()
+	envconfig.SetAPIKey("")
+	envconfig.SetConfigAPIKey("")
+	envconfig.SetDeviceMode(false)
+	envconfig.SetDeviceToken("")
+	t.Cleanup(func() {
+		envconfig.SetAPIKey("")
+		envconfig.SetConfigAPIKey("")
+		envconfig.SetDeviceMode(false)
+		envconfig.SetDeviceToken("")
+	})
+}
+
+// captureStderr runs f with os.Stderr redirected to a pipe and returns what it
+// wrote, the way captureStdout reads the helper's stdout contract.
+func captureStderr(t *testing.T, f func() error) (string, error) {
+	t.Helper()
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+	runErr := f()
+	_ = w.Close()
+	os.Stderr = old
+	data, _ := io.ReadAll(r)
+	return string(data), runErr
+}
+
+// A device key that exists but cannot refresh must not abort a launch that
+// already has a usable switch key: the config file's api_key, already
+// resolved into envconfig before enterDeviceMode runs, is a working fallback.
+// An operator hit this running a fleet of agents from a machine whose device
+// key was stuck: device mode "outranks" a switch key only when the handshake
+// works, not when it fails with a usable credential sitting right there.
+func TestEnterDeviceModeFallsBackToConfigKeyWhenRefreshFails(t *testing.T) {
+	home := useTempHome(t)
+	resetDeviceModeState(t)
+	writeDeviceKey(t, home)
+	envconfig.SetConfigAPIKey("sk-fallback-from-config")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"code":"UNAUTHORIZED"}}`))
+	}))
+	defer srv.Close()
+	envconfig.SetBaseURL(srv.URL)
+	t.Cleanup(func() { envconfig.SetBaseURL("") })
+
+	stderr, err := captureStderr(t, enterDeviceMode)
+	if err != nil {
+		t.Fatalf("enterDeviceMode: %v, want nil (a usable fallback key is present)", err)
+	}
+	if envconfig.DeviceMode() {
+		t.Error("device mode is on after a failed refresh with a fallback key; the launch should fall back instead")
+	}
+	if got := envconfig.APIKey(); got != "sk-fallback-from-config" {
+		t.Fatalf("APIKey() = %q, want the config key to still resolve", got)
+	}
+	if !strings.Contains(stderr, "warning:") {
+		t.Fatalf("stderr = %q, want a warning that the device key could not refresh", stderr)
+	}
+}
+
+// The same fallback applies when the switch key comes from $PRIZMAL_SWITCH_KEY
+// rather than the config file: enterDeviceMode must not care which non-device
+// source resolved the key, only that one did.
+func TestEnterDeviceModeFallsBackToEnvKeyWhenRefreshFails(t *testing.T) {
+	home := useTempHome(t)
+	resetDeviceModeState(t)
+	writeDeviceKey(t, home)
+	t.Setenv(envconfig.KeyEnvVar, "sk-fallback-from-env")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":{"code":"NOT_FOUND"}}`))
+	}))
+	defer srv.Close()
+	envconfig.SetBaseURL(srv.URL)
+	t.Cleanup(func() { envconfig.SetBaseURL("") })
+
+	if err := enterDeviceMode(); err != nil {
+		t.Fatalf("enterDeviceMode: %v, want nil (a usable fallback key is present)", err)
+	}
+	if got := envconfig.APIKey(); got != "sk-fallback-from-env" {
+		t.Fatalf("APIKey() = %q, want the env key to still resolve", got)
+	}
+}
+
+// With no fallback credential, a device key that cannot refresh still hard
+// stops the launch: there is nothing else to run with, so silently
+// proceeding would fail at the first turn with a worse error.
+func TestEnterDeviceModeHardErrorsWithNoFallback(t *testing.T) {
+	home := useTempHome(t)
+	resetDeviceModeState(t)
+	writeDeviceKey(t, home)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"code":"UNAUTHORIZED"}}`))
+	}))
+	defer srv.Close()
+	envconfig.SetBaseURL(srv.URL)
+	t.Cleanup(func() { envconfig.SetBaseURL("") })
+
+	err := enterDeviceMode()
+	if err == nil {
+		t.Fatal("enterDeviceMode succeeded with no device token and no fallback key")
+	}
+	if !strings.Contains(err.Error(), "prizmal login") {
+		t.Fatalf("error = %q, want it to say run prizmal login", err)
+	}
+	if envconfig.DeviceMode() {
+		t.Error("device mode is on after a failed refresh with no token")
+	}
+}
+
+// A successful refresh still enters device mode normally: the fallback path
+// must not short-circuit the working case.
+func TestEnterDeviceModeSucceedsSetsDeviceMode(t *testing.T) {
+	home := useTempHome(t)
+	resetDeviceModeState(t)
+	writeDeviceKey(t, home)
+	// A config key is present too, to prove the device token wins when the
+	// refresh actually works, matching the documented precedence.
+	envconfig.SetConfigAPIKey("sk-should-not-be-used")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"device_token": "pz-d-dt-ok", "expires_in": 600})
+	}))
+	defer srv.Close()
+	envconfig.SetBaseURL(srv.URL)
+	t.Cleanup(func() { envconfig.SetBaseURL("") })
+
+	if err := enterDeviceMode(); err != nil {
+		t.Fatalf("enterDeviceMode: %v", err)
+	}
+	if !envconfig.DeviceMode() {
+		t.Error("device mode is off after a successful refresh")
+	}
+	if got := envconfig.APIKey(); got != "pz-d-dt-ok" {
+		t.Fatalf("APIKey() = %q, want the fresh device token", got)
+	}
+}

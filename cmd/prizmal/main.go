@@ -125,10 +125,14 @@ Examples:
 				envconfig.SetConfigAPIKey(resolved)
 			}
 
-			// Device mode: an enrolled device key becomes the credential, and
-			// it outranks a switch key from the environment or the config file.
-			// An explicit --api-key is the operator naming a credential for
-			// this launch, so it suppresses device mode.
+			// Device mode: an enrolled device key becomes the credential when
+			// its refresh succeeds, outranking a switch key from the
+			// environment or the config file. An explicit --api-key is the
+			// operator naming a credential for this launch, so it suppresses
+			// device mode. When the device key exists but its refresh fails,
+			// enterDeviceMode falls back to the key this block already
+			// resolved, with a warning, rather than aborting a launch that
+			// has a working credential in hand.
 			//
 			// It runs only for a command that needs a credential — --list, a
 			// pick, or a launch. A bare `prizmal` lists the integrations and
