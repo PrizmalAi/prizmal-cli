@@ -121,7 +121,11 @@ var claudeElapsedPattern = regexp.MustCompile(`(?m)^(.*Total duration \(wall\): 
 //     is short and stays on one line.
 var (
 	baselineConsentURLPattern = regexp.MustCompile(`(?s)(To approve this device, open:\n\n).*?(\n\nDevice fingerprint: )`)
-	baselineConfigPathPattern = regexp.MustCompile(`(?s)(No configuration found at ).*?(\nSign in: )`)
+	// baselineConfigPathPattern matches the config path the first-run screen
+	// prints. It ends on the stable ".prizmal/config.json" suffix rather than on
+	// the next line's text, because in the colour capture that line opens with a
+	// style escape the plain capture does not carry.
+	baselineConfigPathPattern = regexp.MustCompile(`(?s)(No configuration found at ).*?\.prizmal/config\.json`)
 	baselineFingerprint       = regexp.MustCompile(`Device fingerprint: [0-9a-f]{4}-[0-9a-f]{4}`)
 	// baselineBrowserFailure matches the parenthetical reason the login prints
 	// when it cannot open a browser. In a baseline run the reason is always the
@@ -354,13 +358,14 @@ var claudeBaselineCases = []baselineCase{
 // window off the production consent page. The stub decides pending (404) versus
 // approved (200), so neither needs the polling loop to advance.
 var prizmalBaselineCases = []baselineCase{
-	// The first-run menu. The config file is absent, so ensureConfig prompts.
+	// The first-run menu. The config file is absent, so ensureConfig prompts with
+	// the shared picker: the two ways to sign in, under the "Sign in" heading.
 	{
 		name: "firstrun-menu-100x30", cols: 100, rows: 30,
 		args:      []string{"--model", "smart"},
 		argsAfter: []string{"claude"},
 		noConfig:  true,
-		steps:     []baselineStep{{waitFor: "paste a key"}},
+		steps:     []baselineStep{{waitFor: "Paste a key"}},
 	},
 	// The browser login while the tenant has not approved yet. The stub answers
 	// the refresh 404, so the flow stops at "Waiting for approval..." and the
