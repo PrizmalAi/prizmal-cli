@@ -101,7 +101,7 @@ func Login(client *Client, key *Key, opts LoginOptions) (*Token, error) {
 	if err := opts.OpenBrowser(authURL); err != nil {
 		_, _ = fmt.Fprintf(opts.Out, "Could not open a browser automatically (%v).\nOpen the URL above on any machine with a browser.\n", err)
 	}
-	fmt.Fprintf(opts.Out, "Waiting for approval...\n")
+	_, _ = fmt.Fprintf(opts.Out, "Waiting for approval...\n")
 
 	deadline := opts.Now().Add(opts.Timeout)
 	for {
