@@ -43,10 +43,19 @@ func deviceKeyExists() bool {
 // it refreshes a device token and puts it in envconfig, where the catalog
 // fetch and the launchers read it. It is a no-op when no device key exists.
 //
+// Device mode is set only once the refresh actually succeeds — never before
+// the call, and never left on after a failed one — so a caller that reads
+// envconfig.APIKey() here, with device mode still off, sees exactly the
+// flag/env/config chain requireCredentialForRemote and announceKeySource see.
+//
 // A token that cannot be refreshed — the sign-in deadline passed, the device
-// was revoked — is an error the launch stops on, because a launch with no
-// usable credential would fail at the first turn with a message that blames
-// the wrong thing.
+// was revoked, the switch is unreachable — stops the launch only when there
+// is nothing else to run with. A flag, $PRIZMAL_SWITCH_KEY, or the config
+// file's api_key may already have resolved a working switch key before this
+// runs (main.go resolves the config key first); device mode outranks that
+// key when the device handshake works, not when it fails with a usable
+// credential sitting right there. Silently proceeding on the fallback, with
+// one warning, beats hard-erroring a launch that has a real key in hand.
 func enterDeviceMode() error {
 	if !deviceKeyExists() {
 		return nil
@@ -55,11 +64,14 @@ func enterDeviceMode() error {
 	if err != nil {
 		return err
 	}
-	envconfig.SetDeviceMode(true)
 
 	client := device.NewClient(envconfig.BaseURL())
 	token, ct, err := device.HelperToken(client, key, time.Now(), loadCachedToken, time.Sleep)
 	if err != nil {
+		if fallback, src := envconfig.APIKey(), envconfig.APIKeySource(); fallback != "" {
+			fmt.Fprintf(os.Stderr, "warning: device key could not refresh (%v); using the switch key from %s instead\n", err, src)
+			return nil
+		}
 		if errors.Is(err, device.ErrReauthRequired) {
 			return fmt.Errorf("this device's sign-in expired; run prizmal login to re-approve it")
 		}
@@ -68,6 +80,8 @@ func enterDeviceMode() error {
 		}
 		return err
 	}
+
+	envconfig.SetDeviceMode(true)
 	envconfig.SetDeviceToken(token)
 	if ct != nil {
 		_ = ct.Save()
