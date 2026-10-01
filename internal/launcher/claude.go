@@ -116,8 +116,35 @@ func (c *Claude) Run(model string, models []LaunchModel, args []string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	cmd.Env = claudeChildEnv(model, rows)
+	env := claudeChildEnv(model, rows)
+	if envconfig.DeviceMode() {
+		env = ensureHelperBaseURL(env, envconfig.BaseURL())
+	}
+	cmd.Env = env
 	return cmd.Run()
+}
+
+// ensureHelperBaseURL makes sure the Switch URL this launch resolved is in the
+// child environment, so the apiKeyHelper Claude Code spawns refreshes against
+// the same host.
+//
+// The helper is a separate prizmal process and resolves the URL from scratch:
+// --url, then $PRIZMAL_SWITCH_URL, then the config file, then the production
+// default. A launch aimed at a non-default host by --url or by the environment
+// would otherwise let the helper fall back to production and mint a token the
+// launch's own Switch cannot use. Pinning the launch's resolved URL removes
+// that fallback. A config-file URL needs no pin, because the helper reads the
+// same file.
+func ensureHelperBaseURL(env []string, baseURL string) []string {
+	if baseURL == "" {
+		return env
+	}
+	for _, kv := range env {
+		if name, _, _ := strings.Cut(kv, "="); name == envconfig.EnvVar {
+			return env // the operator's own environment already names the host
+		}
+	}
+	return append(env, envconfig.EnvVar+"="+baseURL)
 }
 
 // claudeHelperTTLMs is the interval Claude Code re-runs the apiKeyHelper on, in
