@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -155,7 +156,8 @@ func TestClaudeEnvVarsSetNoModelVariables(t *testing.T) {
 }
 
 // TestClaudeChildEnvDropsInheritedModelVars is the acceptance criterion that no
-// model env var reaches the child. A value exported in the operator's shell for
+// inherited model env var reaches the child, and that ANTHROPIC_AUTH_TOKEN's
+// inherited value never survives. A value exported in the operator's shell for
 // Anthropic itself must not ride along and re-route a launch the operator aimed
 // at the Switch.
 func TestClaudeChildEnvDropsInheritedModelVars(t *testing.T) {
@@ -166,13 +168,83 @@ func TestClaudeChildEnvDropsInheritedModelVars(t *testing.T) {
 
 	env := claudeChildEnv("", nil)
 
+	// The launch sets ANTHROPIC_AUTH_TOKEN itself (to the switch key, empty
+	// here), so the name is allowed to appear — it just must not carry the
+	// inherited value.
+	envconfig.SetDeviceMode(false)
 	for _, name := range claudeInheritedModelVars {
+		if name == "ANTHROPIC_AUTH_TOKEN" {
+			if got := envValue(env, "ANTHROPIC_AUTH_TOKEN="); got != "" {
+				t.Errorf("ANTHROPIC_AUTH_TOKEN = %q, want the launch value (empty here), not the inherited one", got)
+			}
+			continue
+		}
 		if strings.Contains(strings.Join(env, "\n"), name+"=") {
 			t.Errorf("%s reached the child environment", name)
 		}
 	}
-	if got := envValue(env, "ANTHROPIC_AUTH_TOKEN="); got != "" {
-		t.Errorf("ANTHROPIC_AUTH_TOKEN = %q, want the empty launch value", got)
+}
+
+// TestClaudeChildEnvDeviceModeHasNoAuthToken pins the device-mode credential
+// channel: ANTHROPIC_AUTH_TOKEN is absent from the child environment from every
+// source, the helper TTL is set, and the console key stays empty. Claude Code
+// treats ANTHROPIC_AUTH_TOKEN as a fixed credential it never refreshes, so
+// leaving it set — even to a device token — would pin the session to the
+// launch-time token and stop the apiKeyHelper from refreshing it.
+func TestClaudeChildEnvDeviceModeHasNoAuthToken(t *testing.T) {
+	resetAPIKey(t)
+	envconfig.SetAPIKey("sk-should-not-appear")
+	envconfig.SetDeviceMode(true)
+	t.Cleanup(func() {
+		envconfig.SetAPIKey("")
+		envconfig.SetDeviceMode(false)
+	})
+	// An operator who exported ANTHROPIC_AUTH_TOKEN in their shell must not
+	// pass it through either.
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "inherited-should-not-survive")
+
+	env := (&Claude{}).envVars()
+	env = claudeChildEnv("", nil)
+
+	if strings.Contains(strings.Join(env, "\n"), "ANTHROPIC_AUTH_TOKEN=") {
+		t.Fatalf("ANTHROPIC_AUTH_TOKEN is present in device mode:\n%v", env)
+	}
+	if got := envValue(env, "ANTHROPIC_API_KEY="); got != "" {
+		t.Fatalf("ANTHROPIC_API_KEY = %q, want empty in device mode", got)
+	}
+	if got := envValue(env, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS="); got != strconv.Itoa(claudeHelperTTLMs) {
+		t.Fatalf("CLAUDE_CODE_API_KEY_HELPER_TTL_MS = %q, want %d", got, claudeHelperTTLMs)
+	}
+}
+
+// TestDeviceSettingsJSONAddsHelperToExistingSettings verifies the apiKeyHelper
+// is merged into the launch settings without dropping the model, the overrides
+// or the picker rows the launch already built.
+func TestDeviceSettingsJSONAddsHelperToExistingSettings(t *testing.T) {
+	settings, err := deviceSettingsJSON(`{"model":"m[1m]","modelPicker":{"replaceBuiltInOptions":true}}`)
+	if err != nil {
+		t.Fatalf("deviceSettingsJSON: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(settings), &got); err != nil {
+		t.Fatalf("result is not JSON: %v", err)
+	}
+	if got["model"] != "m[1m]" {
+		t.Errorf("model was dropped: %v", got["model"])
+	}
+	if _, ok := got["modelPicker"]; !ok {
+		t.Error("modelPicker was dropped")
+	}
+	helper, _ := got["apiKeyHelper"].(string)
+	if !strings.HasSuffix(helper, " auth token") {
+		t.Errorf("apiKeyHelper = %q, want it to end with the helper subcommand", helper)
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(helper, strconv.Quote(exe)) {
+		t.Errorf("apiKeyHelper = %q, want the quoted executable %q first", helper, exe)
 	}
 }
 

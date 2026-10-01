@@ -16,8 +16,10 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/config"
+	"github.com/PrizmalAi/prizmal-cli/internal/device"
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	"github.com/PrizmalAi/prizmal-cli/internal/fileutil"
 	"github.com/spf13/cobra"
@@ -123,6 +125,20 @@ Examples:
 				envconfig.SetConfigAPIKey(resolved)
 			}
 
+			// Device mode: an enrolled device key becomes the credential, and
+			// it outranks a switch key from the environment or the config file.
+			// An explicit --api-key is the operator naming a credential for
+			// this launch, so it suppresses device mode.
+			//
+			// It runs only for a command that needs a credential — --list, a
+			// pick, or a launch. A bare `prizmal` lists the integrations and
+			// must not refresh a token, or hit the network, to print a table.
+			if apiKey == "" && (listFlag || pickFlag || len(args) > 0) {
+				if err := enterDeviceMode(); err != nil {
+					return err
+				}
+			}
+
 			// --list answers a question rather than launching, so it runs
 			// before the integration dispatch and ignores the integration
 			// word: `prizmal --list claude` lists the tenant's models and
@@ -151,6 +167,11 @@ Examples:
 	}
 
 	registerFlags(root.Flags())
+
+	// `prizmal login` and `prizmal auth token` sit beside the launch command.
+	// They are the only two things that need the device key, and they run
+	// without a model, a catalog or a harness.
+	root.AddCommand(deviceCommands()...)
 
 	// Flag parsing stops at the first non-flag token, the integration name,
 	// and every later token is handed to the harness unchanged. Interspersed
@@ -630,6 +651,26 @@ func launch(name string, extraArgs []string, cfg *config.Config) error {
 	announceKeySource(os.Stderr)
 	if err := requireCredentialForRemote(); err != nil {
 		return err
+	}
+
+	// A runner with no credential-refresh contract cannot run from a device
+	// token: it receives the key once and would keep sending an expired token
+	// after ten minutes. In device mode those runners stop here and ask for a
+	// switch key, which has no expiry.
+	if envconfig.DeviceMode() && !launcher.SupportsDeviceMode(runner) {
+		return launcher.DeviceModeRefusal(spec.Runner.String())
+	}
+
+	// A device's sign-in deadline is worth a warning before it arrives, so the
+	// operator re-approves on their own time. Claude Code is the only harness
+	// that runs in device mode, and the warning belongs on the launch it
+	// affects.
+	if envconfig.DeviceMode() {
+		if ct, err := device.LoadCachedToken(); err == nil {
+			if w := device.ReauthWarning(ct.ReauthBy, time.Now()); w != "" {
+				fmt.Fprintf(os.Stderr, "%s%s%s\n", launcher.AnsiYellow, w, launcher.AnsiReset)
+			}
+		}
 	}
 
 	return runner.Run(chosen, models, extraArgs)
