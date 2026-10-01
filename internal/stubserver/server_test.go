@@ -358,3 +358,62 @@ func TestNewWithEntriesSendsTierAndDescriptionOnlyWhenSet(t *testing.T) {
 		t.Fatalf("plain = %v, want no tier field", body.Data[1])
 	}
 }
+
+// TestCLITokenPendingReturns404 pins the enrollment state: a stub that has not
+// approved the device answers the refresh with the 404 "unknown device" the CLI
+// polls through.
+func TestCLITokenPendingReturns404(t *testing.T) {
+	srv := New()
+	defer srv.Close()
+
+	// No bearer credential: the refresh carries its own signature in the body.
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/cli/token", bytes.NewBufferString(`{"device_id":"dev_x","ts":"t","sig":"s"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("pending refresh returned %d, want 404", resp.StatusCode)
+	}
+}
+
+// TestCLITokenApprovedReturnsToken pins the approving stub: 200 with a fixed
+// token, a 600-second expiry and a reauth_by, the shape the login screen reads.
+func TestCLITokenApprovedReturnsToken(t *testing.T) {
+	srv := NewWithDeviceApproval()
+	defer srv.Close()
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/cli/token", bytes.NewBufferString(`{"device_id":"dev_x","ts":"t","sig":"s"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("approved refresh returned %d, want 200", resp.StatusCode)
+	}
+	var body struct {
+		DeviceToken string `json:"device_token"`
+		ExpiresIn   int    `json:"expires_in"`
+		ReauthBy    string `json:"reauth_by"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.DeviceToken != DeviceToken {
+		t.Errorf("device_token = %q, want %q", body.DeviceToken, DeviceToken)
+	}
+	if body.ExpiresIn != 600 {
+		t.Errorf("expires_in = %d, want 600", body.ExpiresIn)
+	}
+	if body.ReauthBy != DeviceReauthBy {
+		t.Errorf("reauth_by = %q, want %q", body.ReauthBy, DeviceReauthBy)
+	}
+}

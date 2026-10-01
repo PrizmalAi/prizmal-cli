@@ -68,29 +68,39 @@ comes with a launch case and a workflow of its own.
 
 ## Terminal baselines
 
-Each harness has a test that renders its screens in a tmux terminal of a
-fixed size and compares their text, without colour, to the files in
-`cmd/prizmal/testdata/terminal/<harness>`. The screens come from the real `prizmal`
-binary and the real harness, run against a stub switch that serves
-`GET /v1/models`. Each harness has its own workflow, so the harnesses run
-in parallel under their own names.
+Every screen an operator can see has a baseline: a capture rendered in a tmux
+terminal of a fixed size and compared, without colour, to the text files under
+`cmd/prizmal/testdata/terminal/<group>`. The captures come from the real
+`prizmal` binary, run against a stub switch. Harness screens and prizmal's own
+screens are separate groups, and each harness has its own workflow so the
+harnesses run in parallel under their own names.
 
 `TestTerminalBaselinesClaude`, run by the Claude Code workflow, covers the
 prizmal model picker and Claude Code's startup screen, `/model` picker and
-`/usage` screen.
-It launches Claude Code through the picker and with a model passed as `-m`
-or `--model`, with Claude Code installed at the version that
+`/usage` screen. It launches Claude Code through the picker and with a model
+passed as `-m` or `--model`, with Claude Code installed at the version that
 `cmd/prizmal/testdata/terminal/claude/claude-code-version` records.
 `TestClaudeTiersStartInAutoMode` runs in the same job on the same version. It
 launches a model of each tier and fails when its session starts outside auto
 mode, so a Claude Code release that changes which models get auto mode fails
 when the pinned version moves.
 
-When a pull request changes a baseline, its body must include a pixel
-screenshot of every changed screen. The text diff lists the rows that moved,
-and the image adds the colour, weight and glyphs a reviewer needs to judge
-the change. The baseline-screenshot workflow fails a pull request that
-changes a file under `cmd/prizmal/testdata/terminal` and has no image in its body.
+`TestTerminalBaselinesPrizmal` covers the screens prizmal draws for its own
+commands: the first-run prompt and the device-login flow, under
+`cmd/prizmal/testdata/terminal/prizmal`. It needs tmux but no harness, and the
+Claude Code workflow runs it beside the Claude cases.
+
+A change that affects what an operator sees on any screen must come with a
+baseline for that screen, and its pull-request body must include a pixel
+screenshot of every screen its baselines add or change. This holds for a screen
+that is not yet in the baselines as much as for one that is: add a new screen to
+the baselines in the same change, and update a changed screen's. The text diff
+lists the rows that moved, and the image adds the colour, weight and glyphs a
+reviewer needs to judge the change. The baseline-screenshot
+workflow fails a pull request that changes a file under
+`cmd/prizmal/testdata/terminal` and has no image in its body. A screen a change
+affects but never captures has no file for that workflow to see, so the review
+is what catches it. When in doubt, add the baseline.
 
 Regenerate the baselines and save each screen with its colour codes.
 Run from `cmd/prizmal`: the test binary there defines the
@@ -106,7 +116,7 @@ run and concurrent agents never share it:
 shots=$(mktemp -d)
 cd cmd/prizmal
 env -u PRIZMAL_SWITCH_KEY -u PRIZMAL_SWITCH_URL PRIZMAL_TERMINAL_SHOTS=$shots \
-  go test -count=1 -run TestTerminalBaselinesClaude -update-baselines .
+  go test -count=1 -run 'TestTerminalBaselinesClaude|TestTerminalBaselinesPrizmal' -update-baselines .
 ```
 
 Then draw each changed screen with termframe at the size in its file name,
@@ -126,14 +136,13 @@ baseline change. The Claude Code cases skip on a machine with another
 Claude Code version installed.
 
 Check the screenshot requirement before the pull request goes up, not
-after CI fails. When a change touches a file under
-`cmd/prizmal/testdata/terminal`, the body must already carry an image
-link. A body edit re-runs the check (`edited` is in the workflow's
-trigger list), but a red first cycle is noise a local pass avoids: diff
-the change for `testdata/terminal`, and when it matches, run the update
-command above with `PRIZMAL_TERMINAL_SHOTS` set, render each changed
-screen with termframe at the size in its file name, and embed the PNG
-with the `attach-screenshots` skill before `gh pr create`. One baseline
+after CI fails. When a change touches what an operator sees, the body must
+already carry an image link for every screen it adds or changes. A body edit
+re-runs the check (`edited` is in the workflow's trigger list), but a red
+first cycle is noise a local pass avoids: name the screens the change affects,
+run the update command above with `PRIZMAL_TERMINAL_SHOTS` set, render each
+new or changed screen with termframe at the size in its file name, and embed
+the PNG with the `attach-screenshots` skill before `gh pr create`. One baseline
 update at a time per clone: two concurrent runs that share a shots
 directory overwrite each other's captures, and a `mktemp -d` directory
 per run is the default that keeps this out of the way.
