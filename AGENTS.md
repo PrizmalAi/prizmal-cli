@@ -63,7 +63,8 @@ binary and the real harness, run against a stub switch that serves
 in parallel under their own names.
 
 `TestTerminalBaselinesClaude`, run by the Claude Code workflow, covers the
-prizmal model picker and Claude Code's startup screen and `/model` picker.
+prizmal model picker and Claude Code's startup screen, `/model` picker and
+`/usage` screen.
 It launches Claude Code through the picker and with a model passed as `-m`
 or `--model`, with Claude Code installed at the version that
 `cmd/prizmal/testdata/terminal/claude/claude-code-version` records.

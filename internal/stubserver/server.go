@@ -372,6 +372,10 @@ func handleMessages(w http.ResponseWriter, r *http.Request) {
 	toolCall := wantsToolCall(body)
 	stream := wantsStream(body)
 
+	// The unified status header the real Switch sends, so a client that reads it
+	// draws the funded-tenant screen.
+	w.Header().Set("anthropic-ratelimit-unified-status", "allowed")
+
 	if stream {
 		flusher, ok := startSSE(w)
 		if !ok {
