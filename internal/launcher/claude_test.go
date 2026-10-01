@@ -871,3 +871,31 @@ func TestEnsureHelperBaseURLPinsTheResolvedHost(t *testing.T) {
 		t.Fatalf("%s appears %d times, want the operator's single entry", envconfig.EnvVar, count)
 	}
 }
+
+// TestClaudeChildEnvNeverInheritsAnthropicAuthTokenOutsideDeviceMode pins the
+// switch-key path's precedence: the launch's own ANTHROPIC_AUTH_TOKEN wins and
+// the operator's exported one never rides along. That was true before device
+// mode existed (the launch value is a "fixed name", so the inherited copy is
+// skipped) and stays true now. No operator-facing switch key travels in this
+// variable, so dropping the inherited copy costs no credential.
+func TestClaudeChildEnvNeverInheritsAnthropicAuthTokenOutsideDeviceMode(t *testing.T) {
+	resetAPIKey(t)
+	envconfig.SetDeviceMode(false)
+	t.Cleanup(func() { envconfig.SetDeviceMode(false) })
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "inherited-shell-token")
+
+	// With an explicit switch key, the child carries it, never the inherited one.
+	envconfig.SetAPIKey("sk-explicit")
+	t.Cleanup(func() { envconfig.SetAPIKey("") })
+	if got := envValue(claudeChildEnv("", nil), "ANTHROPIC_AUTH_TOKEN="); got != "sk-explicit" {
+		t.Fatalf("ANTHROPIC_AUTH_TOKEN = %q, want the explicit key, never the inherited one", got)
+	}
+
+	// With no key from any prizmal source, the variable is empty exactly as
+	// before device mode: prizmal reads its key from $PRIZMAL_SWITCH_KEY, the
+	// flag, or the config file, never from ANTHROPIC_AUTH_TOKEN.
+	envconfig.SetAPIKey("")
+	if got := envValue(claudeChildEnv("", nil), "ANTHROPIC_AUTH_TOKEN="); got != "" {
+		t.Fatalf("ANTHROPIC_AUTH_TOKEN = %q, want empty when no prizmal key is configured", got)
+	}
+}
