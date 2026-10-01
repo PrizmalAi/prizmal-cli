@@ -843,3 +843,31 @@ func TestClaudeLaunchSpellsATieredConfigAsItsRow(t *testing.T) {
 		t.Errorf("child env lacks ANTHROPIC_DEFAULT_OPUS_MODEL=flash")
 	}
 }
+
+// TestEnsureHelperBaseURLPinsTheResolvedHost fixes the environment the
+// apiKeyHelper runs under. The helper is a separate prizmal process that
+// resolves the URL from scratch, so a launch aimed at a non-default host by
+// --url would otherwise let the helper fall back to the production default and
+// mint a token the launch's Switch cannot use.
+func TestEnsureHelperBaseURLPinsTheResolvedHost(t *testing.T) {
+	env := []string{"PATH=/usr/bin", "ANTHROPIC_BASE_URL=https://api.staging.prizmal.ai"}
+
+	got := ensureHelperBaseURL(env, "https://api.staging.prizmal.ai")
+	if v := envValue(got, envconfig.EnvVar+"="); v != "https://api.staging.prizmal.ai" {
+		t.Fatalf("%s = %q, want the resolved host pinned for the helper", envconfig.EnvVar, v)
+	}
+
+	// An operator's own exported URL is already the host the child resolves, so
+	// the pin does not add a second entry.
+	withEnv := append([]string{envconfig.EnvVar + "=https://operator.example.test"}, env...)
+	got2 := ensureHelperBaseURL(withEnv, "https://api.staging.prizmal.ai")
+	count := 0
+	for _, name := range envNames(got2) {
+		if name == envconfig.EnvVar {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("%s appears %d times, want the operator's single entry", envconfig.EnvVar, count)
+	}
+}
