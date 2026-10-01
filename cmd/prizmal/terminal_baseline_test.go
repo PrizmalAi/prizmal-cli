@@ -89,6 +89,12 @@ var proposedCatalog = []stubserver.Entry{
 // unless something else on the screen changed too.
 var claudeVersionPattern = regexp.MustCompile(`Claude Code v[0-9]+\.[0-9]+\.[0-9]+`)
 
+// claudeElapsedPattern matches the wall-clock duration the /usage screen prints.
+// The screen reads it when it opens, so a loaded machine records a larger
+// value and a baseline would depend on how busy the runner was. The
+// comparison normalizes it instead, the way it does the banner version.
+var claudeElapsedPattern = regexp.MustCompile(`(?m)^(.*Total duration \(wall\): ).*$`)
+
 // baselineStep sends keys, then waits until the screen shows waitFor and has
 // stopped changing. literal is typed as text, key is a tmux key name such as
 // Enter or Escape.
@@ -122,6 +128,8 @@ var (
 	stepModelPicker   = baselineStep{key: "Enter", waitFor: "Esc to cancel"}
 	stepTypeContext   = baselineStep{literal: "/context", waitFor: "/context"}
 	stepShowContext   = baselineStep{key: "Enter", waitFor: "Free space"}
+	stepOpenUsage     = baselineStep{literal: "/usage", waitFor: "/usage"}
+	stepShowUsage     = baselineStep{key: "Enter", waitFor: "Esc to cancel"}
 	stepPrizmalExit   = baselineStep{waitFor: "[prizmal exited"}
 	// stepClaudeReady waits for the prompt's footer in any permission mode. A
 	// haiku session starts in manual mode, whose footer has no shift+tab hint.
@@ -224,6 +232,14 @@ var claudeBaselineCases = []baselineCase{
 		args: []string{"-m", "smart", "claude"}, claude: true,
 		steps: []baselineStep{stepClaudePrompt, stepTypeContext, stepShowContext},
 	},
+	// /usage is the screen a client opens to read its balance. The stub Switch
+	// sends the same unified status header the real Switch sends, so this
+	// records the funded-tenant screen.
+	{
+		name: "claude-usage-100x40", cols: 100, rows: 40,
+		args: []string{"claude"}, claude: true,
+		steps: []baselineStep{stepPrizmalPicker, stepPickFirst, stepClaudeReady, stepOpenUsage, stepShowUsage},
+	},
 	{
 		name: "claude-print-m-smart-100x40", cols: 100, rows: 40,
 		args: []string{"-m", "smart", "claude", "-p", "hi"}, claude: true,
@@ -296,6 +312,7 @@ func TestTerminalBaselinesClaude(t *testing.T) {
 				skipOrFail(t, "%s", claudeReason)
 			}
 			got, ansi := renderBaseline(t, tmuxPath, prizmalBin, claudeDir, tc)
+			got = withStableElapsed(got)
 
 			if dir := os.Getenv(baselineShotsEnv); dir != "" {
 				if err := os.WriteFile(filepath.Join(dir, tc.name+".ansi"), []byte(ansi), 0o644); err != nil {
@@ -328,6 +345,13 @@ func TestTerminalBaselinesClaude(t *testing.T) {
 			}
 		})
 	}
+}
+
+// withStableElapsed replaces the wall-clock duration the /usage screen prints
+// with a fixed placeholder, so the baseline does not depend on how long the
+// session took to reach the screen.
+func withStableElapsed(screen string) string {
+	return claudeElapsedPattern.ReplaceAllString(screen, "${1}<elapsed>")
 }
 
 // withBaselineVersion rewrites the Claude Code version in got to the one in
