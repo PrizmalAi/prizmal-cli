@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/api"
+	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/model"
 )
@@ -244,6 +245,31 @@ type OwningModelFlag interface {
 	OwnsModelFlag() bool
 }
 
+// DeviceModeRunner is a runner that can refresh its own credential from an
+// enrolled device key. Only Claude Code has a documented refresh contract (its
+// apiKeyHelper), so only it opts in. Every other runner receives the key once
+// through the environment and cannot refresh a short-lived device token; in
+// device mode the CLI refuses to launch them and asks for a switch key.
+type DeviceModeRunner interface {
+	SupportsDeviceMode() bool
+}
+
+// SupportsDeviceMode reports whether a runner can run from an enrolled device.
+func SupportsDeviceMode(runner Runner) bool {
+	d, ok := runner.(DeviceModeRunner)
+	return ok && d.SupportsDeviceMode()
+}
+
+// DeviceModeRefusal is the error a device-mode launch of a runner with no
+// refresh contract gets. It names the one thing that unblocks it: a switch key,
+// which has no expiry and so needs no helper.
+func DeviceModeRefusal(displayName string) error {
+	return fmt.Errorf("%s cannot use device login: it has no way to refresh a device token during a session\n\n"+
+		"This machine is signed in with a device key. To run %s, give it a switch key with --api-key or $%s "+
+		"for this launch, or remove ~/.prizmal/device.key to stop using device login",
+		displayName, displayName, envconfig.KeyEnvVar)
+}
+
 // Editor can edit config files for integrations that support model configuration.
 type Editor interface {
 	Paths() []string
@@ -260,10 +286,11 @@ type Configurer interface {
 // AnsiRed, AnsiGreen, AnsiReset and AnsiBold are exported ANSI helpers for
 // the CLI entrypoint.
 const (
-	AnsiRed   = ansiRed
-	AnsiGreen = ansiGreen
-	AnsiReset = ansiReset
-	AnsiBold  = ansiBold
+	AnsiRed    = ansiRed
+	AnsiGreen  = ansiGreen
+	AnsiYellow = ansiYellow
+	AnsiReset  = ansiReset
+	AnsiBold   = ansiBold
 )
 
 // readJSONFile returns nil, nil when the file is absent (there is nothing to

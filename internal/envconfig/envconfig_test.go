@@ -46,3 +46,33 @@ func TestAPIKeyPrecedence(t *testing.T) {
 		})
 	}
 }
+
+// TestDeviceModeOutranksSwitchKeySources pins the device-mode precedence: the
+// enrolled device's token is the credential, and a switch key exported in the
+// shell (or the config file) does not take its place. That is what makes the
+// launcher's device-mode env filtering coherent: the child gets the device
+// token, not a key the operator forgot was exported.
+func TestDeviceModeOutranksSwitchKeySources(t *testing.T) {
+	t.Setenv(KeyEnvVar, "sk-from-env")
+	SetAPIKey("sk-from-flag")
+	SetConfigAPIKey("sk-from-config")
+	SetDeviceMode(true)
+	SetDeviceToken("pz-s-dt-a-token")
+	t.Cleanup(func() {
+		SetAPIKey("")
+		SetConfigAPIKey("")
+		SetDeviceMode(false)
+		SetDeviceToken("")
+	})
+
+	if got, src := APIKey(), APIKeySource(); got != "pz-s-dt-a-token" || src != KeySourceDevice {
+		t.Fatalf("device mode key = %q from %q, want the device token from %q", got, src, KeySourceDevice)
+	}
+
+	// With no token yet, device mode reports no credential rather than
+	// falling through to a switch key.
+	SetDeviceToken("")
+	if got, src := APIKey(), APIKeySource(); got != "" || src != KeySourceNone {
+		t.Fatalf("device mode with no token = %q from %q, want empty", got, src)
+	}
+}

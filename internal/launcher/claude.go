@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
@@ -35,6 +36,12 @@ func (c *Claude) ShowsModelList() bool { return true }
 // which is how a launch lost its 1M window and warned that the model was
 // unknown.
 func (c *Claude) OwnsModelFlag() bool { return true }
+
+// SupportsDeviceMode reports that Claude Code can run from an enrolled device:
+// its apiKeyHelper re-runs a command to refresh the credential, so the
+// launcher can hand it a helper instead of a fixed key. Every other harness
+// takes the key once and cannot refresh a short-lived token.
+func (c *Claude) SupportsDeviceMode() bool { return true }
 
 // args builds the command line for a Claude Code launch.
 //
@@ -93,32 +100,125 @@ func (c *Claude) Run(model string, models []LaunchModel, args []string) error {
 	if err != nil {
 		return err
 	}
+	// In device mode the credential is not a fixed switch key but a device
+	// token Claude Code must refresh, so the launch adds the apiKeyHelper to
+	// the settings JSON. The helper command is the same binary, and its TTL is
+	// set in claudeChildEnv.
+	if envconfig.DeviceMode() {
+		settings, err = deviceSettingsJSON(settings)
+		if err != nil {
+			return err
+		}
+	}
 
 	cmd := exec.Command(claudePath, c.args(model, rows, settings, args)...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	cmd.Env = claudeChildEnv(model, rows)
+	env := claudeChildEnv(model, rows)
+	if envconfig.DeviceMode() {
+		env = ensureHelperBaseURL(env, envconfig.BaseURL())
+	}
+	cmd.Env = env
 	return cmd.Run()
+}
+
+// ensureHelperBaseURL makes sure the Switch URL this launch resolved is in the
+// child environment, so the apiKeyHelper Claude Code spawns refreshes against
+// the same host.
+//
+// The helper is a separate prizmal process and resolves the URL from scratch:
+// --url, then $PRIZMAL_SWITCH_URL, then the config file, then the production
+// default. A launch aimed at a non-default host by --url or by the environment
+// would otherwise let the helper fall back to production and mint a token the
+// launch's own Switch cannot use. Pinning the launch's resolved URL removes
+// that fallback. A config-file URL needs no pin, because the helper reads the
+// same file.
+func ensureHelperBaseURL(env []string, baseURL string) []string {
+	if baseURL == "" {
+		return env
+	}
+	for _, kv := range env {
+		if name, _, _ := strings.Cut(kv, "="); name == envconfig.EnvVar {
+			return env // the operator's own environment already names the host
+		}
+	}
+	return append(env, envconfig.EnvVar+"="+baseURL)
+}
+
+// claudeHelperTTLMs is the interval Claude Code re-runs the apiKeyHelper on, in
+// milliseconds: 4 minutes. The device token expires 10 minutes after issue, so
+// a background refresh starts with at least 6 minutes still on the token in
+// hand. Claude Code's own default is 5 minutes, which would refresh with only
+// 5 minutes left; 4 minutes buys the margin a laptop sleep spends.
+const claudeHelperTTLMs = 240000
+
+// apiKeyHelperCommand is the settings value that tells Claude Code to fetch its
+// credential from this binary: the quoted executable path followed by the
+// helper subcommand. The path is quoted because Claude Code runs the string
+// through a shell, and an install path with a space would otherwise split into
+// two words.
+func apiKeyHelperCommand() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("find the prizmal executable: %w", err)
+	}
+	return strconv.Quote(exe) + " auth token", nil
+}
+
+// deviceSettingsJSON adds the apiKeyHelper to a launch's settings JSON. It is
+// merged into the object claudeSettingsJSON built, so the model, the overrides
+// and the picker rows stay exactly as they are and only the credential channel
+// is added.
+func deviceSettingsJSON(settings string) (string, error) {
+	helper, err := apiKeyHelperCommand()
+	if err != nil {
+		return "", err
+	}
+	merged := map[string]any{}
+	if settings != "" {
+		if err := json.Unmarshal([]byte(settings), &merged); err != nil {
+			return "", fmt.Errorf("add apiKeyHelper to Claude Code settings: %w", err)
+		}
+	}
+	merged["apiKeyHelper"] = helper
+	data, err := json.Marshal(merged)
+	if err != nil {
+		return "", fmt.Errorf("add apiKeyHelper to Claude Code settings: %w", err)
+	}
+	return string(data), nil
 }
 
 // envVars is the environment Claude Code is launched with, before the
 // inherited variables are merged in. It carries the endpoint, the credential
 // and behavior switches only. The model arrives in the inline --settings JSON,
 // so nothing here names a model.
+//
+// In device mode ANTHROPIC_AUTH_TOKEN is not set here at all, and is filtered
+// out of the inherited environment by claudeChildEnv. Claude Code treats that
+// variable as a fixed credential it never refreshes, and builds the Bearer
+// header from it before consulting the helper, so leaving it set would pin the
+// session to the launch-time token and stop the mid-session refresh the
+// apiKeyHelper exists for.
 func (c *Claude) envVars() []string {
-	return []string{
+	env := []string{
 		"ANTHROPIC_BASE_URL=" + claudeBaseURL(envconfig.Host().String()),
+	}
+	if !envconfig.DeviceMode() {
 		// The switch key travels as ANTHROPIC_AUTH_TOKEN, Claude Code's
 		// gateway credential (Authorization: Bearer), and nothing else.
-		// ANTHROPIC_API_KEY is its Anthropic-console key: set alongside the
-		// token it draws a "Both ... set · auth may not work as expected"
-		// warning, and on its own it asks for approval before the first
-		// interactive turn. It is emptied, not left alone, so a key exported
-		// in the operator's shell for Anthropic itself never reaches the
-		// Switch as an x-api-key header.
-		"ANTHROPIC_AUTH_TOKEN=" + envconfig.APIKey(),
+		env = append(env, "ANTHROPIC_AUTH_TOKEN="+envconfig.APIKey())
+	}
+	env = append(env,
+		// ANTHROPIC_API_KEY is Claude Code's Anthropic-console key: set
+		// alongside the gateway token it draws a "Both ... set · auth may not
+		// work as expected" warning, and on its own it asks for approval before
+		// the first interactive turn. It is emptied, not left alone, so a key
+		// exported in the operator's shell for Anthropic itself never reaches
+		// the Switch as an x-api-key header. In device mode it stays empty: the
+		// fresh device token goes out through the helper, not through this
+		// variable.
 		"ANTHROPIC_API_KEY=",
 		// Claude Code treats any non-claude.ai auth source as taking
 		// precedence over a stored claude.ai login, which is what a launch
@@ -143,7 +243,14 @@ func (c *Claude) envVars() []string {
 		// request carries the full tool list. The Switch parses and forwards
 		// tool_reference blocks, so turn it back on explicitly.
 		"ENABLE_TOOL_SEARCH=true",
+	)
+	if envconfig.DeviceMode() {
+		// The helper refreshes the device token 4 minutes before it would
+		// otherwise expire, with 6 minutes still on the token in hand: enough
+		// for the background refresh a laptop sleep interrupts.
+		env = append(env, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS="+strconv.Itoa(claudeHelperTTLMs))
 	}
+	return env
 }
 
 // claudeInheritedModelVars are the model-selecting variables the CLI never
@@ -159,6 +266,10 @@ func (c *Claude) envVars() []string {
 // and are also the two variables the CLI sets for real, from claudeChildEnv
 // below. A stale shell export must not give the child a model the operator
 // never picked. The child sees only the value the launch asked for.
+//
+// ANTHROPIC_AUTH_TOKEN is here too. In device mode it must not reach the child
+// from any source: a value the operator exported in their shell would pin the
+// session to a fixed credential and stop the apiKeyHelper from refreshing it.
 var claudeInheritedModelVars = []string{
 	"ANTHROPIC_DEFAULT_OPUS_MODEL",
 	"ANTHROPIC_DEFAULT_SONNET_MODEL",
@@ -167,6 +278,7 @@ var claudeInheritedModelVars = []string{
 	"ANTHROPIC_MODEL",
 	"ANTHROPIC_SMALL_FAST_MODEL",
 	"CLAUDE_CODE_SUBAGENT_MODEL",
+	"ANTHROPIC_AUTH_TOKEN",
 }
 
 // claudeChildEnv builds Claude Code's environment explicitly: the inherited
@@ -202,9 +314,7 @@ func claudeChildEnv(model string, rows []ModelRow) []string {
 		env = append(env, kv)
 	}
 	env = append(env, fixed...)
-
-	// Claude Code builds the /model picker's Default row from the Opus tier,
-	// and ANTHROPIC_DEFAULT_OPUS_MODEL is the first place it reads that tier
+	// Claude Code builds the /model picker's Default row from the Opus tier,	// and ANTHROPIC_DEFAULT_OPUS_MODEL is the first place it reads that tier
 	// from. The settings JSON has no field for the row's text. Unset, the row
 	// shows the Opus model from Claude Code's own catalog, whatever the launch
 	// routes to. Setting it to the pinned model makes the row show that model.

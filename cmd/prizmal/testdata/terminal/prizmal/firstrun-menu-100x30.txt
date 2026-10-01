@@ -1,0 +1,14 @@
+     ▲        ______     ______       _      ______   __  __        _        _
+    / \      |  ___ \   |  ___ \     | |    |___  /  |  \/  |      / \      | |
+   /   \     | |___) |  | |___) |    | |       / /   | \  / |     / ▲ \     | |
+  /     \    |  ____/   |  __  /     | |      / /    | |\/| |    / / \ \    | |
+ /       \   | |        | |  \ \     | |     / /__   | |  | |   / /___\ \   | |____
+/_________\  |_|        |_|   \_\    |_|    /_____|  |_|  |_|  /_/     \_\  |______|
+
+Welcome to Prizmal!
+No configuration found at <config-path>
+Sign in
+▸ Sign in with your browser  Approve this machine in your browser
+  Paste a key                Use a Prizmal Switch API key
+
+  ↑/k up • ↓/j down • / filter • esc quit without saving

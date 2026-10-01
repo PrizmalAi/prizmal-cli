@@ -26,56 +26,121 @@ const Reply = "PRIZMAL-STUB-REPLY"
 // New returns a running httptest.Server that speaks all three dialects.
 // Callers must defer Close it.
 func New() *httptest.Server {
-	return httptest.NewServer(handler(nil))
+	return NewServer()
 }
 
 // NewWithModels returns a running stub server whose /v1/models lists exactly
 // ids, each as text-only, in place of the default fixture. It is for tests
 // that render a catalog, where the names on screen are the point.
 func NewWithModels(ids ...string) *httptest.Server {
-	models := make([]map[string]any, 0, len(ids))
-	for _, id := range ids {
-		models = append(models, map[string]any{
-			"id":                id,
-			"input_modalities":  []string{"text"},
-			"output_modalities": []string{"text"},
-		})
-	}
-	return httptest.NewServer(handler(models))
+	return NewServer(WithModels(ids...))
 }
 
-// Entry is one /v1/models entry for NewWithEntries. Tier and Description are
-// sent only when set.
+// NewWithDeviceApproval returns a running stub server whose POST /v1/cli/token
+// approves a device: it answers 200 with a fixed device token, a 600-second
+// expiry and a fixed reauth_by. Without it the route answers 404, so a login
+// stays pending, which is the state the pending screen records.
+func NewWithDeviceApproval() *httptest.Server {
+	return NewServer(WithDeviceApproval())
+}
+
+// NewWithEntries is NewWithModels for entries that carry a tier or a
+// description.
+func NewWithEntries(entries ...Entry) *httptest.Server {
+	return NewServer(WithEntries(entries...))
+}
+
+// DeviceToken and DeviceReauthBy are the fixed values the approving stub
+// returns. They are constants so an approved login screen is deterministic.
+const (
+	DeviceToken    = "pz-d-dt-stub-token"
+	DeviceReauthBy = "2026-10-08T00:00:00Z"
+)
+
+// Entry is one /v1/models entry. Tier and Description are sent only when set.
 type Entry struct {
 	ID          string
 	Tier        string
 	Description string
 }
 
-// NewWithEntries is NewWithModels for entries that carry a tier or a
-// description.
-func NewWithEntries(entries ...Entry) *httptest.Server {
-	models := make([]map[string]any, 0, len(entries))
-	for _, e := range entries {
-		model := map[string]any{
-			"id":                e.ID,
-			"input_modalities":  []string{"text"},
-			"output_modalities": []string{"text"},
+// serverConfig is what the options build: the /v1/models fixture, and whether
+// POST /v1/cli/token approves the device. The two are independent, so a test
+// can set either, both, or neither.
+type serverConfig struct {
+	models         []map[string]any
+	deviceApproved bool
+}
+
+// ServerOption configures a stub server.
+type ServerOption func(*serverConfig)
+
+// WithModels serves exactly ids from /v1/models, each as text-only.
+func WithModels(ids ...string) ServerOption {
+	return func(c *serverConfig) {
+		models := make([]map[string]any, 0, len(ids))
+		for _, id := range ids {
+			models = append(models, map[string]any{
+				"id":                id,
+				"input_modalities":  []string{"text"},
+				"output_modalities": []string{"text"},
+			})
 		}
-		if e.Tier != "" {
-			model["tier"] = e.Tier
-		}
-		if e.Description != "" {
-			model["description"] = e.Description
-		}
-		models = append(models, model)
+		c.models = models
 	}
-	return httptest.NewServer(handler(models))
+}
+
+// WithEntries serves entries from /v1/models, sending a tier or description
+// only when the entry has one.
+func WithEntries(entries ...Entry) ServerOption {
+	return func(c *serverConfig) {
+		models := make([]map[string]any, 0, len(entries))
+		for _, e := range entries {
+			model := map[string]any{
+				"id":                e.ID,
+				"input_modalities":  []string{"text"},
+				"output_modalities": []string{"text"},
+			}
+			if e.Tier != "" {
+				model["tier"] = e.Tier
+			}
+			if e.Description != "" {
+				model["description"] = e.Description
+			}
+			models = append(models, model)
+		}
+		c.models = models
+	}
+}
+
+// WithDeviceApproval makes POST /v1/cli/token approve the device. Without it
+// that route answers 404, the pending state.
+func WithDeviceApproval() ServerOption {
+	return func(c *serverConfig) { c.deviceApproved = true }
+}
+
+// NewServer returns a running stub server built from options. Callers must
+// defer Close it.
+func NewServer(opts ...ServerOption) *httptest.Server {
+	var c serverConfig
+	for _, opt := range opts {
+		opt(&c)
+	}
+	return httptest.NewServer(handler(c.models, c.deviceApproved))
 }
 
 // handler serves the stub API. A nil models serves the default fixture.
-func handler(models []map[string]any) http.HandlerFunc {
+func handler(models []map[string]any, deviceApproved bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// POST /v1/cli/token is the device refresh. The real Switch serves it
+		// without a bearer credential, because the request carries its own
+		// ed25519 signature in the body and the Config API checks it, so it is
+		// answered before the auth check below.
+		if method, path := r.Method, r.URL.Path; method == http.MethodPost && path == "/v1/cli/token" {
+			handleCLIToken(w, deviceApproved)
+			return
+		}
+
 		// Auth check: require either Authorization: Bearer or x-api-key.
 		if !hasAuth(r) {
 			writeJSON(w, http.StatusUnauthorized, map[string]any{
@@ -112,6 +177,24 @@ func handler(models []map[string]any) http.HandlerFunc {
 			})
 		}
 	}
+}
+
+// handleCLIToken answers the device refresh. While pending it returns 404, the
+// same "unknown device" the CLI polls through during enrollment. Approved
+// returns 200 with a fixed token, a 600-second expiry and a fixed reauth_by,
+// mirroring the shape the Switch forwards from the Config API.
+func handleCLIToken(w http.ResponseWriter, approved bool) {
+	if !approved {
+		writeJSON(w, http.StatusNotFound, map[string]any{
+			"error": map[string]any{"code": "NOT_FOUND", "message": "unknown device"},
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"device_token": DeviceToken,
+		"expires_in":   600,
+		"reauth_by":    DeviceReauthBy,
+	})
 }
 
 func hasAuth(r *http.Request) bool {
