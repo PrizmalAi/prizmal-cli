@@ -35,6 +35,12 @@ type LoginOptions struct {
 	Now func() time.Time
 	// OpenBrowser launches the URL, BestEffortOpenBrowser when nil.
 	OpenBrowser func(string) error
+	// Confirm returns whether the operator pressed Enter to open the browser.
+	// It reads one line and reports true on a bare Enter; false when the input
+	// is not a terminal or the answer is anything else, so a script never has a
+	// browser opened for it. Nil means a real terminal read (readConfirm), so
+	// the login always pauses in production.
+	Confirm func() (bool, error)
 	// Out receives the URL, fingerprint and progress, os.Stderr when nil.
 	Out io.Writer
 }
@@ -54,6 +60,9 @@ func (o *LoginOptions) withDefaults() LoginOptions {
 	}
 	if o.OpenBrowser == nil {
 		o.OpenBrowser = BestEffortOpenBrowser
+	}
+	if o.Confirm == nil {
+		o.Confirm = readConfirm
 	}
 	if o.Out == nil {
 		o.Out = io.Discard
@@ -91,15 +100,30 @@ func Login(client *Client, key *Key, opts LoginOptions) (*Token, error) {
 	opts = opts.withDefaults()
 
 	authURL := AuthorizeURL(opts.AuthorizeBaseURL, key, opts.DeviceName)
+	// The URL and fingerprint come first, and the browser opens only after the
+	// operator presses Enter: they approve the fingerprint on the page, so they
+	// need to read it here before a window covers the terminal, and a browser
+	// must not take over the screen unasked.
+	//
 	// Explicit discards: these write progress to the operator's terminal, and a
 	// failure (a closed pipe) is not a reason to abandon an enrollment already
 	// in flight.
 	_, _ = fmt.Fprintf(opts.Out, "\nTo approve this device, open:\n\n  %s\n\n", authURL)
 	_, _ = fmt.Fprintf(opts.Out, "Device fingerprint: %s\n", key.Fingerprint())
-	_, _ = fmt.Fprintf(opts.Out, "Confirm this matches the fingerprint shown in your browser.\n\n")
+	_, _ = fmt.Fprintf(opts.Out, "Confirm this matches the fingerprint shown in your browser.\n")
+	_, _ = fmt.Fprintf(opts.Out, "Press Enter to open the browser (or open the URL above yourself)...")
 
-	if err := opts.OpenBrowser(authURL); err != nil {
-		_, _ = fmt.Fprintf(opts.Out, "Could not open a browser automatically (%v).\nOpen the URL above on any machine with a browser.\n", err)
+	open, err := opts.Confirm()
+	_, _ = fmt.Fprintln(opts.Out)
+	if err != nil {
+		return nil, err
+	}
+	if open {
+		if err := opts.OpenBrowser(authURL); err != nil {
+			_, _ = fmt.Fprintf(opts.Out, "Could not open a browser automatically (%v).\nOpen the URL above on any machine with a browser.\n", err)
+		}
+	} else {
+		_, _ = fmt.Fprintf(opts.Out, "Not opening a browser. Open the URL above on any machine with a browser.\n")
 	}
 	_, _ = fmt.Fprintf(opts.Out, "Waiting for approval...\n")
 

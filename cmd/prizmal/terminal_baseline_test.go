@@ -365,14 +365,18 @@ var prizmalBaselineCases = []baselineCase{
 		noConfig:  true,
 		steps:     []baselineStep{{waitFor: "Paste a key"}},
 	},
-	// The browser login while the tenant has not approved yet. The stub answers
-	// the refresh 404, so the flow stops at "Waiting for approval..." and the
-	// wait is stable to capture: the screen has settled before it is read.
+	// The browser login while the tenant has not approved yet. The login waits
+	// for Enter before it opens a browser, so the case presses it; the stub then
+	// answers the refresh 404, so the flow stops at "Waiting for approval..." and
+	// the wait is stable to capture.
 	{
 		name: "login-pending-100x30", cols: 100, rows: 30,
-		args:  []string{"login"},
-		env:   []string{"PRIZMAL_APP_URL=" + nonRoutableAppURL},
-		steps: []baselineStep{{waitFor: "Waiting for approval"}},
+		args: []string{"login"},
+		env:  []string{"PRIZMAL_APP_URL=" + nonRoutableAppURL},
+		steps: []baselineStep{
+			{waitFor: "Press Enter to open the browser"},
+			{key: "Enter", waitFor: "Waiting for approval"},
+		},
 	},
 	// The approved login. The stub answers 200 with a token and a reauth_by, so
 	// the screen shows the success line and the deadline.
@@ -381,7 +385,10 @@ var prizmalBaselineCases = []baselineCase{
 		args:           []string{"login"},
 		deviceApproved: true,
 		env:            []string{"PRIZMAL_APP_URL=" + nonRoutableAppURL},
-		steps:          []baselineStep{{waitFor: "This device is approved"}},
+		steps: []baselineStep{
+			{waitFor: "Press Enter to open the browser"},
+			{key: "Enter", waitFor: "This device is approved"},
+		},
 	},
 	// Re-approving a machine that already has a device key: the same screen with
 	// the re-approve line instead of "Generated a new device key".
@@ -391,7 +398,10 @@ var prizmalBaselineCases = []baselineCase{
 		deviceKey:      true,
 		deviceApproved: true,
 		env:            []string{"PRIZMAL_APP_URL=" + nonRoutableAppURL},
-		steps:          []baselineStep{{waitFor: "Re-approving the device key"}},
+		steps: []baselineStep{
+			{waitFor: "Re-approving the device key"},
+			{key: "Enter", waitFor: "This device is approved"},
+		},
 	},
 	// `auth token` with no device key is the only screen it draws: its success
 	// path prints the token to stdout and nothing else.
