@@ -72,4 +72,4 @@ jobs:
       - name: Compare terminal baselines
         env:
           PRIZMAL_TERMINAL_BASELINES: require
-        run: go test -count=1 -v -run TestTerminalBaselinesClaude ./cmd/prizmal
+        run: go test -count=1 -v -run 'TestTerminalBaselinesClaude|TestClaudeTiersStartInAutoMode' ./cmd/prizmal

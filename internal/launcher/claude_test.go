@@ -291,10 +291,9 @@ func TestClaudeModelNameCarriesItsTiersSuffix(t *testing.T) {
 		{"one suffix is not doubled", "some-model[1m]", "some-model[1m]"},
 		{"two suffixes collapse to one", "some-model[1m][1m]", "some-model[1m]"},
 		{"empty name stays empty", "", ""},
-		// Haiku 4.5 has no 1M window. Claude Code drops a /model row that asks
-		// for one on a haiku-behaving model, so a haiku name carries no suffix.
-		{"a haiku name gets no suffix", "claude-tier-haiku", "claude-tier-haiku"},
-		{"a haiku name loses a suffix it arrived with", "claude-tier-haiku[1m][1m]", "claude-tier-haiku"},
+		// The Switch serves every tier with a 1M window, haiku included.
+		{"a haiku name gets the suffix", "claude-tier-haiku", "claude-tier-haiku[1m]"},
+		{"a haiku name keeps one suffix", "claude-tier-haiku[1m][1m]", "claude-tier-haiku[1m]"},
 		{"the other tiers keep the suffix", "claude-tier-sonnet", "claude-tier-sonnet[1m]"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -374,9 +373,9 @@ func TestClaudeArgsStateTheModelThemselves(t *testing.T) {
 			want:  []string{"--model", "smart[1m]", "--resume", "abc", "-m", "plan"},
 		},
 		{
-			name:  "a haiku model is appended bare, like its settings model",
+			name:  "a haiku model carries the suffix, like its settings model",
 			model: "claude-tier-haiku",
-			want:  []string{"--model", "claude-tier-haiku"},
+			want:  []string{"--model", "claude-tier-haiku[1m]"},
 		},
 		{
 			name:  "no model appends nothing",
@@ -430,8 +429,8 @@ func TestClaudeSettingsJSONShape(t *testing.T) {
 		t.Fatalf("settings JSON does not parse: %v\n%s", err, settings)
 	}
 
-	if got.Model != "claude-tier-haiku" {
-		t.Errorf("model = %q, want claude-tier-haiku with no suffix", got.Model)
+	if got.Model != "claude-tier-haiku[1m]" {
+		t.Errorf("model = %q, want claude-tier-haiku[1m]", got.Model)
 	}
 	if !got.ModelPicker.ReplaceBuiltInOptions {
 		t.Error("replaceBuiltInOptions is false; built-in rows would appear beside the tenant's")
@@ -442,11 +441,11 @@ func TestClaudeSettingsJSONShape(t *testing.T) {
 	if got.ModelPicker.Options[0].Label != "tier-haiku" {
 		t.Errorf("option label = %q, want tier-haiku (the suffix is stripped for display)", got.ModelPicker.Options[0].Label)
 	}
-	if got.ModelPicker.Options[0].Model != "claude-tier-haiku" {
-		t.Errorf("option model = %q, want claude-tier-haiku with no suffix", got.ModelPicker.Options[0].Model)
+	if got.ModelPicker.Options[0].Model != "claude-tier-haiku[1m]" {
+		t.Errorf("option model = %q, want claude-tier-haiku[1m]", got.ModelPicker.Options[0].Model)
 	}
-	if got.ModelPicker.Options[0].BehavesAs != "claude-haiku-4-5-20251001" {
-		t.Errorf("option behavesAs = %q, want claude-haiku-4-5-20251001", got.ModelPicker.Options[0].BehavesAs)
+	if got.ModelPicker.Options[0].BehavesAs != "claude-sonnet-5" {
+		t.Errorf("option behavesAs = %q, want claude-sonnet-5", got.ModelPicker.Options[0].BehavesAs)
 	}
 	if got.ModelPicker.Options[0].Description != "Haiku tier" {
 		t.Errorf("option description = %q, want Haiku tier", got.ModelPicker.Options[0].Description)
@@ -469,7 +468,8 @@ func TestClaudeSettingsJSONShape(t *testing.T) {
 // than the tenant's alias. The same rule bites the variant spellings the
 // catalog never gave a first-party id (claude-haiku-4-5-20251001-v1,
 // claude-fable-5-mythos-5) and the mythos family (claude-mythos-5,
-// claude-mythos-5-1), so none appears here.
+// claude-mythos-5-1), so none appears here. The haiku ids are absent for
+// another reason, which TestClaudeModelOverridesCarryNoHaikuKey states.
 func TestClaudeModelOverridesKeysAreCanonicalIds(t *testing.T) {
 	wantKeys := []string{
 		"claude-opus-5-5",
@@ -487,8 +487,6 @@ func TestClaudeModelOverridesKeysAreCanonicalIds(t *testing.T) {
 		"claude-sonnet-4-20250514",
 		"claude-3-7-sonnet-20250219",
 		"claude-3-5-sonnet-20241022",
-		"claude-haiku-4-5-20251001",
-		"claude-3-5-haiku-20241022",
 		"claude-fable-5-1",
 		"claude-fable-5",
 	}
@@ -555,6 +553,14 @@ func TestClaudeModelOverridesNameEachTiersProfileFirst(t *testing.T) {
 
 	for tier, profile := range tierProfiles {
 		alias := claudeModelName(claudeTierModel(tier))
+		if !profileInLineage(tier) {
+			// The session on this alias must miss the overrides, so that
+			// Claude Code reads the row's behavesAs instead.
+			if got, ok := firstKey[alias]; ok {
+				t.Errorf("modelOverrides maps %q to %s, so a session on the alias runs as %s instead of %s", got, alias, got, profile.behavesAs)
+			}
+			continue
+		}
 		if got := firstKey[alias]; got != profile.behavesAs {
 			t.Errorf("first modelOverrides key for %s = %q, want %q, the id its rows behave as", alias, got, profile.behavesAs)
 		}
@@ -588,23 +594,29 @@ func TestClaudeOrderedModelOverridesMatchTheMapping(t *testing.T) {
 //
 // A request that resolves through a tier short name takes the modelOverrides
 // value. Without the [1m] suffix it budgets a 200k window and compacts a long
-// session early. The haiku tier is the exception: Haiku 4.5 has no 1M window,
-// so its value is bare, as its row is.
+// session early.
 func TestClaudeModelOverridesCarryTheirTiersSuffix(t *testing.T) {
 	overrides := claudeModelOverrides()
 
 	for key, value := range overrides {
-		if slices.Contains(claudeFamilyIDs[modelTierHaiku], key) {
-			if value != "claude-tier-haiku" {
-				t.Errorf("modelOverrides[%q] = %q, want claude-tier-haiku with no suffix", key, value)
-			}
-			continue
-		}
 		if !strings.HasSuffix(value, oneMillionSuffix) {
 			t.Errorf("modelOverrides[%q] = %q, want it to end in %s", key, value, oneMillionSuffix)
 		}
 		if strings.Count(value, oneMillionSuffix) != 1 {
 			t.Errorf("modelOverrides[%q] = %q, want exactly one %s", key, value, oneMillionSuffix)
+		}
+	}
+}
+
+// The overrides carry no haiku id. Claude Code resolves a model whose name
+// equals an override value, with or without [1m], to that value's key before
+// it reads the row's behavesAs. A haiku key would make the haiku-tier session
+// run as a haiku model, which Claude Code refuses auto mode behind a gateway,
+// and would drop the tier's /model row, whose 1M window a haiku model lacks.
+func TestClaudeModelOverridesCarryNoHaikuKey(t *testing.T) {
+	for key, value := range claudeModelOverrides() {
+		if strings.Contains(key, "haiku") {
+			t.Errorf("modelOverrides[%q] = %q, and a haiku key resolves the haiku-tier session to a haiku model", key, value)
 		}
 	}
 }
@@ -713,13 +725,13 @@ func TestClaudeChildEnvPassesCapabilitiesThrough(t *testing.T) {
 	}
 }
 
-// A row the Switch tags haiku gets no [1m], whatever its name says. Claude
-// Code drops a /model row that asks for 1M on a haiku profile.
-func TestClaudeModelPickerLeavesAHaikuTaggedRowBare(t *testing.T) {
+// A row the Switch tags haiku carries [1m], like every other tier. The Switch
+// serves every tier with a 1M window.
+func TestClaudeModelPickerGivesAHaikuTaggedRowTheSuffix(t *testing.T) {
 	picker := claudeModelPicker(ModelRows([]LaunchModel{{Name: "smart", Tier: "haiku"}, {Name: "flash", Tier: "opus"}}))
 	options := picker["options"].([]any)
-	if got := options[0].(map[string]any)["model"]; got != "smart" {
-		t.Errorf("haiku-tagged row model = %v, want smart with no [1m]", got)
+	if got := options[0].(map[string]any)["model"]; got != "smart[1m]" {
+		t.Errorf("haiku-tagged row model = %v, want smart[1m]", got)
 	}
 	if got := options[1].(map[string]any)["model"]; got != "flash[1m]" {
 		t.Errorf("opus-tagged row model = %v, want flash[1m]", got)
@@ -735,25 +747,26 @@ func TestClaudeRowTakesItsWindowFromTheSwitchsTier(t *testing.T) {
 }
 
 // A config launched by its own name runs as its own picker row does: a
-// haiku-tagged config stays bare in the settings model, the --model flag, and
-// the Opus-tier variable, or Claude Code runs a model no row matches.
+// haiku-tagged config carries the same [1m] in the settings model, the
+// --model flag, and the Opus-tier variable, or Claude Code runs a model no
+// row matches.
 func TestClaudeLaunchSpellsATieredConfigAsItsRow(t *testing.T) {
 	rows := ModelRows([]LaunchModel{{Name: "flash", Tier: "haiku"}})
 	named := claudeLaunchModelName("flash", rows)
-	if named != "flash" {
-		t.Fatalf("launch name = %q, want flash with no [1m]", named)
+	if named != "flash[1m]" {
+		t.Fatalf("launch name = %q, want flash[1m]", named)
 	}
 	settings, err := claudeSettingsJSON("flash", rows)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(settings, `"model":"flash"`) {
-		t.Errorf("settings = %s, want the model spelled flash", settings)
+	if !strings.Contains(settings, `"model":"flash[1m]"`) {
+		t.Errorf("settings = %s, want the model spelled flash[1m]", settings)
 	}
-	if args := (&Claude{}).args("flash", rows, "", nil); strings.Join(args, " ") != "--model flash" {
-		t.Errorf("args = %v, want --model flash", args)
+	if args := (&Claude{}).args("flash", rows, "", nil); strings.Join(args, " ") != "--model flash[1m]" {
+		t.Errorf("args = %v, want --model flash[1m]", args)
 	}
-	if !slices.Contains(claudeChildEnv("flash", rows), "ANTHROPIC_DEFAULT_OPUS_MODEL=flash") {
-		t.Errorf("child env lacks ANTHROPIC_DEFAULT_OPUS_MODEL=flash")
+	if !slices.Contains(claudeChildEnv("flash", rows), "ANTHROPIC_DEFAULT_OPUS_MODEL=flash[1m]") {
+		t.Errorf("child env lacks ANTHROPIC_DEFAULT_OPUS_MODEL=flash[1m]")
 	}
 }
