@@ -72,10 +72,29 @@ func printBanner(w io.Writer) {
 	}
 }
 
-// firstRunMenuPrompt asks the first run how to sign in. The two answers are
-// the two credentials this CLI accepts: a browser-approved device key, which
-// needs no typing and works over SSH, or a switch key pasted in.
-const firstRunMenuPrompt = "Sign in: [1] browser  [2] paste a key  > "
+// firstRunSignInHeading is the first-run picker's title. The picker is the same
+// widget as the model picker, so the first run presents its two ways to sign in
+// as two rows rather than a numbered prompt.
+const firstRunSignInHeading = "Sign in"
+
+// firstRunSignInOptions are the two credentials this CLI accepts: a
+// browser-approved device key, which needs no typing and works over SSH, or a
+// switch key pasted in. The Value is what the picker returns and what the
+// switch below matches on.
+func firstRunSignInOptions() []launcher.Option {
+	return []launcher.Option{
+		{
+			Label:       "Sign in with your browser",
+			Value:       "browser",
+			Description: "Approve this machine in your browser",
+		},
+		{
+			Label:       "Paste a key",
+			Value:       "key",
+			Description: "Use a Prizmal Switch API key",
+		},
+	}
+}
 
 // apiKeyPrompt asks the first run for a key. It promises nothing about an
 // empty answer, because there is nothing to promise: an empty answer saves
@@ -86,6 +105,15 @@ const apiKeyPrompt = "Enter your Prizmal API key: "
 // a variable so a test can drive the menu without a browser or a network:
 // production points it at runBrowserSignIn.
 var signInBrowser = runBrowserSignIn
+
+// menuPicker renders the first-run picker and returns the chosen value. It is
+// the launcher's picker in production; a test supplies a fake so it never opens
+// a real terminal.
+type menuPicker func(heading string, options []launcher.Option) (string, error)
+
+// cancelledPicker is the test seam's picker: it reports a backed-out menu, so a
+// test that does not supply its own never reaches a terminal.
+func cancelledPicker(string, []launcher.Option) (string, error) { return "", launcher.ErrCancelled }
 
 // stdinIsTerminal reports whether stdin is an interactive terminal.
 func stdinIsTerminal() bool {
@@ -124,22 +152,23 @@ func readSecret(prompt string) (string, error) {
 // stdin is not a terminal it returns a nil config without prompting so scripts
 // and tests never block or write a config.
 func ensureConfig() (*config.Config, error) {
-	return ensureConfigWithMenu(readSecret, stdinIsTerminal(), signInBrowser)
+	return ensureConfigWithMenu(readSecret, stdinIsTerminal(), launcher.PickOption, signInBrowser)
 }
 
-// ensureConfigWith holds the body of ensureConfig with its two inputs
-// supplied: how a key is read, and whether anyone is there to type one.
+// ensureConfigWith holds the body of ensureConfig with its inputs supplied: how
+// a key is read, and whether anyone is there to type one.
 //
-// Its browser sign-in is a no-op: this is the seam tests drive, and a test must
-// never be able to open the operator's browser or reach the production consent
-// page. A test that means to exercise the browser path calls
+// Its picker reports a backed-out menu and its browser sign-in is a no-op: this
+// is the seam tests drive, and a test must never be able to open the operator's
+// terminal or browser. A test that means to exercise either path calls
 // ensureConfigWithMenu with its own fake.
 func ensureConfigWith(read keyReader, interactive bool) (*config.Config, error) {
-	return ensureConfigWithMenu(read, interactive, func() error { return nil })
+	return ensureConfigWithMenu(read, interactive, cancelledPicker, func() error { return nil })
 }
 
-// ensureConfigWithMenu is ensureConfigWith with the browser sign-in supplied.
-func ensureConfigWithMenu(read keyReader, interactive bool, browserSignIn func() error) (*config.Config, error) {
+// ensureConfigWithMenu is ensureConfigWith with the picker and the browser
+// sign-in supplied.
+func ensureConfigWithMenu(read keyReader, interactive bool, pick menuPicker, browserSignIn func() error) (*config.Config, error) {
 	cfg, err := config.Load()
 	if err == nil {
 		return cfg, nil
@@ -163,16 +192,17 @@ func ensureConfigWithMenu(read keyReader, interactive bool, browserSignIn func()
 	p, _ := config.Path()
 	fmt.Fprintf(os.Stderr, "No configuration found at %s\n", p)
 
-	choice, err := read(firstRunMenuPrompt)
+	choice, err := pick(firstRunSignInHeading, firstRunSignInOptions())
 	if err != nil {
+		// A backed-out menu is the operator's decision, not a failure: nothing is
+		// saved and the next run asks again.
+		if errors.Is(err, launcher.ErrCancelled) {
+			return nil, nil
+		}
 		return nil, err
 	}
-	switch choice = strings.TrimSpace(choice); choice {
-	case "":
-		// Enter names no credential, exactly as an empty key always did: there
-		// is nothing to persist, and the next run asks again.
-		return nil, nil
-	case "1":
+	switch choice {
+	case "browser":
 		if err := browserSignIn(); err != nil {
 			return nil, err
 		}
@@ -180,14 +210,13 @@ func ensureConfigWithMenu(read keyReader, interactive bool, browserSignIn func()
 		// path leaves behind.
 		envconfig.SetDeviceMode(true)
 		return nil, nil
-	case "2":
+	case "key":
 		return configFromPastedKey(read)
 	default:
-		// Anything else is refused rather than guessed at. Opening a browser is
-		// a visible, outward action; taking it on an unexpected keystroke — a
-		// stray character in a script — is how a machine that never asked for a
-		// sign-in ends up opening one.
-		return nil, fmt.Errorf("enter 1 to sign in with your browser, or 2 to paste a key")
+		// The picker only ever returns one of its own option values, so this is
+		// unreachable. Refusing rather than guessing keeps a browser from opening
+		// on an unexpected value.
+		return nil, fmt.Errorf("unexpected sign-in choice %q", choice)
 	}
 }
 

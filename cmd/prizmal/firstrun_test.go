@@ -1,12 +1,14 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/config"
+	launcher "github.com/PrizmalAi/prizmal-cli/internal/launcher"
 )
 
 // useTempHome points the Prizmal config path at a temp directory, so a test
@@ -37,29 +39,37 @@ func scriptedReader(in string) keyReader {
 	}
 }
 
-// scriptedLineReader answers successive prompts with successive lines of in,
-// so a test can drive a multi-prompt flow (the first-run menu, then the key
-// prompt). It repeats the last line if asked for more.
-func scriptedLineReader(in string) keyReader {
-	lines := strings.Split(in, "\n")
-	i := 0
-	return func(string) (string, error) {
-		line := lines[i]
-		if i < len(lines)-1 {
-			i++
-		}
-		return strings.TrimSpace(line), nil
-	}
+// pickerReturns is the picker seam a test supplies: it returns the given option
+// value as the operator's choice, without a terminal. It records the heading
+// and options it was offered so a test can assert the menu's contents.
+func pickerReturns(value string) (menuPicker, *struct {
+	heading string
+	options []launcher.Option
+}) {
+	seen := &struct {
+		heading string
+		options []launcher.Option
+	}{}
+	return func(heading string, options []launcher.Option) (string, error) {
+		seen.heading, seen.options = heading, options
+		return value, nil
+	}, seen
+}
+
+// menuCancelled is the picker seam for a backed-out menu.
+func menuCancelled(string, []launcher.Option) (string, error) {
+	return "", launcher.ErrCancelled
 }
 
 // TestEnsureConfigEmptyKeyLeavesNoConfigFile is the report: pressing Enter at
-// the prompt left a config file holding base_url and no key, so the next run
-// found a config file and never prompted again. An empty answer names no
+// the key prompt left a config file holding base_url and no key, so the next
+// run found a config file and never prompted again. An empty answer names no
 // credential, so the first run has nothing to persist.
 func TestEnsureConfigEmptyKeyLeavesNoConfigFile(t *testing.T) {
 	home := useTempHome(t)
+	pick, _ := pickerReturns("key")
 
-	cfg, err := ensureConfigWith(scriptedReader("\n"), true)
+	cfg, err := ensureConfigWithMenu(scriptedReader("\n"), true, pick, func() error { return nil })
 	if err != nil {
 		t.Fatalf("ensureConfig: %v", err)
 	}
@@ -83,7 +93,8 @@ func TestEnsureConfigBlankAnswersLeaveNoConfigFile(t *testing.T) {
 	for name, in := range cases {
 		t.Run(name, func(t *testing.T) {
 			home := useTempHome(t)
-			cfg, err := ensureConfigWith(scriptedReader(in), true)
+			pick, _ := pickerReturns("key")
+			cfg, err := ensureConfigWithMenu(scriptedReader(in), true, pick, func() error { return nil })
 			if err != nil {
 				t.Fatalf("ensureConfig: %v", err)
 			}
@@ -100,8 +111,9 @@ func TestEnsureConfigBlankAnswersLeaveNoConfigFile(t *testing.T) {
 // A key that was actually typed still lands in the config file, written once.
 func TestEnsureConfigKeyWritesTheConfigFile(t *testing.T) {
 	home := useTempHome(t)
+	pick, _ := pickerReturns("key")
 
-	cfg, err := ensureConfigWith(scriptedLineReader("2\nsk-typed-key\n"), true)
+	cfg, err := ensureConfigWithMenu(scriptedReader("sk-typed-key\n"), true, pick, func() error { return nil })
 	if err != nil {
 		t.Fatalf("ensureConfig: %v", err)
 	}
@@ -127,9 +139,10 @@ func TestEnsureConfigKeyWritesTheConfigFile(t *testing.T) {
 // the device key is the credential, and a config file would shadow it.
 func TestEnsureConfigBrowserSignInWritesNoConfigFile(t *testing.T) {
 	home := useTempHome(t)
+	pick, seen := pickerReturns("browser")
 
 	var called bool
-	cfg, err := ensureConfigWithMenu(scriptedLineReader("1\n"), true, func() error {
+	cfg, err := ensureConfigWithMenu(scriptedReader(""), true, pick, func() error {
 		called = true
 		return nil
 	})
@@ -145,31 +158,41 @@ func TestEnsureConfigBrowserSignInWritesNoConfigFile(t *testing.T) {
 	if configFileExists(t, home) {
 		t.Error("the browser sign-in created a config file")
 	}
+	// The menu is the shared picker under the "Sign in" heading, offering the
+	// two ways to authenticate.
+	if seen.heading != firstRunSignInHeading {
+		t.Errorf("picker heading = %q, want %q", seen.heading, firstRunSignInHeading)
+	}
+	if len(seen.options) != 2 || seen.options[0].Value != "browser" || seen.options[1].Value != "key" {
+		t.Errorf("picker options = %+v, want browser and key", seen.options)
+	}
 }
 
-// An unexpected answer must not open a browser. The sign-in is an outward
-// action; a stray keystroke is not consent to take it.
-func TestEnsureConfigUnexpectedAnswerDoesNotSignIn(t *testing.T) {
-	useTempHome(t)
+// A backed-out menu is the operator's decision: nothing is saved and the first
+// run returns without a config.
+func TestEnsureConfigMenuCancellationWritesNothing(t *testing.T) {
+	home := useTempHome(t)
 
-	var called bool
-	if _, err := ensureConfigWithMenu(scriptedReader("yes\n"), true, func() error {
-		called = true
-		return nil
-	}); err == nil {
-		t.Fatal("an unexpected answer did not return an error")
+	cfg, err := ensureConfigWithMenu(scriptedReader(""), true, menuCancelled, func() error {
+		return errors.New("should not sign in")
+	})
+	if err != nil {
+		t.Fatalf("ensureConfig: %v", err)
 	}
-	if called {
-		t.Fatal("an unexpected answer opened the browser")
+	if cfg != nil {
+		t.Errorf("cfg = %+v, want nil after a cancelled menu", cfg)
+	}
+	if configFileExists(t, home) {
+		t.Error("a cancelled menu created a config file")
 	}
 }
 
 // The browser path is unreachable from the test seam: ensureConfigWith supplies
-// a no-op sign-in, so a test can never open the operator's browser or reach the
-// production consent page.
+// a picker that cancels and a no-op sign-in, so a test can never open the
+// operator's terminal or browser.
 func TestEnsureConfigWithSeamNeverSignsInBrowser(t *testing.T) {
 	useTempHome(t)
-	if _, err := ensureConfigWith(scriptedReader("1\n"), true); err != nil {
+	if _, err := ensureConfigWith(scriptedReader(""), true); err != nil {
 		t.Fatalf("ensureConfig: %v", err)
 	}
 }
@@ -204,11 +227,11 @@ func TestEnsureConfigSkipsMenuWhenDeviceKeyExists(t *testing.T) {
 	}
 
 	var asked bool
-	read := func(string) (string, error) {
+	pick := func(string, []launcher.Option) (string, error) {
 		asked = true
 		return "", nil
 	}
-	cfg, err := ensureConfigWithMenu(read, true, func() error { return nil })
+	cfg, err := ensureConfigWithMenu(scriptedReader(""), true, pick, func() error { return nil })
 	if err != nil {
 		t.Fatalf("ensureConfig: %v", err)
 	}
@@ -223,16 +246,25 @@ func TestEnsureConfigSkipsMenuWhenDeviceKeyExists(t *testing.T) {
 	}
 }
 
-// The prompt promised a skip it cannot deliver: an empty answer leaves no key
-// and no config file, so the next run asks again. Pin the wording.
-func TestFirstRunPromptOffersBothChoices(t *testing.T) {
-	lower := strings.ToLower(firstRunMenuPrompt)
-	if !strings.Contains(lower, "browser") {
-		t.Errorf("prompt %q does not offer browser sign-in", firstRunMenuPrompt)
+// The menu's heading and its two rows name the two ways to sign in, which is
+// what a person reads on the shared picker.
+func TestFirstRunMenuOffersBothChoices(t *testing.T) {
+	if strings.ToLower(firstRunSignInHeading) == "" {
+		t.Fatalf("heading %q is empty", firstRunSignInHeading)
 	}
-	if !strings.Contains(lower, "key") {
-		t.Errorf("prompt %q does not offer pasting a key", firstRunMenuPrompt)
+	opts := firstRunSignInOptions()
+	if len(opts) != 2 {
+		t.Fatalf("menu offers %d options, want 2", len(opts))
 	}
+	joined := strings.ToLower(opts[0].Label + " " + opts[1].Label)
+	if !strings.Contains(joined, "browser") {
+		t.Errorf("menu does not offer browser sign-in: %+v", opts)
+	}
+	if !strings.Contains(joined, "key") {
+		t.Errorf("menu does not offer pasting a key: %+v", opts)
+	}
+	// The paste path's key prompt must not promise a skip it cannot deliver: an
+	// empty answer leaves no key and no config file.
 	lowerKey := strings.ToLower(apiKeyPrompt)
 	for _, unwanted := range []string{"empty", "skip", "optional"} {
 		if strings.Contains(lowerKey, unwanted) {

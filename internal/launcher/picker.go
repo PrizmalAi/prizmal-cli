@@ -207,9 +207,43 @@ func disambiguateLabels(rows []ModelRow) {
 	}
 }
 
-// ModelPickerMenu renders the interactive menu and returns the chosen model
-// id. It is a package variable so tests can drive the selection without a
-// terminal, in the same way DefaultConfirmPrompt and DefaultSpinner are.
+// Option is one row of the picker: Label is what a person reads, Value is what
+// a selection returns, and Description is optional text drawn beside the label.
+//
+// The picker is not model-specific. The model picker adapts its ModelRow list
+// to options; the first-run sign-in menu passes its own.
+type Option struct {
+	Label       string
+	Value       string
+	Description string
+}
+
+// ErrNoOptions is returned by PickOption when there is nothing to choose from.
+// An empty menu would render a list with nothing to select and no way to leave
+// with a value.
+var ErrNoOptions = errors.New("nothing to choose from")
+
+// PickerMenu renders the interactive picker and returns the chosen value. It is
+// a package variable so tests can drive a selection without a terminal, in the
+// same way DefaultConfirmPrompt and DefaultSpinner are.
+var PickerMenu func(heading string, options []Option) (string, error)
+
+// PickOption asks the operator to choose from options under a heading. It
+// returns ErrNoOptions rather than opening an empty menu.
+func PickOption(heading string, options []Option) (string, error) {
+	if len(options) == 0 {
+		return "", ErrNoOptions
+	}
+	menu := PickerMenu
+	if menu == nil {
+		menu = defaultPickerMenu
+	}
+	return menu(heading, options)
+}
+
+// ModelPickerMenu renders the model picker and returns the chosen model id. It
+// is the model-facing seam, kept so a caller that drives the model picker
+// specifically need not build options.
 var ModelPickerMenu func(rows []ModelRow) (string, error)
 
 // PickModel asks the operator to choose from rows. It returns ErrNoModels
@@ -224,6 +258,17 @@ func PickModel(rows []ModelRow) (string, error) {
 		menu = defaultModelPickerMenu
 	}
 	return menu(rows)
+}
+
+// modelOptions adapts picker rows to options: the label is what a person reads,
+// the model id is the value a selection returns, and the description is drawn
+// beside the label.
+func modelOptions(rows []ModelRow) []Option {
+	options := make([]Option, 0, len(rows))
+	for _, row := range rows {
+		options = append(options, Option{Label: row.Label, Value: row.Model, Description: row.Description})
+	}
+	return options
 }
 
 // pickerMaxVisible is how many models the picker shows at once. A display
@@ -252,38 +297,35 @@ func pickerMenuHeight(rows int) int {
 	return rows + chrome
 }
 
-// modelItem is one selectable model in the list. bubbles/list identifies items
+// pickerItem is one selectable row in the list. bubbles/list identifies items
 // by their FilterValue, which is the text a search matches against.
-type modelItem struct {
+type pickerItem struct {
 	label       string
-	model       string
+	value       string
 	description string
 }
 
 // FilterValue is what a typed search matches. It is the label, because that is
-// what the operator reads on screen and would search for, while the model id it
+// what the operator reads on screen and would search for, while the value it
 // resolves to may carry decoration the label drops.
-func (i modelItem) FilterValue() string { return i.label }
+func (i pickerItem) FilterValue() string { return i.label }
 
 // Title is the row's display text.
-func (i modelItem) Title() string { return i.label }
+func (i pickerItem) Title() string { return i.label }
 
-// Description is empty, so bubbles reserves no second line per model, which
-// would halve how many fit on screen. modelDelegate draws the row's
+// Description is empty, so bubbles reserves no second line per row, which
+// would halve how many fit on screen. pickerDelegate draws the row's
 // description on the label's own line.
-func (i modelItem) Description() string { return "" }
+func (i pickerItem) Description() string { return "" }
 
 // pickerWidth is the menu's drawing width. The list renders its rows in a
 // fixed-width column, so a value wide enough for a long model name keeps them
 // on one line.
 const pickerWidth = 80
 
-// pickerCursor marks the selected row. A model name can be long, so the marker
+// pickerCursor marks the selected row. A label can be long, so the marker
 // is one cell wide and the row's text follows it.
 const pickerCursor = "▸ "
-
-// pickerHeading is the menu's title, drawn in the list's title bar.
-const pickerHeading = "Select a model"
 
 // pickerSelectedColor is the brand green: oklch(55% 0.06 150), a muted sage.
 // It is spelled as sRGB because lipgloss takes hex, and the OKLCH form it was
@@ -307,29 +349,29 @@ func BrandLogoStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(lipgloss.Color(pickerSelectedColor))
 }
 
-// modelDelegate renders one model per line.
+// pickerDelegate renders one option per line.
 //
 // bubbles' own delegate reserves a description line and a cell of spacing
-// between rows, which made a 12-row frame show three models. One line per row
-// with no spacing is what a list of short names wants, and the page size
+// between rows, which made a 12-row frame show three options. One line per row
+// with no spacing is what a list of short labels wants, and the page size
 // follows from it: bubbles divides the frame's available height by
 // Height()+Spacing(), so a height of 1 and no spacing fills the frame.
 //
 // labelWidth is the widest label, so every description starts in one column.
-type modelDelegate struct{ labelWidth int }
+type pickerDelegate struct{ labelWidth int }
 
-func (modelDelegate) Height() int  { return 1 }
-func (modelDelegate) Spacing() int { return 0 }
+func (pickerDelegate) Height() int  { return 1 }
+func (pickerDelegate) Spacing() int { return 0 }
 
-func (modelDelegate) Update(tea.Msg, *list.Model) tea.Cmd { return nil }
+func (pickerDelegate) Update(tea.Msg, *list.Model) tea.Cmd { return nil }
 
 // Render draws a row with the cursor on the selected one.
 //
 // The cursor is an arrow rather than bubbles' left border, and it replaces the
 // two leading spaces an unselected row gets, so every label starts in the same
 // column whether or not it is selected.
-func (d modelDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
-	row, ok := item.(modelItem)
+func (d pickerDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
+	row, ok := item.(pickerItem)
 	if !ok {
 		return
 	}
@@ -395,26 +437,26 @@ type pickerModel struct {
 	aborted bool
 }
 
-func newPickerModel(rows []ModelRow) pickerModel {
-	items := make([]list.Item, 0, len(rows))
-	for _, row := range rows {
-		items = append(items, modelItem{label: row.Label, model: row.Model, description: row.Description})
+func newPickerModel(heading string, options []Option) pickerModel {
+	items := make([]list.Item, 0, len(options))
+	for _, opt := range options {
+		items = append(items, pickerItem{label: opt.Label, value: opt.Value, description: opt.Description})
 	}
-	// The column is capped, so one long model name cannot push every other
+	// The column is capped, so one long label cannot push every other
 	// row's description past the menu's width.
 	labelWidth := 0
-	for _, row := range rows {
-		labelWidth = max(labelWidth, min(ansi.StringWidth(row.Label), pickerWidth/2))
+	for _, opt := range options {
+		labelWidth = max(labelWidth, min(ansi.StringWidth(opt.Label), pickerWidth/2))
 	}
 
 	delegate := list.NewDefaultDelegate()
 	delegate.ShowDescription = false
 
-	l := list.New(items, modelDelegate{labelWidth: labelWidth}, pickerWidth, pickerMenuHeight(len(items)))
+	l := list.New(items, pickerDelegate{labelWidth: labelWidth}, pickerWidth, pickerMenuHeight(len(items)))
 	// The list draws the heading in its title bar. That row is reserved anyway
 	// while filtering is available, so putting the heading there costs nothing
 	// and the bar doubles as the filter input while searching.
-	l.Title = pickerHeading
+	l.Title = heading
 	l.Styles.Title = lipgloss.NewStyle().Bold(true)
 	// The title bar's own padding is what pushed the first model down a line.
 	l.Styles.TitleBar = lipgloss.NewStyle()
@@ -468,8 +510,8 @@ func (m pickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Enter selects, but only when the list is not mid-search: while
 			// filtering, the list's own keymap uses enter to apply the filter.
 			if m.list.FilterState() != list.Filtering {
-				if item, ok := m.list.SelectedItem().(modelItem); ok {
-					m.chosen = item.model
+				if item, ok := m.list.SelectedItem().(pickerItem); ok {
+					m.chosen = item.value
 					return m, tea.Quit
 				}
 			}
@@ -483,16 +525,16 @@ func (m pickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m pickerModel) View() string { return m.list.View() }
 
-// defaultModelPickerMenu is the menu: a filterable list where typing narrows
-// the rows and Enter selects.
+// defaultPickerMenu is the menu: a filterable list where typing narrows the
+// rows and Enter selects.
 //
 // The program reads stdin and draws on stderr, so the launched harness's own
 // stdout stays clean.
-func defaultModelPickerMenu(rows []ModelRow) (string, error) {
-	p := tea.NewProgram(newPickerModel(rows), tea.WithInput(os.Stdin), tea.WithOutput(os.Stderr))
+func defaultPickerMenu(heading string, options []Option) (string, error) {
+	p := tea.NewProgram(newPickerModel(heading, options), tea.WithInput(os.Stdin), tea.WithOutput(os.Stderr))
 	final, err := p.Run()
 	if err != nil {
-		return "", fmt.Errorf("model picker: %w", err)
+		return "", fmt.Errorf("picker: %w", err)
 	}
 
 	done, ok := final.(pickerModel)
@@ -500,4 +542,13 @@ func defaultModelPickerMenu(rows []ModelRow) (string, error) {
 		return "", ErrCancelled
 	}
 	return done.chosen, nil
+}
+
+// modelPickerHeading is the model picker's title, drawn in the list's title bar.
+const modelPickerHeading = "Select a model"
+
+// defaultModelPickerMenu is the model picker: the default picker over the
+// model rows, adapted to options.
+func defaultModelPickerMenu(rows []ModelRow) (string, error) {
+	return defaultPickerMenu(modelPickerHeading, modelOptions(rows))
 }
