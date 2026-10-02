@@ -110,6 +110,9 @@ func TestParseSwitchCatalogSkipsEntriesWithNoName(t *testing.T) {
 
 // ListSwitchModels returns the names in the order the Switch listed them, which
 // is `default` first and the rest sorted; re-sorting here would fight that.
+// Every listing test resets the catalog cache: the listing and the launch
+// readers share one fetch, so a test that pointed at a server earlier in the
+// package would otherwise be answered from that server's rows.
 func TestListSwitchModelsKeepsTheSwitchOrder(t *testing.T) {
 	srv, _, _ := switchTestServer(t, `{"data":[
 		{"id":"default[1m]","name":"default"},
@@ -117,6 +120,8 @@ func TestListSwitchModelsKeepsTheSwitchOrder(t *testing.T) {
 		{"id":"zeta[1m]","name":"zeta"}
 	]}`, http.StatusOK)
 	useSwitch(t, srv.URL, "test-switch-key")
+	ResetModelCatalog()
+	t.Cleanup(ResetModelCatalog)
 
 	names, err := ListSwitchModels(context.Background())
 	if err != nil {
@@ -133,6 +138,8 @@ func TestListSwitchModelsKeepsTheSwitchOrder(t *testing.T) {
 func TestListSwitchModelsFailsOnABadStatus(t *testing.T) {
 	srv, _, _ := switchTestServer(t, `{"error":"nope"}`, http.StatusInternalServerError)
 	useSwitch(t, srv.URL, "test-switch-key")
+	ResetModelCatalog()
+	t.Cleanup(ResetModelCatalog)
 
 	if _, err := ListSwitchModels(context.Background()); err == nil {
 		t.Fatal("ListSwitchModels accepted a 500")
@@ -145,6 +152,8 @@ func TestListSwitchModelsFailsOnABadStatus(t *testing.T) {
 func TestListSwitchModelsSendsTheSwitchKey(t *testing.T) {
 	srv, gotAuth, gotPath := switchTestServer(t, `{"data":[{"id":"default[1m]","name":"default"}]}`, http.StatusOK)
 	useSwitch(t, srv.URL, "test-switch-key")
+	ResetModelCatalog()
+	t.Cleanup(ResetModelCatalog)
 
 	if _, err := ListSwitchModels(context.Background()); err != nil {
 		t.Fatalf("ListSwitchModels: %v", err)
@@ -162,6 +171,8 @@ func TestListSwitchModelsSendsTheSwitchKey(t *testing.T) {
 func TestListSwitchModelsErrorNamesNoKey(t *testing.T) {
 	srv, _, _ := switchTestServer(t, `{"error":{"message":"boom"}}`, http.StatusUnauthorized)
 	useSwitch(t, srv.URL, "sk-secret-value")
+	ResetModelCatalog()
+	t.Cleanup(ResetModelCatalog)
 
 	_, err := ListSwitchModels(context.Background())
 	if err == nil {
