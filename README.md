@@ -229,7 +229,7 @@ Pass the model with `--model` and append `[1m]`, so Claude Code budgets the 1M-t
 claude --model 'claude-tier-haiku[1m]'
 ```
 
-Use the alias for the haiku tier, and avoid `--model haiku`. Claude Code reads `haiku` as Claude Haiku 4.5, and behind a gateway such as the Switch it turns auto mode off for a Haiku model.
+Use the alias for the haiku tier, and avoid `--model haiku`. Claude Code reads `haiku` as Claude Haiku 4.5, and it turns auto mode off for every model released before Claude Opus 4.6, Haiku 4.5 among them.
 
 To get the tier rows in `/model` with the window and model profile `prizmal claude` gives them, save these settings as `prizmal-claude.json`:
 

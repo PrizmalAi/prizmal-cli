@@ -44,9 +44,9 @@ type tierProfile struct {
 	// model is unknown and run on the unknown-model profile. Each id is one
 	// every supported Claude Code release carries.
 	//
-	// No tier runs as a haiku model. Behind a gateway, Claude Code refuses
-	// auto mode to a model that resolves to a haiku id, so the haiku tier
-	// runs as Sonnet 5 and keeps auto mode. The row still reads "Haiku tier",
+	// No tier runs as a haiku model. Claude Code refuses auto mode to a
+	// model released before Claude Opus 4.6, Haiku 4.5 among them, so the
+	// haiku tier runs as Sonnet 5 and keeps auto mode. The row still reads "Haiku tier",
 	// and the Switch routes it by its own name.
 	behavesAs string
 	// oneMillion reports whether that model accepts a 1M context window.

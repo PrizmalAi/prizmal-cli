@@ -360,8 +360,8 @@ func claudeSettingsJSON(model string, rows []ModelRow) (string, error) {
 // Claude Code reads the overrides before a row's behavesAs: it resolves a
 // model whose name equals an override value to that value's key, with or
 // without the [1m] suffix. A haiku-tier session or /model row would then run
-// as a haiku model, and behind a gateway Claude Code refuses auto mode to a
-// haiku model and drops a haiku row that asks for 1M. Without the entries, a
+// as Haiku 4.5. Claude Code refuses auto mode to Haiku 4.5, which came out
+// before Claude Opus 4.6, and drops a Haiku 4.5 row that asks for 1M. Without the entries, a
 // request that resolves to a haiku id reaches the Switch as that id, and the
 // Switch routes any claude-haiku- id to the tenant's haiku-tier config.
 //

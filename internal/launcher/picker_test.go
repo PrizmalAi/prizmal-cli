@@ -92,7 +92,7 @@ func TestModelRowsBuildsRows(t *testing.T) {
 // release carries, and one the tier's modelOverrides lineage already names.
 //
 // The haiku tier runs as Sonnet 5, from the sonnet lineage, because Claude Code
-// refuses auto mode to a haiku model behind a gateway.
+// refuses auto mode to Haiku 4.5.
 func TestModelRowsMapEachTierToAFirstPartyID(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -633,16 +633,16 @@ func TestModelRowsTakeTheSwitchsTier(t *testing.T) {
 	}
 }
 
-// Claude Code refuses auto mode to a model that runs as a haiku model when its
-// provider is not first party, and a gateway such as the Switch never is. It
-// resolves the model through the row's behavesAs before it checks, so a haiku
-// behavesAs turns auto mode off for every row of the tier. Claude Code 2.1.283
+// Claude Code refuses auto mode to a model released before Claude Opus 4.6,
+// which includes Haiku 4.5. It resolves the model through the row's behavesAs
+// before it checks, so a haiku behavesAs turns auto mode off for every row of
+// the tier. Claude Code 2.1.283
 // to 2.1.287 all apply the rule. TestClaudeTiersStartInAutoMode checks the
 // outcome against the pinned Claude Code release.
 func TestNoTierRunsAsAHaikuModel(t *testing.T) {
 	for tier, profile := range tierProfiles {
 		if strings.Contains(strings.ToLower(profile.behavesAs), "haiku") {
-			t.Errorf("the %s tier runs as %q, and Claude Code refuses auto mode to a haiku model behind a gateway", tier, profile.behavesAs)
+			t.Errorf("the %s tier runs as %q, and Claude Code refuses auto mode to Haiku 4.5", tier, profile.behavesAs)
 		}
 	}
 }

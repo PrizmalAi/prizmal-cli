@@ -611,8 +611,8 @@ func TestClaudeModelOverridesCarryTheirTiersSuffix(t *testing.T) {
 // The overrides carry no haiku id. Claude Code resolves a model whose name
 // equals an override value, with or without [1m], to that value's key before
 // it reads the row's behavesAs. A haiku key would make the haiku-tier session
-// run as a haiku model, which Claude Code refuses auto mode behind a gateway,
-// and would drop the tier's /model row, whose 1M window a haiku model lacks.
+// run as Haiku 4.5, which Claude Code refuses auto mode to, and would drop
+// the tier's /model row, whose 1M window Haiku 4.5 lacks.
 func TestClaudeModelOverridesCarryNoHaikuKey(t *testing.T) {
 	for key, value := range claudeModelOverrides() {
 		if strings.Contains(key, "haiku") {

@@ -38,10 +38,10 @@ var claudeAutoModeCases = []autoModeCase{
 // Claude Code starts a session in auto mode when auto mode is open to its
 // model, and in manual mode when it is not. Whether it is open depends on the
 // model the session runs as, which is the behavesAs prizmal writes, and on a
-// rule inside Claude Code that a release can change. Behind a gateway, Claude
-// Code 2.1.283 to 2.1.287 refuse auto mode to any model that runs as a haiku
-// model, so a haiku behavesAs started those sessions in manual mode, with no
-// way to cycle into auto.
+// rule inside Claude Code that a release can change. Claude Code 2.1.283 to
+// 2.1.287 refuse auto mode to any model released before Claude Opus 4.6,
+// Haiku 4.5 among them, so a haiku behavesAs started those sessions in manual
+// mode, with no way to cycle into auto.
 //
 // The test runs the Claude Code release that the baselines pin, so a change
 // to that rule in a new release fails here when the pin moves.
