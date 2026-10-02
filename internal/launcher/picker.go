@@ -230,7 +230,7 @@ var ErrNoOptions = errors.New("nothing to choose from")
 
 // PickerMenu renders the interactive picker and returns the chosen value. It is
 // a package variable so tests can drive a selection without a terminal, in the
-// same way DefaultConfirmPrompt and DefaultSpinner are.
+// same way DefaultConfirmPrompt is.
 var PickerMenu func(heading string, options []Option) (string, error)
 
 // PickOption asks the operator to choose from options under a heading. It
