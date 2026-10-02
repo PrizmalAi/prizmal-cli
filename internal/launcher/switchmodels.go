@@ -13,6 +13,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/PrizmalAi/prizmal-cli/internal/claudecode"
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	"github.com/PrizmalAi/prizmal-cli/internal/model"
 )
@@ -59,7 +60,7 @@ type switchCatalogEntry struct {
 // by, so stripping it would print a name that resolves to a different model
 // than the one listed.
 func (e switchCatalogEntry) routableName() string {
-	return strings.TrimSuffix(e.ID, oneMillionSuffix)
+	return claudecode.RoutableName(e.ID)
 }
 
 type switchCatalogResponse struct {
@@ -103,16 +104,6 @@ func capabilitiesFromModalities(modalities []string) []model.Capability {
 	return capabilities
 }
 
-// knownTier returns the tier the Switch named, lowercased, or "" for a name
-// that is not one of the Claude tiers.
-func knownTier(tier string) string {
-	tier = strings.ToLower(strings.TrimSpace(tier))
-	if _, ok := tierProfiles[modelTier(tier)]; ok {
-		return tier
-	}
-	return ""
-}
-
 // cleanDescription keeps only the text of a description the switch sent. The
 // picker draws it in the operator's terminal and Claude Code draws it in
 // /model, so escape sequences and control characters are dropped, and runs of
@@ -143,7 +134,7 @@ func parseSwitchCatalog(data []byte) ([]LaunchModel, error) {
 		models = append(models, LaunchModel{
 			Name:         name,
 			Capabilities: capabilitiesFromModalities(entry.InputModalities),
-			Tier:         knownTier(entry.Tier),
+			Tier:         claudecode.KnownTier(entry.Tier),
 			Description:  cleanDescription(entry.Description),
 		})
 	}
