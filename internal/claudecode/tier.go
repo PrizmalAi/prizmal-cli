@@ -23,7 +23,10 @@
 // what was verified on the wire. They are the point of the tables; keep them.
 package claudecode
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // Tier is the Claude Code model family a model is recognised as, from a
 // tier word in its name.
@@ -135,20 +138,21 @@ func InferTier(name string) (Tier, bool) {
 // KnownTier returns the tier the Switch named, lowercased, or "" for a name
 // that is not one of the Claude tiers.
 //
-// It answers a question about the Switch's wire, from inside the package that
-// owns the vocabulary the wire is validated against. The answer is the
-// vocabulary, not the rendering table: Profiles exists so a /model row can name
-// a profile Claude Code recognises, and a tier with no profile to render would
-// still be a legal thing for the Switch to say. Reading Profiles here instead
-// would make "this tier is real" and "this tier renders a Claude Code profile"
-// the same question, and would drop such a tier silently.
+// It validates against Tiers, the vocabulary, and not against Profiles, which
+// is how Claude Code renders a row. Profiles exists so a /model row can name a
+// first-party id the running build recognises; a tier with nothing to render is
+// still a tier the Switch may legitimately name, and asking Profiles here would
+// make "this tier is real" and "this tier has something to render with" the
+// same question. It also inverts the dependency: the Switch's wire format is
+// not a function of what this CLI can draw, so a parser reading its own schema
+// out of a rendering table would drop a tier it simply has no row for yet, and
+// the reason would sit in a file nobody opens when the tier goes missing.
 //
-// An unrecognised name is dropped rather than passed through, because Tier is
-// a closed set here and a caller that reads it as free-form will index
-// Profiles with a key that is not in it.
+// An unrecognised name is dropped rather than passed through, because every
+// reader treats the tier as one of the known ones and indexes Profiles with it.
 func KnownTier(tier string) string {
 	tier = strings.ToLower(strings.TrimSpace(tier))
-	if _, ok := Profiles[Tier(tier)]; ok {
+	if slices.Contains(Tiers, Tier(tier)) {
 		return tier
 	}
 	return ""

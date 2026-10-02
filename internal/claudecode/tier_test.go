@@ -114,6 +114,28 @@ func TestKnownTier(t *testing.T) {
 	}
 }
 
+// The Switch's wire field is validated against the vocabulary, not against the
+// rendering table. The two hold the same set today, so the only thing that
+// distinguishes the two implementations is what happens when they diverge — and
+// a tier with no Profile is exactly the case: the Switch may name a tier this
+// CLI has no first-party id to render it as, and dropping it there would make
+// the wire parser depend on what the picker can draw.
+func TestKnownTierFollowsTheVocabularyNotTheProfiles(t *testing.T) {
+	defer func(tiers []Tier, profiles map[Tier]Profile) {
+		Tiers, Profiles = tiers, profiles
+	}(Tiers, Profiles)
+
+	Tiers = []Tier{Opus, "unrendered"}
+	Profiles = map[Tier]Profile{Opus: Profiles[Opus]}
+
+	if got := KnownTier("unrendered"); got != "unrendered" {
+		t.Errorf("KnownTier(%q) = %q, want it kept: it is in the vocabulary, and a tier with no Profile to render it as is still a tier the Switch can name", "unrendered", got)
+	}
+	if got := KnownTier("sonnet"); got != "" {
+		t.Errorf("KnownTier(%q) = %q, want \"\": it is in neither set", "sonnet", got)
+	}
+}
+
 // The Switch decorates the id it publishes exactly once, so reading a name off
 // the wire removes one suffix and stops. Removing more would rename a model by
 // deleting a substring of its id.
