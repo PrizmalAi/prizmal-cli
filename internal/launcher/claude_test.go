@@ -247,25 +247,6 @@ func TestClaudeChildEnvSetsOpusModelToPinnedModel(t *testing.T) {
 	}
 }
 
-func TestClaudeBaseURLTrailingV1(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		host string
-		want string
-	}{
-		{"no suffix passes through", "https://switch.example.com", "https://switch.example.com"},
-		{"trailing v1 is stripped", "https://switch.example.com/v1", "https://switch.example.com"},
-		{"only one v1 is stripped", "https://switch.example.com/v1/v1", "https://switch.example.com/v1"},
-		{"v1 elsewhere in the path stays", "https://switch.example.com/v1/models", "https://switch.example.com/v1/models"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := claudeBaseURL(tc.host); got != tc.want {
-				t.Fatalf("claudeBaseURL(%q) = %q, want %q", tc.host, got, tc.want)
-			}
-		})
-	}
-}
-
 func TestClaudeEnvVarsBaseURLDropsTrailingV1(t *testing.T) {
 	resetAPIKey(t)
 	envconfig.SetBaseURL("https://switch.example.com/v1")

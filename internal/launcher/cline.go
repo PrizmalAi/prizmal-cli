@@ -145,12 +145,17 @@ func clineLegacyGlobalStatePath(home string) string {
 	return filepath.Join(home, ".cline", "data", "globalState.json")
 }
 
+// clineProviderHost is the endpoint spelling Cline's globalState.json keys
+// carry: the host, without the /v1 its providers.json entry ends with. It is
+// the same unversioned spelling Claude Code's ANTHROPIC_BASE_URL needs.
 func clineProviderHost() string {
-	return strings.TrimRight(envconfig.ConnectableHost().String(), "/")
+	return envconfig.UnversionedBaseURL()
 }
 
+// clineProviderBaseURL is the endpoint in the Cline provider entry itself,
+// which carries the version.
 func clineProviderBaseURL() string {
-	return clineProviderHost() + "/v1"
+	return envconfig.OpenAIBaseURL(false)
 }
 
 func readClineConfig(configPath string) (map[string]any, error) {
