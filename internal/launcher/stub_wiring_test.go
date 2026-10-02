@@ -190,12 +190,16 @@ func TestStubServerCapabilityWiring(t *testing.T) {
 	envconfig.SetAPIKey(stubserver.StubKey)
 	defer func() { envconfig.SetBaseURL(""); envconfig.SetAPIKey("") }()
 
-	models := WithSwitchCapabilities(context.Background(), []LaunchModel{
-		{Name: "prizmal/stub"},
-		{Name: "prizmal/stub-vision"},
-		{Name: "prizmal/stub-file"},
-		{Name: "prizmal/stub-unknown"},
-	}, io.Discard)
+	ResetModelCatalog()
+	t.Cleanup(ResetModelCatalog)
+
+	// The launch reader, which is the posture a launch has: degrade, never
+	// fail. Its rows are looked up the way every launch looks one up.
+	catalog := BestEffortCatalog(context.Background(), io.Discard)
+	models := LaunchModels("prizmal/stub", catalog, true)
+	vision := catalogEntryForTest(t, models, "prizmal/stub-vision")
+	file := catalogEntryForTest(t, models, "prizmal/stub-file")
+	unknown := catalogEntryForTest(t, models, "prizmal/stub-unknown")
 
 	if models[0].HasCapability(model.CapabilityVision) {
 		t.Fatalf("prizmal/stub capabilities = %v, want no vision", models[0].Capabilities)
@@ -203,17 +207,17 @@ func TestStubServerCapabilityWiring(t *testing.T) {
 	if len(models[0].Capabilities) == 0 {
 		t.Fatal("prizmal/stub capabilities are empty, so a known text-only entry is indistinguishable from an unknown one")
 	}
-	if !models[1].HasCapability(model.CapabilityVision) {
-		t.Fatalf("prizmal/stub-vision capabilities = %v, want vision", models[1].Capabilities)
+	if !vision.HasCapability(model.CapabilityVision) {
+		t.Fatalf("prizmal/stub-vision capabilities = %v, want vision", vision.Capabilities)
 	}
-	if !models[2].HasCapability(model.CapabilityDocument) {
-		t.Fatalf("prizmal/stub-file capabilities = %v, want document", models[2].Capabilities)
+	if !file.HasCapability(model.CapabilityDocument) {
+		t.Fatalf("prizmal/stub-file capabilities = %v, want document", file.Capabilities)
 	}
-	if models[2].HasCapability(model.CapabilityVision) {
-		t.Fatalf("prizmal/stub-file capabilities = %v, want no vision", models[2].Capabilities)
+	if file.HasCapability(model.CapabilityVision) {
+		t.Fatalf("prizmal/stub-file capabilities = %v, want no vision", file.Capabilities)
 	}
-	if len(models[3].Capabilities) != 0 {
-		t.Fatalf("prizmal/stub-unknown capabilities = %v, want unknown", models[3].Capabilities)
+	if len(unknown.Capabilities) != 0 {
+		t.Fatalf("prizmal/stub-unknown capabilities = %v, want unknown", unknown.Capabilities)
 	}
 
 	// The four shapes reach opencode as text-only, image, pdf, and permissive.
@@ -222,12 +226,23 @@ func TestStubServerCapabilityWiring(t *testing.T) {
 		want []string
 	}{
 		{models[0], []string{"text"}},
-		{models[1], []string{"text", "image"}},
-		{models[2], []string{"text", "pdf"}},
-		{models[3], []string{"text", "image", "pdf"}},
+		{vision, []string{"text", "image"}},
+		{file, []string{"text", "pdf"}},
+		{unknown, []string{"text", "image", "pdf"}},
 	} {
 		if got := openCodeInputModalities(tc.m); !slices.Equal(got, tc.want) {
 			t.Fatalf("opencode input modalities for %q = %v, want %v", tc.m.Name, got, tc.want)
 		}
 	}
+}
+
+// catalogEntryForTest finds a row in a launch's model list by name, failing the
+// test when the name is not there.
+func catalogEntryForTest(t *testing.T, models []LaunchModel, name string) LaunchModel {
+	t.Helper()
+	entry, ok := findCatalogModel(models, name)
+	if !ok {
+		t.Fatalf("no model %q in %v", name, launchModelNames(models))
+	}
+	return entry
 }
