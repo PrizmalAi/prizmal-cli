@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/PrizmalAi/prizmal-cli/internal/claudecode"
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 )
 
@@ -396,18 +397,11 @@ func claudeModelName(model string) string {
 	// Strip every trailing suffix, not just one: the switch's own ids are
 	// already bare, but a value that reached here through a config file or a
 	// shell export may carry one, and suffixes must not accumulate.
-	bare := model
-	for {
-		stripped := ModelNameWithoutSuffix(bare)
-		if stripped == bare {
-			break
-		}
-		bare = stripped
-	}
-	if tier, ok := inferTier(bare); ok && !tierProfiles[tier].oneMillion {
+	bare := claudecode.RoutableNameAll(model)
+	if tier, ok := claudecode.InferTier(bare); ok && !claudecode.Profiles[tier].OneMillion {
 		return bare
 	}
-	return bare + oneMillionSuffix
+	return bare + claudecode.OneMillionSuffix
 }
 
 // claudeRowModelName is claudeModelName for a picker row, whose tier may come
@@ -417,8 +411,8 @@ func claudeRowModelName(row ModelRow) string {
 		return claudeModelName(row.Model)
 	}
 	bare := ModelNameWithoutSuffix(claudeModelName(row.Model))
-	if tierProfiles[row.tier].oneMillion {
-		return bare + oneMillionSuffix
+	if claudecode.Profiles[row.tier].OneMillion {
+		return bare + claudecode.OneMillionSuffix
 	}
 	return bare
 }
@@ -514,12 +508,12 @@ func claudeSettingsJSON(model string, rows []ModelRow) (string, error) {
 // resolves a tier to them either.
 func claudeModelOverrides() map[string]string {
 	overrides := make(map[string]string)
-	for tier, ids := range claudeFamilyIDs {
+	for tier, ids := range claudecode.FamilyIDs {
 		if !profileInLineage(tier) {
 			continue
 		}
 		for _, id := range ids {
-			overrides[id] = claudeModelName(claudeTierModel(tier))
+			overrides[id] = claudeModelName(claudecode.TierModel(tier))
 		}
 	}
 	return overrides
@@ -527,8 +521,8 @@ func claudeModelOverrides() map[string]string {
 
 // profileInLineage reports whether a tier's rows behave as a model of the
 // tier's own lineage.
-func profileInLineage(tier modelTier) bool {
-	return slices.Contains(claudeFamilyIDs[tier], tierProfiles[tier].behavesAs)
+func profileInLineage(tier claudecode.Tier) bool {
+	return slices.Contains(claudecode.FamilyIDs[tier], claudecode.Profiles[tier].BehavesAs)
 }
 
 // modelOverride is one modelOverrides entry.
@@ -574,12 +568,12 @@ func (o orderedModelOverrides) MarshalJSON() ([]byte, error) {
 func claudeOrderedModelOverrides() orderedModelOverrides {
 	overrides := claudeModelOverrides()
 	ordered := make(orderedModelOverrides, 0, len(overrides))
-	for _, tier := range tierWords {
+	for _, tier := range claudecode.Tiers {
 		if !profileInLineage(tier) {
 			continue
 		}
-		profile := tierProfiles[tier].behavesAs
-		ids := append([]string{profile}, slices.DeleteFunc(slices.Clone(claudeFamilyIDs[tier]), func(id string) bool {
+		profile := claudecode.Profiles[tier].BehavesAs
+		ids := append([]string{profile}, slices.DeleteFunc(slices.Clone(claudecode.FamilyIDs[tier]), func(id string) bool {
 			return id == profile
 		})...)
 		for _, id := range ids {
@@ -587,48 +581,6 @@ func claudeOrderedModelOverrides() orderedModelOverrides {
 		}
 	}
 	return ordered
-}
-
-// claudeFamilyIDs maps each Claude Code model family to the catalog ids a
-// request can resolve to for that family, newest first. The ids are the provider_ids
-// first_party strings from the installed Claude Code binary catalog.
-//
-// The mythos family is absent: it has no tier alias (a request for
-// claude-mythos-5 or -5-1 passes through unmapped, reaching the Switch as the
-// id itself), so no entry belongs here.
-var claudeFamilyIDs = map[modelTier][]string{
-	modelTierOpus: {
-		"claude-opus-5-5",
-		"claude-opus-5",
-		"claude-opus-4-8",
-		"claude-opus-4-7",
-		"claude-opus-4-6",
-		"claude-opus-4-5-20251101",
-		"claude-opus-4-20250514",
-		"claude-opus-4-1-20250805",
-	},
-	modelTierSonnet: {
-		"claude-sonnet-5-5",
-		"claude-sonnet-5",
-		"claude-sonnet-4-6",
-		"claude-sonnet-4-5-20250929",
-		"claude-sonnet-4-20250514",
-		"claude-3-7-sonnet-20250219",
-		"claude-3-5-sonnet-20241022",
-	},
-	modelTierHaiku: {
-		"claude-haiku-4-5-20251001",
-		"claude-3-5-haiku-20241022",
-	},
-	modelTierFable: {
-		"claude-fable-5-1",
-		"claude-fable-5",
-	},
-}
-
-// claudeTierModel is the model a tier runs, as the tenant named it.
-func claudeTierModel(tier modelTier) string {
-	return claudeModelPrefix + "tier-" + string(tier)
 }
 
 // claudeModelPicker is the settings block that defines Claude Code's /model
