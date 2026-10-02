@@ -21,10 +21,26 @@ type Codex struct{}
 func (c *Codex) String() string { return "Codex" }
 
 const (
-	codexProfileName           = "prizmal"
-	codexProviderName          = "prizmal"
+	codexProfileName    = "prizmal"
+	codexProviderName   = "prizmal"
+	codexRestoreSuccess = "Codex launch configuration removed."
+
+	// codexFallbackContextWindow is the context window every Codex catalog
+	// entry declares, and it is a stated ceiling rather than a claim about the
+	// model behind the name. GET /v1/models carries no context length (the
+	// Switch sends id, input_modalities, tier and description), so nothing here
+	// can learn the real one, and no model name is mapped to a window because
+	// such a table would be guesswork about an endpoint prizmal knows nothing
+	// else about.
+	//
+	// Codex derives auto-compaction from this number — 90% of context_window
+	// unless the entry says otherwise (ModelInfo::auto_compact_token_limit in
+	// codex-rs/protocol) — so declaring too small a window makes Codex discard
+	// conversation history an endpoint with a larger window would have accepted.
+	// That is why $HARNESS_CONTEXT_LENGTH overrides it: an operator who knows
+	// the real window has no other way to say so, and the value has to be right
+	// for a long session rather than safe for a short one.
 	codexFallbackContextWindow = 128_000
-	codexRestoreSuccess        = "Codex launch configuration removed."
 
 	codexRootProfileKey          = "profile"
 	codexRootModelKey            = "model"
@@ -626,22 +642,14 @@ func writeCodexModelCatalog(catalogPath string, model LaunchModel) error {
 
 func buildCodexModelEntry(launchModel LaunchModel) map[string]any {
 	modelName := launchModel.Name
+
+	// The declared window is the fallback unless the operator states the real
+	// one. Nothing else in the tree carries a window: LaunchModel.ContextLength
+	// has no writer and LaunchModel.Details is never populated, so the branches
+	// that once read them here could not be taken by any model.
 	contextWindow := codexFallbackContextWindow
-	systemPrompt := ""
-
-	if launchModel.ContextLength > 0 {
-		contextWindow = launchModel.ContextLength
-	} else if launchModel.Details.ContextLength > 0 {
-		contextWindow = launchModel.Details.ContextLength
-	}
-	if l, ok := lookupCloudModelLimit(modelName); ok {
-		contextWindow = l.Context
-	}
-
-	if !isCloudModelName(modelName) && launchModel.Details.Format != "safetensors" {
-		if ctxLen := envconfig.ContextLength(); ctxLen > 0 {
-			contextWindow = int(ctxLen)
-		}
+	if ctxLen := envconfig.ContextLength(); ctxLen > 0 {
+		contextWindow = ctxLen
 	}
 
 	modalities := []string{"text"}
@@ -649,22 +657,28 @@ func buildCodexModelEntry(launchModel LaunchModel) map[string]any {
 		modalities = append(modalities, "image")
 	}
 
-	truncationMode := "bytes"
-	if isCloudModelName(modelName) {
-		truncationMode = "tokens"
-	}
-
 	return map[string]any{
-		"slug":                         modelName,
-		"display_name":                 modelName,
-		"context_window":               contextWindow,
-		"shell_type":                   "default",
-		"visibility":                   "list",
-		"supported_in_api":             true,
-		"priority":                     0,
-		"truncation_policy":            map[string]any{"mode": truncationMode, "limit": 10000},
-		"input_modalities":             modalities,
-		"base_instructions":            systemPrompt,
+		"slug":             modelName,
+		"display_name":     modelName,
+		"context_window":   contextWindow,
+		"shell_type":       "default",
+		"visibility":       "list",
+		"supported_in_api": true,
+		"priority":         0,
+		// Truncation in tokens, as Codex's own catalog uses for every model it
+		// ships: codex-rs reads a bytes-mode limit as bytes (a token limit is
+		// converted with approx_bytes_for_tokens only when a user configures
+		// one), so "bytes" would cut tool output at 10000 bytes, four times
+		// under the 10000 tokens every entry in Codex's models_cache.json
+		// declares.
+		"truncation_policy": map[string]any{"mode": "tokens", "limit": 10000},
+		"input_modalities":  modalities,
+		// Codex reads a present base_instructions as the model's whole
+		// instruction template and accepts an empty one, so an empty string
+		// here is what a session runs with, not an omitted default. It cannot
+		// be left out either: the decoder rejects a model carrying neither
+		// base_instructions nor model_messages.instructions_template.
+		"base_instructions":            "",
 		"support_verbosity":            true,
 		"default_verbosity":            "low",
 		"supports_parallel_tool_calls": false,
