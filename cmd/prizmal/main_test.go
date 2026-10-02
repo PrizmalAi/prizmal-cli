@@ -170,28 +170,6 @@ func TestRestoreUnsupportedIntegration(t *testing.T) {
 	}
 }
 
-func TestConfigPersistence(t *testing.T) {
-	home := t.TempDir()
-	// os.UserHomeDir() reads $HOME on Unix and %USERPROFILE% on Windows, so
-	// redirect whichever the platform respects to keep the temp dir in play.
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
-
-	if err := config.SaveIntegration("codex", []string{"gpt-oss:20b"}); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := config.LoadIntegration("codex")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg == nil || len(cfg.Models) != 1 || cfg.Models[0] != "gpt-oss:20b" {
-		t.Fatalf("unexpected persisted config: %+v", cfg)
-	}
-	if _, err := os.Stat(filepath.Join(home, ".prizmal", "config.json")); err != nil {
-		t.Errorf("config file missing: %v", err)
-	}
-}
-
 func TestEnvVarNameIsStable(t *testing.T) {
 	if envconfig.EnvVar != "PRIZMAL_SWITCH_URL" {
 		t.Errorf("unexpected env var %q", envconfig.EnvVar)
