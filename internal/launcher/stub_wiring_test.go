@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
@@ -17,6 +18,15 @@ import (
 // readFile is a test helper that reads a file at an absolute path.
 func readFile(path string) ([]byte, error) {
 	return os.ReadFile(path)
+}
+
+// stubEndpoint is an httptest server's URL as an endpoint shape spells it.
+// httptest binds 127.0.0.1 and the Switch endpoint is always handed out under
+// the name a client dials, so the wiring assertions below compare against the
+// rewritten form. It is spelled out here instead of read from envconfig so
+// that asserting the shape does not restate the function under test.
+func stubEndpoint(raw string) string {
+	return strings.Replace(raw, "127.0.0.1", "localhost", 1)
 }
 
 // stubServerWiring tests that each harness's config builder carries the stub
@@ -34,8 +44,8 @@ func TestStubServerClaudeWiring(t *testing.T) {
 	c := &Claude{}
 	env := c.envVars()
 	val := envValue(env, "ANTHROPIC_BASE_URL=")
-	if val != srv.URL {
-		t.Fatalf("ANTHROPIC_BASE_URL = %q, want %q", val, srv.URL)
+	if want := stubEndpoint(srv.URL); val != want {
+		t.Fatalf("ANTHROPIC_BASE_URL = %q, want %q", val, want)
 	}
 	keyVal := envValue(env, "ANTHROPIC_AUTH_TOKEN=")
 	if keyVal != stubserver.StubKey {
@@ -63,8 +73,8 @@ func TestStubServerOpenCodeWiring(t *testing.T) {
 	prizmal, _ := provider["prizmal"].(map[string]any)
 	options, _ := prizmal["options"].(map[string]any)
 	baseURL, _ := options["baseURL"].(string)
-	if baseURL != srv.URL+"/v1" {
-		t.Fatalf("baseURL = %q, want %q", baseURL, srv.URL+"/v1")
+	if want := stubEndpoint(srv.URL) + "/v1"; baseURL != want {
+		t.Fatalf("baseURL = %q, want %q", baseURL, want)
 	}
 	apiKey, _ := options["apiKey"].(string)
 	if apiKey != stubserver.StubKey {

@@ -485,14 +485,14 @@ func (p *Pi) Edit(models []LaunchModel) error {
 	piProvider, ok := configProvider(providers, piProviderID)
 	if !ok {
 		piProvider = map[string]any{
-			"baseUrl": envconfig.Host().String() + "/v1",
+			"baseUrl": envconfig.OpenAIBaseURL(false),
 			"api":     "openai-completions",
 			"apiKey":  piAPIKeyReference,
 		}
 	} else {
 		// Re-assert the current endpoint and key reference, so a provider
 		// an older build wrote with the key itself loses it.
-		piProvider["baseUrl"] = envconfig.Host().String() + "/v1"
+		piProvider["baseUrl"] = envconfig.OpenAIBaseURL(false)
 		piProvider["api"] = "openai-completions"
 		piProvider["apiKey"] = piAPIKeyReference
 	}

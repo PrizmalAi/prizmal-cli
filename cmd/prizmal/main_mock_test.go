@@ -127,6 +127,14 @@ func buildMockBinary(t *testing.T) string {
 	return out
 }
 
+// stubEndpointName is a stub server's URL as an endpoint shape spells it. The
+// server binds 127.0.0.1, while the Switch endpoint is always handed to a
+// harness under the name it dials, so a launch pointed at this stub is
+// expected to carry the rewritten form.
+func stubEndpointName(raw string) string {
+	return strings.Replace(raw, "127.0.0.1", "localhost", 1)
+}
+
 // setupMockEnv creates a temp HOME, temp PATH with mock harness binaries, a
 // live stub server, and the mock's expectation file. Returns the home dir,
 // the expectations dir, and the stub server URL.
@@ -483,7 +491,7 @@ func TestClaudeCodeE2EWithStubRequest(t *testing.T) {
 	}
 	envDump := string(envData)
 	for _, check := range []struct{ name, want string }{
-		{"ANTHROPIC_BASE_URL", stubURL},
+		{"ANTHROPIC_BASE_URL", stubEndpointName(stubURL)},
 		{"ANTHROPIC_AUTH_TOKEN", stubserver.StubKey},
 	} {
 		if !envDumpHasNonEmpty(envDump, check.name) {

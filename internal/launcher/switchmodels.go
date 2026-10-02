@@ -175,25 +175,13 @@ func ListSwitchModels(ctx context.Context) ([]string, error) {
 	return names, nil
 }
 
-// switchCatalogURL builds the catalog URL for a Switch base URL, tolerating a
-// base that already carries the /v1 suffix. Doubling it would ask for
-// /v1/v1/models, which 404s.
-func switchCatalogURL(base string) string {
-	base = strings.TrimRight(base, "/")
-	if strings.HasSuffix(base, "/v1") {
-		return base + "/models"
-	}
-	return base + "/v1/models"
-}
-
 // fetchSwitchCatalog GETs the Switch's model catalog with the configured
 // switch key as a bearer token.
 func fetchSwitchCatalog(ctx context.Context) ([]LaunchModel, error) {
 	ctx, cancel := context.WithTimeout(ctx, switchCatalogTimeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		switchCatalogURL(envconfig.ConnectableHost().String()), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, envconfig.CatalogURL(), nil)
 	if err != nil {
 		return nil, err
 	}

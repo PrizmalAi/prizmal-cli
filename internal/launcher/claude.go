@@ -109,7 +109,11 @@ func (c *Claude) Run(model string, models []LaunchModel, args []string) error {
 // so nothing here names a model.
 func (c *Claude) envVars() []string {
 	return []string{
-		"ANTHROPIC_BASE_URL=" + claudeBaseURL(envconfig.Host().String()),
+		// Claude Code appends /v1 to ANTHROPIC_BASE_URL itself, so the
+		// endpoint goes in without it; envconfig owns that spelling for every
+		// caller, and envconfig.UnversionedBaseURL explains what breaks if a
+		// base configured with the suffix keeps it.
+		"ANTHROPIC_BASE_URL=" + envconfig.UnversionedBaseURL(),
 		// The switch key travels as ANTHROPIC_AUTH_TOKEN, Claude Code's
 		// gateway credential (Authorization: Bearer), and nothing else.
 		// ANTHROPIC_API_KEY is its Anthropic-console key: set alongside the
@@ -496,17 +500,6 @@ func claudeModelPicker(rows []ModelRow) map[string]any {
 		"replaceBuiltInOptions": true,
 		"options":               options,
 	}
-}
-
-// claudeBaseURL strips one trailing /v1 from the Switch host. Claude Code
-// appends /v1 to ANTHROPIC_BASE_URL itself, so a host configured with the
-// suffix already on it would send gateway discovery to /v1/v1/models, which
-// 404s and drops the picker back to the built-in list.
-func claudeBaseURL(host string) string {
-	if trimmed, ok := strings.CutSuffix(host, "/v1"); ok {
-		return trimmed
-	}
-	return host
 }
 
 func ensureClaudeInstalled() (string, error) {
