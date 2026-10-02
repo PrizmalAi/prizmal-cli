@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/PrizmalAi/prizmal-cli/internal/claudecode"
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 )
 
@@ -553,10 +554,10 @@ func TestClaudeModelOverridesNameEachTiersProfileFirst(t *testing.T) {
 		}
 	}
 
-	for tier, profile := range tierProfiles {
-		alias := claudeModelName(claudeTierModel(tier))
-		if got := firstKey[alias]; got != profile.behavesAs {
-			t.Errorf("first modelOverrides key for %s = %q, want %q, the id its rows behave as", alias, got, profile.behavesAs)
+	for tier, profile := range claudecode.Profiles {
+		alias := claudeModelName(claudecode.TierModel(tier))
+		if got := firstKey[alias]; got != profile.BehavesAs {
+			t.Errorf("first modelOverrides key for %s = %q, want %q, the id its rows behave as", alias, got, profile.BehavesAs)
 		}
 	}
 }
@@ -594,17 +595,17 @@ func TestClaudeModelOverridesCarryTheirTiersSuffix(t *testing.T) {
 	overrides := claudeModelOverrides()
 
 	for key, value := range overrides {
-		if slices.Contains(claudeFamilyIDs[modelTierHaiku], key) {
+		if slices.Contains(claudecode.FamilyIDs[claudecode.Haiku], key) {
 			if value != "claude-tier-haiku" {
 				t.Errorf("modelOverrides[%q] = %q, want claude-tier-haiku with no suffix", key, value)
 			}
 			continue
 		}
-		if !strings.HasSuffix(value, oneMillionSuffix) {
-			t.Errorf("modelOverrides[%q] = %q, want it to end in %s", key, value, oneMillionSuffix)
+		if !strings.HasSuffix(value, claudecode.OneMillionSuffix) {
+			t.Errorf("modelOverrides[%q] = %q, want it to end in %s", key, value, claudecode.OneMillionSuffix)
 		}
-		if strings.Count(value, oneMillionSuffix) != 1 {
-			t.Errorf("modelOverrides[%q] = %q, want exactly one %s", key, value, oneMillionSuffix)
+		if strings.Count(value, claudecode.OneMillionSuffix) != 1 {
+			t.Errorf("modelOverrides[%q] = %q, want exactly one %s", key, value, claudecode.OneMillionSuffix)
 		}
 	}
 }
@@ -642,7 +643,7 @@ func TestClaudeSettingsRowModelsAreNotTheirProfiles(t *testing.T) {
 		t.Fatalf("picker options = %d, want %d: %s", len(got.ModelPicker.Options), len(want), settings)
 	}
 	for _, option := range got.ModelPicker.Options {
-		model := strings.TrimSuffix(option.Model, oneMillionSuffix)
+		model := claudecode.RoutableName(option.Model)
 		tier, ok := want[model]
 		if !ok {
 			t.Errorf("row sends model %q, which is not one of the catalog's ids", option.Model)

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/api"
+	"github.com/PrizmalAi/prizmal-cli/internal/claudecode"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/model"
 )
@@ -196,7 +197,7 @@ func launchModelMatches(candidate, name string) bool {
 // bareLaunchModelName strips the decorations a model name can carry without
 // naming a different model: the [1m] suffix, then the :latest tag under it.
 func bareLaunchModelName(name string) string {
-	name = strings.TrimSuffix(name, oneMillionSuffix)
+	name = claudecode.RoutableName(name)
 	return strings.TrimSuffix(name, ":latest")
 }
 

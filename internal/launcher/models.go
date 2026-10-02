@@ -8,6 +8,7 @@ import (
 	"os"
 	"slices"
 
+	"github.com/PrizmalAi/prizmal-cli/internal/claudecode"
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	"golang.org/x/term"
 )
@@ -101,10 +102,10 @@ func catalogModels(ctx context.Context) ([]LaunchModel, error) {
 // switch gives a tier one holder. Should it send two, only the first is folded,
 // and the other keeps its own row.
 func withClaudeTiers(catalog []LaunchModel) []LaunchModel {
-	models := make([]LaunchModel, 0, len(tierWords)+len(catalog))
-	holders := make(map[string]bool, len(tierWords))
-	for _, tier := range tierWords {
-		name := claudeTierModel(tier)
+	models := make([]LaunchModel, 0, len(claudecode.Tiers)+len(catalog))
+	holders := make(map[string]bool, len(claudecode.Tiers))
+	for _, tier := range claudecode.Tiers {
+		name := claudecode.TierModel(tier)
 		entry, ok := findSwitchCatalogModel(catalog, name)
 		if !ok {
 			entry = LaunchModel{Name: name}
@@ -123,13 +124,13 @@ func withClaudeTiers(catalog []LaunchModel) []LaunchModel {
 		models = append(models, entry)
 	}
 	for _, entry := range catalog {
-		if slices.ContainsFunc(models[:len(tierWords)], func(tier LaunchModel) bool {
+		if slices.ContainsFunc(models[:len(claudecode.Tiers)], func(tier LaunchModel) bool {
 			return launchModelMatches(entry.Name, tier.Name)
 		}) {
 			continue
 		}
 		if holders[entry.Name] {
-			entry.FoldedInto = claudeTierModel(modelTier(entry.Tier))
+			entry.FoldedInto = claudecode.TierModel(claudecode.Tier(entry.Tier))
 		}
 		models = append(models, entry)
 	}
