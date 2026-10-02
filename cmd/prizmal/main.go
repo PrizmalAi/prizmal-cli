@@ -74,8 +74,9 @@ integration name is handed to the harness unchanged, so claude --resume
 be read as a prizmal flag.
 
 --list answers a different question: it prints the models this switch key's
-tenant serves, one per line, and exits without launching. The list comes from
-the Switch, so it holds exactly the names that key can route by.
+tenant serves, one per line, and exits without launching. It holds exactly the
+names that key can route to: the four Claude tier aliases first, since those
+route even though the Switch does not list them, then the tenant's own entries.
 
 A launch always runs a real model, and never a placeholder. It takes the model
 from --model, or from the default saved by an earlier --pick, or asks with the
@@ -203,6 +204,12 @@ func registerFlags(flags *pflag.FlagSet) {
 // A listing has no fallback the way a launch does, so a fetch that fails is the
 // command failing.
 //
+// A tenant that lists nothing is not a failure. The catalog reader reports it
+// as ErrNoModels because a picker must not offer choices the tenant does not
+// serve, and that same error reaches a listing whose answer is a valid empty
+// one. So it is caught here and turned into the message and the exit 0 that
+// answer means, rather than into CatalogError's red error line.
+//
 // It does not announce the key source the way a launch does. A launch
 // announces it because the source decides what the child process gets; a
 // listing answers a question and pipes its answer, so narration on stderr only
@@ -214,13 +221,13 @@ func listTenantModels() error {
 	}
 
 	names, err := launcher.ListSwitchModels(context.Background())
-	if err != nil {
-		return launcher.CatalogError(err)
-	}
-	if len(names) == 0 {
+	if errors.Is(err, launcher.ErrNoModels) {
 		// Silence would read as a successful listing that lost its rows.
 		fmt.Fprintf(os.Stderr, "No models: this switch key's tenant serves none.\n")
 		return nil
+	}
+	if err != nil {
+		return launcher.CatalogError(err)
 	}
 	for _, name := range names {
 		// Explicit discard, like the other best-effort writes here. A write to

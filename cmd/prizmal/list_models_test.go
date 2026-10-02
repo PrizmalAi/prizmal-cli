@@ -95,6 +95,18 @@ func dirExists(path string) bool {
 	return err == nil && info.IsDir()
 }
 
+// deployedListing is what `prizmal --list` prints for deployedCatalog: the four
+// Claude tier aliases first, because they route even though the Switch does not
+// list them, then the Switch's own entries in its order. The alias lines are
+// the point of the expectation — a --list that dropped them would under-report
+// what `prizmal --model claude-tier-opus claude` launches.
+const deployedListing = "claude-tier-opus\nclaude-tier-sonnet\nclaude-tier-haiku\nclaude-tier-fable\ndefault\ncheap\nopus\n"
+
+// claudeTiers are the alias names withClaudeTiers supplies, in tierWords order.
+// They are pinned here rather than imported because the point of the test is
+// what the operator sees, and the operator sees these four spellings.
+var claudeTiers = []string{"claude-tier-opus", "claude-tier-sonnet", "claude-tier-haiku", "claude-tier-fable"}
+
 // TestListFlagPrintsTheTenantsModels is the feature: `--list` answers with the
 // names the switch key's tenant can route by, one per line on stdout, so the
 // output pipes without a header in the way.
@@ -112,8 +124,36 @@ func TestListFlagPrintsTheTenantsModels(t *testing.T) {
 	if exitCode != 0 {
 		t.Fatalf("prizmal --list exited %d\nstdout: %s\nstderr: %s", exitCode, stdout, stderr)
 	}
-	if got, want := stdout, "default\ncheap\nopus\n"; got != want {
-		t.Errorf("stdout = %q, want %q", got, want)
+	if got := stdout; got != deployedListing {
+		t.Errorf("stdout = %q, want %q", got, deployedListing)
+	}
+}
+
+// The four tier aliases lead the listing, and they lead it in tierWords order,
+// because `--pick` leads with them in that order. Two flags answering one
+// question out of order is the drift this change exists to stop.
+func TestListFlagLeadsWithTheClaudeTiers(t *testing.T) {
+	if testing.Short() {
+		t.Skip("subprocess test in short mode")
+	}
+	prizmalBin := buildPrizmalTestBinary(t)
+
+	srv := tenantCatalogServer(t, deployedCatalog, http.StatusOK)
+	home := t.TempDir()
+	writePrizmalConfig(t, home, "sk-test-key")
+
+	exitCode, stdout, stderr := runPrizmalList(t, prizmalBin, home, "--list", "--url", srv.URL)
+	if exitCode != 0 {
+		t.Fatalf("prizmal --list exited %d\nstdout: %s\nstderr: %s", exitCode, stdout, stderr)
+	}
+	lines := strings.Split(strings.TrimSuffix(stdout, "\n"), "\n")
+	if len(lines) < len(claudeTiers) {
+		t.Fatalf("stdout carried %d lines, want at least the %d tiers\nstdout: %q", len(lines), len(claudeTiers), stdout)
+	}
+	for i, want := range claudeTiers {
+		if lines[i] != want {
+			t.Errorf("line %d = %q, want %q; --pick leads with these in this order", i+1, lines[i], want)
+		}
 	}
 }
 
@@ -262,8 +302,8 @@ func TestListFlagDoesNotLaunchAHarness(t *testing.T) {
 	if exitCode != 0 {
 		t.Fatalf("`prizmal --list claude` exited %d, want the listing without a launch\nstdout: %s\nstderr: %s", exitCode, stdout, stderr)
 	}
-	if got, want := stdout, "default\ncheap\nopus\n"; got != want {
-		t.Errorf("stdout = %q, want the listing %q", got, want)
+	if got := stdout; got != deployedListing {
+		t.Errorf("stdout = %q, want the listing %q", got, deployedListing)
 	}
 }
 
