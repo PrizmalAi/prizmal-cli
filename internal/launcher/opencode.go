@@ -94,7 +94,7 @@ func (o *OpenCode) envVars(model string, models []LaunchModel) []string {
 		// value the user set for their own tools is replaced for this launch
 		// unconditionally: filterEnv removed any inherited copy above.
 		"OPENCODE_CONFIG_DIR="+dir,
-		openCodeSearchURLEnv+"="+strings.TrimRight(envconfig.Host().String(), "/")+"/v1",
+		openCodeSearchURLEnv+"="+envconfig.OpenAIBaseURL(false),
 		openCodeSearchKeyEnv+"="+envconfig.APIKey(),
 		openCodeSearchModelEnv+"="+model,
 	)
@@ -345,7 +345,7 @@ func buildInlineConfig(primary LaunchModel, models []LaunchModel) (string, error
 				"npm":  "@ai-sdk/openai-compatible",
 				"name": "Prizmal",
 				"options": map[string]any{
-					"baseURL": envconfig.Host().String() + "/v1",
+					"baseURL": envconfig.OpenAIBaseURL(false),
 					"apiKey":  envconfig.APIKey(),
 				},
 				"models": buildModelEntries(models),
