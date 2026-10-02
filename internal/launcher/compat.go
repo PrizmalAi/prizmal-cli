@@ -68,16 +68,6 @@ func fallbackLaunchModel(name string) LaunchModel {
 	return LaunchModel{Name: name}
 }
 
-// findLaunchModel finds a model by name in a list.
-func findLaunchModel(models []LaunchModel, name string) (LaunchModel, bool) {
-	for _, m := range models {
-		if m.Name == name {
-			return m, true
-		}
-	}
-	return LaunchModel{}, false
-}
-
 // isCloudModelName reports whether a name refers to a cloud-served model.
 // prizmal has no cloud catalog, so this is always false.
 func isCloudModelName(string) bool { return false }
@@ -180,24 +170,6 @@ func launchModelNames(models []LaunchModel) []string {
 		}
 	}
 	return names
-}
-
-// launchModelMatches reports whether a candidate model name matches a target,
-// tolerating the implicit :latest tag and Claude Code's [1m] context-budget
-// suffix on either side. The Switch decorates every catalog id with the
-// suffix and a launch sends the bare name, so a bare comparison never matches.
-func launchModelMatches(candidate, name string) bool {
-	if candidate == name {
-		return true
-	}
-	return bareLaunchModelName(candidate) == bareLaunchModelName(name)
-}
-
-// bareLaunchModelName strips the decorations a model name can carry without
-// naming a different model: the [1m] suffix, then the :latest tag under it.
-func bareLaunchModelName(name string) string {
-	name = strings.TrimSuffix(name, oneMillionSuffix)
-	return strings.TrimSuffix(name, ":latest")
 }
 
 // LoadedContextWindow always reports 0 — it required a live model server.

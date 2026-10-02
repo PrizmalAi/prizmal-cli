@@ -200,7 +200,7 @@ func resolveOpenCodeRunModels(primary string, models []LaunchModel, stateModels 
 		if name == "" || hasLaunchModel(resolved, name) {
 			return
 		}
-		if model, ok := findLaunchModel(models, name); ok {
+		if model, ok := findCatalogModel(models, name); ok {
 			resolved = append(resolved, model)
 			return
 		}
@@ -219,7 +219,7 @@ func resolveOpenCodeRunModels(primary string, models []LaunchModel, stateModels 
 
 func hasLaunchModel(models []LaunchModel, name string) bool {
 	for _, model := range models {
-		if launchModelMatches(model.Name, name) || launchModelMatches(name, model.Name) {
+		if modelNamesSame(model.Name, name) {
 			return true
 		}
 	}
@@ -454,7 +454,7 @@ func buildModelEntries(modelList []LaunchModel) map[string]any {
 // the model answers without the document.
 //
 // The Switch's GET /v1/models is the source of truth, reached at launch by
-// WithSwitchCapabilities. Its document modality is spelled "file" and reaches
+// BestEffortCatalog. Its document modality is spelled "file" and reaches
 // here as CapabilityDocument; opencode spells the same thing "pdf". Image
 // input is a separate signal on both sides, so each modality is declared from
 // its own capability and neither stands in for the other.

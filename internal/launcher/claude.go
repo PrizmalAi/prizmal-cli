@@ -226,10 +226,25 @@ func claudeChildEnv(model string, rows []ModelRow) []string {
 	return env
 }
 
-// oneMillionSuffix is Claude Code's own context-budgeting instruction. It is
-// not part of any model id: Claude Code strips the suffix from the name before
-// it sends the request and budgets a 1M context window for that name.
-const oneMillionSuffix = "[1m]"
+// subagentModel holds the dedicated subagent model for this process. It is
+// package state because a launch resolves its model before the runner runs,
+// and a subagent model selects an environment variable the runner sets rather
+// than a second launch argument.
+//
+// It lives beside the only reader, the Claude Code adapter: --subagent-model
+// reaches the harness through an environment variable it alone defines, so
+// until another adapter claims the flag this state has exactly one consumer,
+// and keeping it next to that consumer is what stops it looking like a model
+// catalog concern.
+var subagentModel string
+
+// SetSubagentModel records the dedicated subagent model for this launch.
+// main.go wires it from --subagent-model.
+func SetSubagentModel(model string) { subagentModel = model }
+
+// selectedSubagentModel returns the dedicated subagent model, or "" when
+// subagents inherit the session model.
+func selectedSubagentModel() string { return subagentModel }
 
 // claudeModelName returns the model name to hand Claude Code: the switch's own
 // name with exactly one [1m] suffix, or none for a haiku name, whatever the
@@ -253,7 +268,7 @@ func claudeModelName(model string) string {
 	// shell export may carry one, and suffixes must not accumulate.
 	bare := model
 	for {
-		stripped := strings.TrimSuffix(bare, oneMillionSuffix)
+		stripped := ModelNameWithoutSuffix(bare)
 		if stripped == bare {
 			break
 		}
@@ -271,7 +286,7 @@ func claudeRowModelName(row ModelRow) string {
 	if row.tier == "" {
 		return claudeModelName(row.Model)
 	}
-	bare := strings.TrimSuffix(claudeModelName(row.Model), oneMillionSuffix)
+	bare := ModelNameWithoutSuffix(claudeModelName(row.Model))
 	if tierProfiles[row.tier].oneMillion {
 		return bare + oneMillionSuffix
 	}
@@ -282,7 +297,7 @@ func claudeRowModelName(row ModelRow) string {
 // does, so the session model is one of the rows and runs with that row's
 // window. A model with no row is spelled from its name.
 func claudeLaunchModelName(model string, rows []ModelRow) string {
-	bare := strings.TrimSuffix(claudeModelName(model), oneMillionSuffix)
+	bare := ModelNameWithoutSuffix(claudeModelName(model))
 	for _, row := range rows {
 		if row.Model == bare {
 			return claudeRowModelName(row)
