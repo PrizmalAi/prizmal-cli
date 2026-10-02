@@ -2,14 +2,11 @@ package launch
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"strings"
-
-	"github.com/PrizmalAi/prizmal-cli/internal/api"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/model"
 )
@@ -88,12 +85,6 @@ func lookupCloudModelLimit(string) (struct{ Context, Output int }, bool) {
 }
 
 var confirmReader = bufio.NewReader(os.Stdin)
-
-// quotePowerShellString quotes s for safe interpolation into a PowerShell
-// -Command argument.
-func quotePowerShellString(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
-}
 
 // ansiGray dims text.
 const ansiGray = "\033[37m"
@@ -200,19 +191,10 @@ func bareLaunchModelName(name string) string {
 	return strings.TrimSuffix(name, ":latest")
 }
 
-// LoadedContextWindow always reports 0 — it required a live model server.
-func LoadedContextWindow(context.Context, *api.Client, string) int { return 0 }
-
 // SupportedIntegration lets an integration report platform support separately
 // from installation state.
 type SupportedIntegration interface {
 	Supported() error
-}
-
-// ModelItem is a lightweight name/description row for listings.
-type ModelItem struct {
-	Name        string
-	Description string
 }
 
 // ModelListShower is implemented by a runner that shows the launched harness
