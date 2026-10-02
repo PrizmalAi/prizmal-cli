@@ -151,18 +151,31 @@ func parseSwitchCatalog(data []byte) ([]LaunchModel, error) {
 }
 
 // ListSwitchModels returns the names the configured switch key can route by:
-// the models its tenant serves, in the order the Switch lists them.
+// the Claude tier aliases first, then the models its tenant serves, in the
+// order the Switch lists them.
+//
+// It reads catalogModels, the same reader FetchCatalog uses, so a listing and
+// a picker cannot disagree about what the key routes to. Reading the raw
+// catalog instead is what made --list advertise fewer models than --pick
+// offered and than `prizmal --model <tier alias>` launched: the tier aliases
+// are supplied by withClaudeTiers because the Switch does not list them, and
+// a reader that skipped it reported four launchable names as absent. It also
+// comes away with the launch path's cache, so a process that lists and then
+// launches fetches once.
 //
 // It is the non-launch counterpart to WithSwitchCapabilities, and it inverts
 // that function's posture on purpose. A launch degrades gracefully because a
 // failed capability fetch must not block a harness. A listing has no such
 // excuse. An empty list is indistinguishable from "this key routes to nothing",
 // so a fetch that fails returns the error and the caller fails the command.
+// A tenant that lists nothing comes back as ErrNoModels rather than an empty
+// slice, because the caller has to tell those two apart and an empty slice
+// reads as the second one.
 //
 // The list is the tenant's, resolved by the Switch from the bearer key alone.
 // No request parameter selects a tenant, so one key can never read another's.
 func ListSwitchModels(ctx context.Context) ([]string, error) {
-	catalog, err := fetchSwitchCatalog(ctx)
+	catalog, err := catalogModels(ctx)
 	if err != nil {
 		return nil, err
 	}

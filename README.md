@@ -145,6 +145,8 @@ prizmal --restore codex
 
 # See which models your switch key can route to. The Switch resolves the list
 # from the key alone, so it holds your tenant's models and no other tenant's.
+# The four Claude tier aliases lead, because they route too even though the
+# Switch does not list them; the same four head the --pick menu.
 prizmal --list
 
 # Same for Pi: removes the prizmal provider (and any key an older prizmal
