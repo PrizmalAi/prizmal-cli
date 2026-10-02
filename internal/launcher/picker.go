@@ -209,7 +209,7 @@ func disambiguateLabels(rows []ModelRow) {
 
 // ModelPickerMenu renders the interactive menu and returns the chosen model
 // id. It is a package variable so tests can drive the selection without a
-// terminal, in the same way DefaultConfirmPrompt and DefaultSpinner are.
+// terminal, in the same way DefaultConfirmPrompt is.
 var ModelPickerMenu func(rows []ModelRow) (string, error)
 
 // PickModel asks the operator to choose from rows. It returns ErrNoModels

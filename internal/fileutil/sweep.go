@@ -15,8 +15,12 @@ import (
 )
 
 // Field names that hold the key and the endpoint in every config prizmal has
-// written a Switch key into: JSON (pi, cline, opencode, droid, openclaw),
-// TOML (codex) and YAML (hermes, omp).
+// written a Switch key into: JSON (pi, cline, opencode) and TOML (codex).
+//
+// The lists name no harness and no format beyond those two, because the sweep
+// judges a backup by its structure and a backup outlives the build that wrote
+// it: a YAML config from a harness this build no longer ships still has to be
+// read, or a rotated key in it survives every future launch.
 var (
 	credentialFields = []string{"apiKey", "api_key"}
 	endpointFields   = []string{"baseUrl", "baseURL", "base_url"}
