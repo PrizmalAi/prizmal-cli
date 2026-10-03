@@ -48,14 +48,17 @@ var openCodeInstaller = Installer{
 //
 // An absent binary is errHarnessAbsent and nothing else: it means "install it",
 // so the install pipeline goes on to the dependency probe instead of reporting
-// the lookup that already found nothing.
+// the lookup that already found nothing. A home directory that cannot be read
+// is absent rather than a failure, for the same reason as in Claude's locate:
+// PATH came up empty first, so the installer is the answer, and the operator
+// never set the variable the error would name.
 func findOpenCode(goos string) (string, error) {
 	if p, err := exec.LookPath("opencode"); err == nil {
 		return p, nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", err
+		return "", errHarnessAbsent
 	}
 	name := "opencode"
 	if goos == "windows" {
