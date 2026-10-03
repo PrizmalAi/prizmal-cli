@@ -604,7 +604,7 @@ func codexRootLineHasKey(line, key string) bool {
 func codexCatalogModel(modelName string, models []LaunchModel) LaunchModel {
 	if model, ok := findLaunchModel(models, modelName); ok {
 		model.Name = modelName
-		return model.WithCloudLimits()
+		return model
 	}
 	return fallbackLaunchModel(modelName)
 }
@@ -624,34 +624,27 @@ func writeCodexModelCatalog(catalogPath string, model LaunchModel) error {
 	return os.WriteFile(catalogPath, data, 0o644)
 }
 
+// buildCodexModelEntry renders one entry of codex's model catalog.
+//
+// Two of its values are constants rather than facts prizmal reads from the
+// Switch, and both used to look derived: the context window fell back to
+// codexFallbackContextWindow (overridable by $HARNESS_CONTEXT_LENGTH, the only
+// window input the tree has) and the truncation policy was always byte
+// truncation, because no catalog entry names a server-side token budget to
+// truncate against.
 func buildCodexModelEntry(launchModel LaunchModel) map[string]any {
 	modelName := launchModel.Name
+
+	// $HARNESS_CONTEXT_LENGTH is the only way to move the window off the
+	// fallback; with it unset the entry carries the number that ships.
 	contextWindow := codexFallbackContextWindow
-	systemPrompt := ""
-
-	if launchModel.ContextLength > 0 {
-		contextWindow = launchModel.ContextLength
-	} else if launchModel.Details.ContextLength > 0 {
-		contextWindow = launchModel.Details.ContextLength
-	}
-	if l, ok := lookupCloudModelLimit(modelName); ok {
-		contextWindow = l.Context
-	}
-
-	if !isCloudModelName(modelName) && launchModel.Details.Format != "safetensors" {
-		if ctxLen := envconfig.ContextLength(); ctxLen > 0 {
-			contextWindow = int(ctxLen)
-		}
+	if ctxLen := envconfig.ContextLength(); ctxLen > 0 {
+		contextWindow = ctxLen
 	}
 
 	modalities := []string{"text"}
 	if launchModel.HasCapability(model.CapabilityVision) {
 		modalities = append(modalities, "image")
-	}
-
-	truncationMode := "bytes"
-	if isCloudModelName(modelName) {
-		truncationMode = "tokens"
 	}
 
 	return map[string]any{
@@ -662,9 +655,9 @@ func buildCodexModelEntry(launchModel LaunchModel) map[string]any {
 		"visibility":                   "list",
 		"supported_in_api":             true,
 		"priority":                     0,
-		"truncation_policy":            map[string]any{"mode": truncationMode, "limit": 10000},
+		"truncation_policy":            map[string]any{"mode": "bytes", "limit": 10000},
 		"input_modalities":             modalities,
-		"base_instructions":            systemPrompt,
+		"base_instructions":            "",
 		"support_verbosity":            true,
 		"default_verbosity":            "low",
 		"supports_parallel_tool_calls": false,

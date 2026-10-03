@@ -435,14 +435,6 @@ func buildModelEntries(modelList []LaunchModel) map[string]any {
 				}
 			}
 		}
-		if model.MaxOutputTokens > 0 {
-			limit := make(map[string]any)
-			if model.ContextLength > 0 {
-				limit["context"] = model.ContextLength
-			}
-			limit["output"] = model.MaxOutputTokens
-			entry["limit"] = limit
-		}
 		models[model.Name] = entry
 	}
 	return models
@@ -477,13 +469,14 @@ func openCodeInputModalities(m LaunchModel) []string {
 	return modalities
 }
 
+// openCodeModelSupportsThinkingLevels reports whether a model takes opencode's
+// four-step reasoningEffort scale rather than its on/off-plus-low scale.
+//
+// The model's own name is the only signal: no catalog entry reports a serving
+// family, and opencode's two scales differ by model line, so the name decides.
+// A false answer costs a usable effort setting on a model that could take one,
+// which is why the check is a substring match rather than an equality test.
 func openCodeModelSupportsThinkingLevels(model LaunchModel) bool {
-	for _, family := range append([]string{model.Details.Family}, model.Details.Families...) {
-		if normalizeOpenCodeModelFamily(family) == "gptoss" {
-			return true
-		}
-	}
-
 	return strings.Contains(normalizeOpenCodeModelFamily(model.Name), "gptoss")
 }
 
