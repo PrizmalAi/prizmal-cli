@@ -494,6 +494,62 @@ func TestOpenCodeInstallerFindsItsOwnInstallDirectory(t *testing.T) {
 	}
 }
 
+// TestLocatesReadAnUnreadableHomeAsAbsent pins the one place a locate may not
+// pass its own lookup error up. Claude Code and OpenCode both fall back to a
+// directory under the home directory, and a machine where the home directory
+// cannot be named has already failed the PATH lookup, so there is no binary
+// here either way and "not installed" is the true answer. Handing the error up
+// instead refuses a launch the operator can finish by installing, and prints
+// "$HOME is not defined" about a variable they never set.
+func TestLocatesReadAnUnreadableHomeAsAbsent(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		locate func(string) (string, error)
+	}{
+		{"claude", (&Claude{}).findPath},
+		{"opencode", findOpenCode},
+	} {
+		withEmptyPATH(t)
+		t.Setenv("HOME", "")
+		t.Setenv("USERPROFILE", "")
+
+		if _, err := tc.locate("linux"); !errors.Is(err, errHarnessAbsent) {
+			t.Errorf("%s locate with no home directory = %v, want errHarnessAbsent", tc.name, err)
+		}
+	}
+
+	// The operator-visible consequence: the launch reaches the confirm rather
+	// than failing on the lookup. Claude Code's installer needs curl and bash,
+	// so both are faked on PATH — the empty PATH above put them on the missing
+	// list, and the dependency probe correctly answers before the confirm.
+	// Claude's own installer command is replaced too, so the test cannot reach
+	// the network; what is asserted is that the prompt was asked and the
+	// installer ran at all.
+	dir := withEmptyPATH(t)
+	writeFakeBinary(t, dir, "curl")
+	writeFakeBinary(t, dir, "bash")
+	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
+	asked := answerPrompts(t, true)
+	saved := claudeInstaller
+	t.Cleanup(func() { claudeInstaller = saved })
+	ran := false
+	claudeInstaller.Run = func(string, []string) error { ran = true; return nil }
+
+	if _, err := claudeInstaller.EnsureInstalled(); err == nil || !strings.Contains(err.Error(), "not found on PATH") {
+		// The re-locate still finds nothing, because this test's Run is a stub
+		// that installs nothing. What must not happen is the launch dying on
+		// the home directory instead of getting that far.
+		t.Fatalf("EnsureInstalled with no home directory = %v, want the re-locate failure", err)
+	}
+	if len(*asked) != 1 {
+		t.Errorf("prompted %v, want one confirm before installing", *asked)
+	}
+	if !ran {
+		t.Error("did not run the installer: the launch failed before the confirm")
+	}
+}
+
 // TestLocatePiReportsMissingNodeBeforeAnythingElse covers pi's one dependency
 // check living inside its locate. Everything past it runs npm, and npm is not
 // on the machine, so the operator must be told that before they are asked

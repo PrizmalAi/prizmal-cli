@@ -88,14 +88,18 @@ var claudeInstaller = Installer{
 //
 // An absent binary is errHarnessAbsent and nothing else: it means "install
 // it", not "this failed", so the install pipeline moves on to the dependency
-// probe rather than reporting the lookup error.
+// probe rather than reporting the lookup error. That includes a home
+// directory that cannot be read: PATH has already come up empty, so there is
+// no binary here either way and the install prompt is the useful answer.
+// Surfacing "$HOME is not defined" instead would refuse a launch the operator
+// can complete by installing, and name a variable they never set.
 func (c *Claude) findPath(goos string) (string, error) {
 	if p, err := exec.LookPath("claude"); err == nil {
 		return p, nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", err
+		return "", errHarnessAbsent
 	}
 	name := "claude"
 	if goos == "windows" {
