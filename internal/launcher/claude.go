@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 
@@ -59,7 +58,30 @@ func (c *Claude) args(model string, rows []ModelRow, settingsJSON string, extra 
 	return append(args, extra...)
 }
 
-func (c *Claude) findPath() (string, error) {
+// claudeInstaller is Claude Code's install story. Its installer drops the
+// binary in ~/.local/bin or ~/.claude/local rather than on PATH, so both
+// directories are read before the CLI will believe Claude Code is missing, and
+// its own script is fetched over curl and run with bash — or with PowerShell
+// on Windows, where no curl or bash is assumed to exist.
+var claudeInstaller = Installer{
+	Name:         "claude",
+	DisplayName:  "Claude Code",
+	Locate:       (&Claude{}).findPath,
+	Dependencies: claudeInstallerDependencies,
+	Command:      claudeInstallerCommand,
+}
+
+// findPath returns the claude binary, checking PATH first and then the two
+// directories Claude Code's own installer writes to, which are not on PATH on
+// a machine that ran the installer but never added them. The goos parameter is
+// the installer's OS seam: the name differs on Windows, and reading runtime
+// from here would put that branch out of reach of a test running anywhere
+// else.
+//
+// An absent binary is errHarnessAbsent and nothing else: it means "install
+// it", not "this failed", so the install pipeline moves on to the dependency
+// probe rather than reporting the lookup error.
+func (c *Claude) findPath(goos string) (string, error) {
 	if p, err := exec.LookPath("claude"); err == nil {
 		return p, nil
 	}
@@ -68,7 +90,7 @@ func (c *Claude) findPath() (string, error) {
 		return "", err
 	}
 	name := "claude"
-	if runtime.GOOS == "windows" {
+	if goos == "windows" {
 		name = "claude.exe"
 	}
 	for _, fallback := range []string{
@@ -79,11 +101,11 @@ func (c *Claude) findPath() (string, error) {
 			return fallback, nil
 		}
 	}
-	return "", fmt.Errorf("claude binary not found")
+	return "", errHarnessAbsent
 }
 
 func (c *Claude) Run(model string, models []LaunchModel, args []string) error {
-	claudePath, err := ensureClaudeInstalled()
+	claudePath, err := claudeInstaller.EnsureInstalled()
 	if err != nil {
 		return err
 	}
@@ -509,65 +531,15 @@ func claudeBaseURL(host string) string {
 	return host
 }
 
-func ensureClaudeInstalled() (string, error) {
-	if path, err := (&Claude{}).findPath(); err == nil {
-		return path, nil
+// claudeInstallerDependencies lists what Claude Code's installer needs to
+// run. Windows gets PowerShell alone: the install.ps1 script is fetched and
+// run by PowerShell, and requiring curl or bash there would refuse an install
+// on a machine whose installer would have worked.
+func claudeInstallerDependencies(goos string) []Dependency {
+	if goos == "windows" {
+		return []Dependency{{Probe: "powershell", Label: "PowerShell", URL: "https://learn.microsoft.com/powershell/"}}
 	}
-
-	if err := checkClaudeInstallerDependencies(); err != nil {
-		return "", err
-	}
-
-	ok, err := ConfirmPrompt("Claude Code is not installed. Install now?")
-	if err != nil {
-		return "", err
-	}
-	if !ok {
-		return "", fmt.Errorf("claude installation cancelled")
-	}
-
-	bin, args, err := claudeInstallerCommand(runtime.GOOS)
-	if err != nil {
-		return "", err
-	}
-
-	fmt.Fprintf(os.Stderr, "\nInstalling Claude Code...\n")
-	cmd := exec.Command(bin, args...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("failed to install claude: %w", err)
-	}
-
-	path, err := (&Claude{}).findPath()
-	if err != nil {
-		return "", fmt.Errorf("claude was installed but the binary was not found on PATH\n\nYou may need to restart your shell")
-	}
-
-	fmt.Fprintf(os.Stderr, "%sClaude Code installed successfully%s\n\n", ansiGreen, ansiReset)
-	return path, nil
-}
-
-func checkClaudeInstallerDependencies() error {
-	switch runtime.GOOS {
-	case "windows":
-		if _, err := exec.LookPath("powershell"); err != nil {
-			return fmt.Errorf("claude is not installed and required dependencies are missing\n\nInstall the following first:\n  PowerShell: https://learn.microsoft.com/powershell/\n\nThen re-run:\n  prizmal claude")
-		}
-	default:
-		var missing []string
-		if _, err := exec.LookPath("curl"); err != nil {
-			missing = append(missing, "curl: https://curl.se/")
-		}
-		if _, err := exec.LookPath("bash"); err != nil {
-			missing = append(missing, "bash: https://www.gnu.org/software/bash/")
-		}
-		if len(missing) > 0 {
-			return fmt.Errorf("claude is not installed and required dependencies are missing\n\nInstall the following first:\n  %s\n\nThen re-run:\n  prizmal claude", strings.Join(missing, "\n  "))
-		}
-	}
-	return nil
+	return []Dependency{curlDependency, bashDependency}
 }
 
 func claudeInstallerCommand(goos string) (string, []string, error) {
