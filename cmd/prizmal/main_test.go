@@ -127,46 +127,45 @@ func TestBaseURLResolution(t *testing.T) {
 	envconfig.SetBaseURL("")
 }
 
+// TestRestoreUnsupportedIntegration checks the restore posture each runner
+// declares in the launcher protocol, spelled once as launcher.Restorer instead
+// of hand-typed at four call sites.
 func TestRestoreUnsupportedIntegration(t *testing.T) {
-	spec, err := launcher.LookupIntegrationSpec("claude")
-	if err != nil {
-		t.Fatal(err)
+	cases := []struct {
+		name       string
+		restorable bool
+	}{
+		// Claude Code writes no file: the key and base URL ride the child
+		// environment, so there is nothing for --restore to take back.
+		{name: "claude", restorable: false},
+		{name: "codex", restorable: true},
+		// Pi writes the live key into ~/.pi/agent/models.json because it has no
+		// environment channel for a custom provider, so it must offer the undo.
+		{name: "pi", restorable: true},
+		// Cline is in the same position as pi: its provider entry in
+		// providers.json carries the live key, so it needs the same undo.
+		{name: "cline", restorable: true},
 	}
-	if _, ok := spec.Runner.(interface {
-		Restore() (launcher.RestoreOutcome, error)
-	}); ok {
-		t.Error("claude runner should not implement Restore")
-	}
-	spec, err = launcher.LookupIntegrationSpec("codex")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := spec.Runner.(interface {
-		Restore() (launcher.RestoreOutcome, error)
-	}); !ok {
-		t.Error("codex runner should implement Restore")
-	}
-	// Pi writes the live key into ~/.pi/agent/models.json because it has no
-	// environment channel for a custom provider, so it must offer the undo.
-	spec, err = launcher.LookupIntegrationSpec("pi")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := spec.Runner.(interface {
-		Restore() (launcher.RestoreOutcome, error)
-	}); !ok {
-		t.Error("pi runner should implement Restore")
-	}
-	// Cline is in the same position as pi: its provider entry in
-	// providers.json carries the live key, so it needs the same undo.
-	spec, err = launcher.LookupIntegrationSpec("cline")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := spec.Runner.(interface {
-		Restore() (launcher.RestoreOutcome, error)
-	}); !ok {
-		t.Error("cline runner should implement Restore")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			spec, err := launcher.LookupIntegrationSpec(tc.name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, ok := spec.Runner.(launcher.Restorer)
+			if ok != tc.restorable {
+				t.Errorf("%s runner implements launcher.Restorer = %v, want %v", tc.name, ok, tc.restorable)
+			}
+			if !tc.restorable {
+				return
+			}
+			// A restorable runner that says nothing about the outcome falls
+			// back to the generic "configuration restored." line, which is
+			// only right for a home prizmal never configured.
+			if _, ok := spec.Runner.(launcher.RestoreMesager); !ok {
+				t.Errorf("%s restores but implements no launcher.RestoreMesager", tc.name)
+			}
+		})
 	}
 }
 

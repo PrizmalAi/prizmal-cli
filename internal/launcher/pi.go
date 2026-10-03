@@ -48,6 +48,11 @@ const piRestoredProviderID = piProviderID
 
 func (p *Pi) String() string { return "Pi" }
 
+func (p *Pi) Installed() bool {
+	_, err := exec.LookPath("pi")
+	return err == nil
+}
+
 func (p *Pi) Run(model string, _ []LaunchModel, args []string) error {
 	fmt.Fprintf(os.Stderr, "\n%sPreparing Pi...%s\n", ansiGray, ansiReset)
 	if err := ensureNpmInstalled(); err != nil {

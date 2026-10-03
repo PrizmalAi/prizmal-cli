@@ -82,6 +82,15 @@ func (c *Claude) findPath() (string, error) {
 	return "", fmt.Errorf("claude binary not found")
 }
 
+// Installed reports whether the claude binary is on PATH or in one of the
+// fallback directories findPath checks. The registry used to ask this question
+// by building a second Claude for findPath, so the answer came from an adapter
+// that had nothing else to do; a launch now asks the adapter it holds.
+func (c *Claude) Installed() bool {
+	_, err := c.findPath()
+	return err == nil
+}
+
 func (c *Claude) Run(model string, models []LaunchModel, args []string) error {
 	claudePath, err := ensureClaudeInstalled()
 	if err != nil {
