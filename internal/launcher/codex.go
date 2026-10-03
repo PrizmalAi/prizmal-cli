@@ -10,7 +10,6 @@ import (
 
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	"github.com/PrizmalAi/prizmal-cli/internal/fileutil"
-	"github.com/PrizmalAi/prizmal-cli/internal/model"
 	"github.com/pelletier/go-toml/v2"
 	"golang.org/x/mod/semver"
 )
@@ -652,10 +651,10 @@ func buildCodexModelEntry(launchModel LaunchModel) map[string]any {
 		contextWindow = ctxLen
 	}
 
-	modalities := []string{"text"}
-	if launchModel.HasCapability(model.CapabilityVision) {
-		modalities = append(modalities, "image")
-	}
+	// The declared input modalities come from the capability vocabulary, so
+	// codex learns "image" from the Switch's "image" modality instead of
+	// carrying its own list.
+	modalities := declaredInputs(launchModel, harnessCodex)
 
 	return map[string]any{
 		"slug":             modelName,

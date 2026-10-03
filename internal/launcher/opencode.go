@@ -385,10 +385,14 @@ func isOpenCodeManagedProvider(e map[string]any) bool {
 func buildModelEntries(modelList []LaunchModel) map[string]any {
 	models := make(map[string]any)
 	for _, model := range modelList {
+		// The declared input modalities come from the capability vocabulary in
+		// capability.go, which owns what the Switch's modalities mean, what
+		// opencode spells them as, and that an unknown model keeps the
+		// permissive list so an attachment is not newly refused.
 		entry := map[string]any{
 			"name": model.Name,
 			"modalities": map[string]any{
-				"input":  openCodeInputModalities(model),
+				"input":  declaredInputs(model, harnessOpenCode),
 				"output": []string{"text"},
 			},
 		}
@@ -422,35 +426,6 @@ func buildModelEntries(modelList []LaunchModel) map[string]any {
 		models[model.Name] = entry
 	}
 	return models
-}
-
-// openCodeInputModalities returns the input modalities to declare for a model.
-// OpenCode only sends an attached image or PDF when the entry declares the
-// matching input modality; otherwise it writes a refusal into the prompt and
-// the model answers without the document.
-//
-// The Switch's GET /v1/models is the source of truth, reached at launch by
-// BestEffortCatalog. Its document modality is spelled "file" and reaches
-// here as CapabilityDocument; opencode spells the same thing "pdf". Image
-// input is a separate signal on both sides, so each modality is declared from
-// its own capability and neither stands in for the other.
-//
-// A model with no capabilities at all is unknown, not text-only. The Switch
-// omits input_modalities on some entries, and the fetch is skipped outright
-// for an unauthenticated launch, so unknown is common and must not newly block
-// an attachment: it keeps the permissive list this entry has always declared.
-func openCodeInputModalities(m LaunchModel) []string {
-	if len(m.Capabilities) == 0 {
-		return []string{"text", "image", "pdf"}
-	}
-	modalities := []string{"text"}
-	if m.HasCapability("vision") {
-		modalities = append(modalities, "image")
-	}
-	if m.HasCapability("document") {
-		modalities = append(modalities, "pdf")
-	}
-	return modalities
 }
 
 func openCodeModelSupportsThinkingLevels(model LaunchModel) bool {

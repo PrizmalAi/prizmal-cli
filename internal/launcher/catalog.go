@@ -42,7 +42,6 @@ import (
 
 	"github.com/PrizmalAi/prizmal-cli/internal/claudecode"
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
-	"github.com/PrizmalAi/prizmal-cli/internal/model"
 )
 
 const (
@@ -121,43 +120,6 @@ func (e switchCatalogEntry) routableName() string {
 
 type switchCatalogResponse struct {
 	Data []switchCatalogEntry `json:"data"`
-}
-
-// modalityCapabilities maps the Switch's input-modality vocabulary onto the
-// launcher's.
-//
-// "text" maps to CapabilityCompletion so that a model the Switch calls
-// text-only still comes back with a non-empty capability list. That is what
-// separates "the Switch says text-only" from "the Switch said nothing": the
-// second leaves the list empty, and every entry builder reads an empty list as
-// unknown. Nothing else in the tree reads CapabilityCompletion, so the mapping
-// carries no behavior of its own.
-//
-// "file" is the Switch's document modality, the one that says a router config
-// can take a PDF. It is handed out independently of "image": the catalogue has
-// rows with both, and rows with image and no file.
-//
-// "video" is served by the Switch and deliberately missing here: it has no
-// capability in the vocabulary and no entry builder has anywhere to put it.
-var modalityCapabilities = map[string]model.Capability{
-	"text":  model.CapabilityCompletion,
-	"image": model.CapabilityVision,
-	"file":  model.CapabilityDocument,
-	"audio": model.CapabilityAudio,
-}
-
-// capabilitiesFromModalities translates one entry's input_modalities array.
-// An unrecognised modality is dropped rather than guessed at.
-func capabilitiesFromModalities(modalities []string) []model.Capability {
-	var capabilities []model.Capability
-	for _, modality := range modalities {
-		c, ok := modalityCapabilities[strings.ToLower(strings.TrimSpace(modality))]
-		if !ok || slices.Contains(capabilities, c) {
-			continue
-		}
-		capabilities = append(capabilities, c)
-	}
-	return capabilities
 }
 
 // cleanDescription keeps only the text of a description the switch sent. The

@@ -292,7 +292,7 @@ func TestOpenCodeResolvesTheCatalogEntryAcrossTheSuffix(t *testing.T) {
 	if len(resolved) != 1 {
 		t.Fatalf("resolved %d models, want 1: %v", len(resolved), launchModelNames(resolved))
 	}
-	if got := openCodeInputModalities(resolved[0]); !slices.Equal(got, []string{"text", "image"}) {
+	if got := declaredInputs(resolved[0], harnessOpenCode); !slices.Equal(got, []string{"text", "image"}) {
 		t.Fatalf("opencode input modalities = %v, want the catalog entry's [text image]", got)
 	}
 }
@@ -305,7 +305,7 @@ func TestOpenCodeKeepsAnUnknownNameAsABareEntry(t *testing.T) {
 	if len(resolved) != 2 || resolved[0].Name != "not-in-catalog" || len(resolved[0].Capabilities) != 0 {
 		t.Fatalf("resolved = %+v, want a bare not-in-catalog first, then the catalog", resolved)
 	}
-	if got := openCodeInputModalities(resolved[0]); !slices.Equal(got, []string{"text", "image", "pdf"}) {
+	if got := declaredInputs(resolved[0], harnessOpenCode); !slices.Equal(got, []string{"text", "image", "pdf"}) {
 		t.Fatalf("opencode input modalities = %v, want the permissive list for an unknown model", got)
 	}
 }
