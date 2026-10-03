@@ -108,4 +108,3 @@ func TestVCSSettingParsesPrefixedValue(t *testing.T) {
 		t.Errorf("vcsSetting for absent key = %q, want empty", got)
 	}
 }
-

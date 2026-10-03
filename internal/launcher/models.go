@@ -2,6 +2,8 @@ package launch
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -35,19 +37,30 @@ func selectedSubagentModel() string { return subagentModel }
 // capabilities, to offer a choice, and to build the launched harness's own
 // /model rows. Those are the same list, so the fetch is cached and the second
 // and third readers reuse it.
+//
+// The memo describes one request rather than the process: it is keyed on the
+// endpoint and credential the fetch went out with, and a different one starts
+// the memo over. A stale entry served across a change of endpoint would offer
+// one tenant's rows to another, which is the one failure a picker cannot
+// absorb: the operator picks from a menu that misreports what the tenant
+// serves. A launch resolves both once before its first fetch, so it still pays
+// for the list once.
 var modelCatalog struct {
-	fetched bool
-	models  []LaunchModel
-	err     error
+	identity string
+	models   []LaunchModel
+	err      error
 }
 
-// ResetModelCatalog clears the cached catalog. Tests that point envconfig at a
-// different server call it between cases. A real launch needs it only once: a
-// process serves one launch, so the cache cannot go stale under it.
-func ResetModelCatalog() {
-	modelCatalog.fetched = false
-	modelCatalog.models = nil
-	modelCatalog.err = nil
+// catalogIdentity names the request the memo holds: a digest of the resolved
+// base URL and bearer key. Two fetches with the same identity answer the same
+// question, so the memo can be trusted between them, and any other pair cannot.
+//
+// The key is digested rather than kept. The memo only needs to recognise the
+// credential it fetched under, never to read it back, and a digest cannot leak
+// through a %v of the struct the way a stored key would.
+func catalogIdentity() string {
+	sum := sha256.Sum256([]byte(envconfig.BaseURL() + "\x00" + envconfig.APIKey()))
+	return hex.EncodeToString(sum[:])
 }
 
 // FetchCatalog returns the models the configured switch key can route by.
@@ -64,13 +77,17 @@ func FetchCatalog(ctx context.Context) ([]LaunchModel, error) {
 	return catalogModels(ctx)
 }
 
-// catalogModels fetches the catalog once and remembers the outcome, failure
-// included, so a launch does not retry a switch that already refused it.
+// catalogModels fetches the catalog once per request identity and remembers
+// the outcome, failure included, so a launch does not retry a switch that
+// already refused it.
 func catalogModels(ctx context.Context) ([]LaunchModel, error) {
-	if modelCatalog.fetched {
+	identity := catalogIdentity()
+	if modelCatalog.identity == identity {
 		return modelCatalog.models, modelCatalog.err
 	}
-	modelCatalog.fetched = true
+	// Another endpoint or credential than the memo holds. Its rows answered a
+	// different question, so they are dropped rather than served to this one.
+	modelCatalog.identity, modelCatalog.models, modelCatalog.err = identity, nil, nil
 
 	catalog, err := fetchSwitchCatalog(ctx)
 	if err == nil && len(catalog) == 0 {
@@ -177,7 +194,7 @@ func CatalogError(err error) error {
 // with no model to send can only ask for one when a person is there to answer.
 //
 // It is a variable so tests can drive the interactive paths without a terminal,
-// in the same way ModelPickerMenu and DefaultConfirmPrompt are.
+// in the same way ModelPickerMenu is.
 var StdinIsTerminal = func() bool {
 	return term.IsTerminal(int(os.Stdin.Fd()))
 }
