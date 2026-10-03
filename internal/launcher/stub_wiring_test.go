@@ -216,7 +216,7 @@ func TestStubServerCapabilityWiring(t *testing.T) {
 		{models[2], []string{"text", "pdf"}},
 		{models[3], []string{"text", "image", "pdf"}},
 	} {
-		if got := openCodeInputModalities(tc.m); !slices.Equal(got, tc.want) {
+		if got := declaredInputs(tc.m, harnessOpenCode); !slices.Equal(got, tc.want) {
 			t.Fatalf("opencode input modalities for %q = %v, want %v", tc.m.Name, got, tc.want)
 		}
 	}
