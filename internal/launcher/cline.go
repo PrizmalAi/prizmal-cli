@@ -32,7 +32,7 @@ type Cline struct{}
 func (c *Cline) String() string { return "Cline" }
 
 func (c *Cline) Run(model string, _ []LaunchModel, args []string) error {
-	bin, err := ensureClineInstalled()
+	bin, err := clineInstaller.EnsureInstalled()
 	if err != nil {
 		return err
 	}
@@ -53,38 +53,39 @@ func (c *Cline) envVars() []string {
 	return []string{"OPENAI_API_KEY=" + envconfig.APIKey()}
 }
 
-func ensureClineInstalled() (string, error) {
-	if _, err := exec.LookPath("cline"); err == nil {
-		return "cline", nil
-	}
+// clineInstaller is Cline's install story. It is the plain one: npm puts the
+// binary on PATH when it works, so there is no fallback directory to read and
+// no per-OS branch to take. Node.js is the only thing the installer needs, on
+// every platform.
+var clineInstaller = Installer{
+	Name:         "cline",
+	DisplayName:  "Cline",
+	Prompt:       "Cline is not installed. Install with npm?",
+	Locate:       locateCline,
+	Dependencies: clineInstallerDependencies,
+	Command:      clineInstallerCommand,
+}
 
-	if _, err := exec.LookPath("npm"); err != nil {
-		return "", fmt.Errorf("cline is not installed and required dependencies are missing\n\nInstall the following first:\n  npm (Node.js): https://nodejs.org/\n\nThen re-run:\n  prizmal cline")
-	}
-
-	ok, err := ConfirmPrompt("Cline is not installed. Install with npm?")
-	if err != nil {
-		return "", err
-	}
-	if !ok {
-		return "", fmt.Errorf("cline installation cancelled")
-	}
-
-	fmt.Fprintf(os.Stderr, "\nInstalling Cline...\n")
-	cmd := exec.Command("npm", "install", "-g", "cline@latest")
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("failed to install cline: %w", err)
-	}
-
+// locateCline returns the cline binary when npm has put it on PATH. It returns
+// the bare command name, not the path LookPath resolved, and not "not found" as
+// an error to report: the exec that follows resolves the name through PATH the
+// same way, and the value is what every cline launch has always exec'd.
+func locateCline(string) (string, error) {
 	if _, err := exec.LookPath("cline"); err != nil {
-		return "", fmt.Errorf("cline was installed but the binary was not found on PATH\n\nYou may need to restart your shell")
+		return "", errHarnessAbsent
 	}
-
-	fmt.Fprintf(os.Stderr, "%sCline installed successfully%s\n\n", ansiGreen, ansiReset)
 	return "cline", nil
+}
+
+// clineInstallerDependencies lists what Cline's installer needs. npm installs
+// cline on every platform alike, so Node.js is the whole list.
+func clineInstallerDependencies(string) []Dependency {
+	return []Dependency{npmDependency}
+}
+
+// clineInstallerCommand is the npm install Cline ships, on every platform.
+func clineInstallerCommand(string) (string, []string, error) {
+	return "npm", []string{"install", "-g", "cline@latest"}, nil
 }
 
 func clineLaunchArgs(model string, extra []string) []string {

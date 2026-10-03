@@ -41,12 +41,9 @@ var integrationSpecs = []*IntegrationSpec{
 		Runner:      &Claude{},
 		Description: "Anthropic's coding tool with subagents",
 		Install: IntegrationInstallSpec{
-			CheckInstalled: func() bool {
-				_, err := (&Claude{}).findPath()
-				return err == nil
-			},
+			CheckInstalled: claudeInstaller.Installed,
 			EnsureInstalled: func() error {
-				_, err := ensureClaudeInstalled()
+				_, err := claudeInstaller.EnsureInstalled()
 				return err
 			},
 			URL: "https://code.claude.com/docs/en/quickstart",
@@ -57,12 +54,9 @@ var integrationSpecs = []*IntegrationSpec{
 		Runner:      &Cline{},
 		Description: "Autonomous coding agent with parallel execution",
 		Install: IntegrationInstallSpec{
-			CheckInstalled: func() bool {
-				_, err := exec.LookPath("cline")
-				return err == nil
-			},
+			CheckInstalled: clineInstaller.Installed,
 			EnsureInstalled: func() error {
-				_, err := ensureClineInstalled()
+				_, err := clineInstaller.EnsureInstalled()
 				return err
 			},
 			Command: []string{"npm", "install", "-g", "cline@latest"},
@@ -86,12 +80,9 @@ var integrationSpecs = []*IntegrationSpec{
 		Runner:      &OpenCode{},
 		Description: "Anomaly's open-source coding agent",
 		Install: IntegrationInstallSpec{
-			CheckInstalled: func() bool {
-				_, ok := findOpenCode()
-				return ok
-			},
+			CheckInstalled: openCodeInstaller.Installed,
 			EnsureInstalled: func() error {
-				_, err := ensureOpenCodeInstalled()
+				_, err := openCodeInstaller.EnsureInstalled()
 				return err
 			},
 			URL: "https://opencode.ai",
@@ -102,12 +93,16 @@ var integrationSpecs = []*IntegrationSpec{
 		Runner:      &Pi{},
 		Description: "Minimal AI agent toolkit with plugin support",
 		Install: IntegrationInstallSpec{
+			// Not piInstaller.Installed: pi's Locate upgrades a pi that is
+			// installed but too old or on the legacy npm package, and a
+			// registry check must report state, not change it. The plain PATH
+			// lookup is the predicate; the upgrade is the install's own work.
 			CheckInstalled: func() bool {
 				_, err := exec.LookPath("pi")
 				return err == nil
 			},
 			EnsureInstalled: func() error {
-				_, err := ensurePiInstalled()
+				_, err := piInstaller.EnsureInstalled()
 				return err
 			},
 			Command: []string{"npm", "install", "-g", "@earendil-works/pi-coding-agent@latest"},
