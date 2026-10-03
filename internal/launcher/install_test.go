@@ -522,6 +522,9 @@ func TestLocatesReadAnUnreadableHomeAsAbsent(t *testing.T) {
 	// than failing on the lookup. Claude Code's installer needs curl and bash,
 	// so both are faked on PATH — the empty PATH above put them on the missing
 	// list, and the dependency probe correctly answers before the confirm.
+	// The OS is pinned to linux because Windows installs through PowerShell and
+	// would ask for that instead; this case is about the home directory, and a
+	// second dependency in the mix would only vary the message by platform.
 	// Claude's own installer command is replaced too, so the test cannot reach
 	// the network; what is asserted is that the prompt was asked and the
 	// installer ran at all.
@@ -534,6 +537,7 @@ func TestLocatesReadAnUnreadableHomeAsAbsent(t *testing.T) {
 	saved := claudeInstaller
 	t.Cleanup(func() { claudeInstaller = saved })
 	ran := false
+	claudeInstaller.GOOS = func() string { return "linux" }
 	claudeInstaller.Run = func(string, []string) error { ran = true; return nil }
 
 	if _, err := claudeInstaller.EnsureInstalled(); err == nil || !strings.Contains(err.Error(), "not found on PATH") {
