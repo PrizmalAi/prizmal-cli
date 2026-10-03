@@ -31,6 +31,11 @@ type Cline struct{}
 
 func (c *Cline) String() string { return "Cline" }
 
+func (c *Cline) Installed() bool {
+	_, err := exec.LookPath("cline")
+	return err == nil
+}
+
 func (c *Cline) Run(model string, _ []LaunchModel, args []string) error {
 	bin, err := ensureClineInstalled()
 	if err != nil {

@@ -251,10 +251,37 @@ type Editor interface {
 	Models() []string
 }
 
-// Configurer persists configuration via Configure instead of Edit, for
-// integrations that manage their own config files.
-type Configurer interface {
-	ConfigureWithModels(primary string, models []LaunchModel) error
+// Restorer is a runner that can take back the configuration a launch wrote, so
+// `prizmal --restore <harness>` has something to remove. It lives here, beside
+// the interfaces it completes, rather than as an anonymous interface in the
+// CLI: the shape was hand-typed seven times over, and a seventh copy is one
+// more place a rename silently leaves behind.
+//
+// Not every runner implements it, and the asymmetry is on the harness side.
+// pi and cline have no environment channel for a custom provider, so they
+// write the provider's live key into their own config file and `--restore` is
+// the only way back off the disk. Codex carries its key on the child
+// environment and needs only the profile it wrote taken out. Claude Code is
+// fully ephemeral and writes no file at all, so it has nothing to undo: an
+// absent Restore is that harness's documented posture, not a gap.
+type Restorer interface {
+	Restore() (RestoreOutcome, error)
+}
+
+// RestoreMesager overrides the line a successful restore prints. Without it the
+// CLI reports "<runner> configuration restored.", which is all RestoreOutcome
+// can support for a home prizmal never configured; a runner that can put the
+// previous settings back says so in its own words.
+type RestoreMesager interface {
+	RestoreSuccessMessage() string
+}
+
+// Installed is a runner that reports whether its own binary is present on this
+// machine. The fact belongs to the runner: the registry used to ask through a
+// closure field and paid for it by constructing a second adapter — a fresh
+// `&Claude{}` — to reach a private method on the one it was already holding.
+type Installed interface {
+	Installed() bool
 }
 
 // AnsiRed, AnsiGreen, AnsiReset and AnsiBold are exported ANSI helpers for

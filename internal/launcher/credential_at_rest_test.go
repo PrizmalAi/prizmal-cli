@@ -478,9 +478,11 @@ func sandboxedSeed(t *testing.T, home, relPath, body string) {
 // back off the disk; pi already had the same remedy.
 
 // restorer is the Edit-then-Restore pair the credential-at-rest tests drive.
+// Both halves are named in the launcher protocol, so the pair composes them
+// rather than re-spelling the shape.
 type restorer interface {
 	Editor
-	Restore() (RestoreOutcome, error)
+	Restorer
 }
 
 // seedLegacyKeyedConfig writes the provider config an older build of the pi

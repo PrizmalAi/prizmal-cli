@@ -253,8 +253,8 @@ func listIntegrations() error {
 //
 // The fetch belongs with the credential gate, and cannot physically sit next
 // to it: requireCredentialForRemote runs at the end of launch(), by which
-// point Edit and ConfigureWithModels have already written the config that
-// needs the capabilities. It honours the gate's intent instead, by only
+// point Edit has already written the config that needs the capabilities. It
+// honours the gate's intent instead, by only
 // calling the endpoint when a key resolved, so an unauthenticated launch
 // never touches it.
 func launchModels(chosen string, catalog []launcher.LaunchModel, showPickerRows bool) []launcher.LaunchModel {
@@ -540,9 +540,7 @@ func launch(name string, extraArgs []string, cfg *config.Config) error {
 	// model, which is why it sits above: restoring a configuration has nothing
 	// to launch and must not depend on a reachable switch.
 	if restore {
-		r, ok := runner.(interface {
-			Restore() (launcher.RestoreOutcome, error)
-		})
+		r, ok := runner.(launcher.Restorer)
 		if !ok {
 			return fmt.Errorf("%s does not support restore", spec.Name)
 		}
@@ -557,7 +555,7 @@ func launch(name string, extraArgs []string, cfg *config.Config) error {
 			displayName = s.String()
 		}
 		removed := displayName + " configuration restored."
-		if m, ok := runner.(interface{ RestoreSuccessMessage() string }); ok {
+		if m, ok := runner.(launcher.RestoreMesager); ok {
 			removed = m.RestoreSuccessMessage()
 		}
 		fmt.Fprintf(os.Stderr, "%s\n", restoreReport(displayName, removed, outcome))
@@ -606,14 +604,6 @@ func launch(name string, extraArgs []string, cfg *config.Config) error {
 	// Editor integrations persist their configuration via Edit before launch.
 	if editor, ok := runner.(launcher.Editor); ok {
 		if err := editor.Edit(models); err != nil {
-			return fmt.Errorf("failed to configure %s: %w", spec.Name, err)
-		}
-		if persistOnly {
-			fmt.Fprintf(os.Stderr, "%s configuration updated.%s\n", launcher.AnsiGreen, launcher.AnsiReset)
-			return nil
-		}
-	} else if configurer, ok := runner.(launcher.Configurer); ok {
-		if err := configurer.ConfigureWithModels(chosen, models); err != nil {
 			return fmt.Errorf("failed to configure %s: %w", spec.Name, err)
 		}
 		if persistOnly {
