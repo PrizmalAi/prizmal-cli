@@ -415,26 +415,12 @@ func buildModelEntries(modelList []LaunchModel) map[string]any {
 				}
 			}
 		}
-		if model.MaxOutputTokens > 0 {
-			limit := make(map[string]any)
-			if model.ContextLength > 0 {
-				limit["context"] = model.ContextLength
-			}
-			limit["output"] = model.MaxOutputTokens
-			entry["limit"] = limit
-		}
 		models[model.Name] = entry
 	}
 	return models
 }
 
 func openCodeModelSupportsThinkingLevels(model LaunchModel) bool {
-	for _, family := range append([]string{model.Details.Family}, model.Details.Families...) {
-		if normalizeOpenCodeModelFamily(family) == "gptoss" {
-			return true
-		}
-	}
-
 	return strings.Contains(normalizeOpenCodeModelFamily(model.Name), "gptoss")
 }
 

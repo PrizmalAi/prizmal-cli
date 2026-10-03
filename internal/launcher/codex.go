@@ -619,7 +619,7 @@ func codexRootLineHasKey(line, key string) bool {
 func codexCatalogModel(modelName string, models []LaunchModel) LaunchModel {
 	if model, ok := findCatalogModel(models, modelName); ok {
 		model.Name = modelName
-		return model.WithCloudLimits()
+		return model
 	}
 	return fallbackLaunchModel(modelName)
 }
@@ -639,13 +639,22 @@ func writeCodexModelCatalog(catalogPath string, model LaunchModel) error {
 	return os.WriteFile(catalogPath, data, 0o644)
 }
 
+// buildCodexModelEntry renders one entry of codex's model catalog.
+//
+// Two of its values are constants rather than facts prizmal reads from the
+// Switch, and both used to look derived: the context window fell back to
+// codexFallbackContextWindow (overridable by $HARNESS_CONTEXT_LENGTH, the only
+// window input the tree has) and the truncation policy was always byte
+// truncation, because no catalog entry names a server-side token budget to
+// truncate against.
 func buildCodexModelEntry(launchModel LaunchModel) map[string]any {
 	modelName := launchModel.Name
 
 	// The declared window is the fallback unless the operator states the real
-	// one. Nothing else in the tree carries a window: LaunchModel.ContextLength
-	// has no writer and LaunchModel.Details is never populated, so the branches
-	// that once read them here could not be taken by any model.
+	// one. Nothing else in the tree carries a window: the catalog sends id,
+	// input_modalities, tier and description and no context length at all, so a
+	// LaunchModel has no window field to read and every model the Switch serves
+	// is declared with this number.
 	contextWindow := codexFallbackContextWindow
 	if ctxLen := envconfig.ContextLength(); ctxLen > 0 {
 		contextWindow = ctxLen
