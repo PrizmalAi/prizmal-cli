@@ -59,4 +59,3 @@ func resolveVersion(injected string) string {
 	}
 	return versionDisplay(injected, bi)
 }
-

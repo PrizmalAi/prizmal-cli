@@ -245,7 +245,7 @@ func TestRestoreSweepsSwitchCredentialsFromBackups(t *testing.T) {
 
 	restore = true
 	t.Cleanup(func() { restore = false })
-	if err := launch("pi", nil, &config.Config{}); err != nil {
+	if err := launch("pi", nil, &config.Config{}, askNobody); err != nil {
 		t.Fatalf("launch --restore: %v", err)
 	}
 	if _, err := os.Lstat(tainted); err == nil {
@@ -363,8 +363,11 @@ func TestReconcileModelRejectsTwoDifferentModels(t *testing.T) {
 // the flag form does. Only an explicit --model before the name can conflict.
 func TestHarnessModelOverridesTheSavedDefault(t *testing.T) {
 	cfg := &config.Config{DefaultModel: "saved-default"}
+	// Both cases resolve from a named model and never open a menu, so the
+	// launch carries no way to ask.
+	ask := askNobody
 
-	chosen, _, err := resolveLaunchModel(cfg, "operator-choice")
+	chosen, _, err := resolveLaunchModel(cfg, "operator-choice", ask)
 	if err != nil {
 		t.Fatalf("resolveLaunchModel: %v", err)
 	}
@@ -372,7 +375,7 @@ func TestHarnessModelOverridesTheSavedDefault(t *testing.T) {
 		t.Errorf("chosen = %q, want operator-choice (the harness form must outrank the default)", chosen)
 	}
 
-	chosen, _, err = resolveLaunchModel(cfg, "")
+	chosen, _, err = resolveLaunchModel(cfg, "", ask)
 	if err != nil {
 		t.Fatalf("resolveLaunchModel: %v", err)
 	}

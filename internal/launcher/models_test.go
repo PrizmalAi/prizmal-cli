@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	"github.com/PrizmalAi/prizmal-cli/internal/model"
 )
 
@@ -96,13 +97,100 @@ func TestFetchCatalogIsCached(t *testing.T) {
 	calls := 0
 	srv := newCountingSwitch(t, `{"data":[{"id":"cheap"}]}`, &calls)
 	useSwitch(t, srv, "test-switch-key")
-	ResetModelCatalog()
-	t.Cleanup(ResetModelCatalog)
 
 	for i := 0; i < 3; i++ {
 		if _, err := FetchCatalog(context.Background()); err != nil {
 			t.Fatalf("FetchCatalog: %v", err)
 		}
+	}
+	if calls != 1 {
+		t.Fatalf("the catalog was fetched %d times, want 1", calls)
+	}
+}
+
+// The memo is keyed on the endpoint it fetched from, so repointing prizmal at
+// another switch refetches rather than serving the first one's rows. A stale
+// entry would offer one tenant's models to another, and a picker cannot
+// absorb that: the operator would be choosing from a menu that misreports
+// what the tenant serves.
+func TestFetchCatalogRefetchesAfterTheEndpointChanges(t *testing.T) {
+	firstCalls, secondCalls := 0, 0
+	first := newCountingSwitch(t, `{"data":[{"id":"alpha"}]}`, &firstCalls)
+	second := newCountingSwitch(t, `{"data":[{"id":"beta"}]}`, &secondCalls)
+
+	envconfig.SetBaseURL(first)
+	envconfig.SetAPIKey("test-switch-key")
+	t.Cleanup(func() {
+		envconfig.SetBaseURL("")
+		envconfig.SetAPIKey("")
+	})
+
+	catalog, err := FetchCatalog(context.Background())
+	if err != nil {
+		t.Fatalf("FetchCatalog from the first switch: %v", err)
+	}
+	if !slices.Contains(launchModelNames(catalog), "alpha") {
+		t.Fatalf("first catalog = %v, want the first switch's own model", launchModelNames(catalog))
+	}
+
+	envconfig.SetBaseURL(second)
+	catalog, err = FetchCatalog(context.Background())
+	if err != nil {
+		t.Fatalf("FetchCatalog from the second switch: %v", err)
+	}
+	if !slices.Contains(launchModelNames(catalog), "beta") {
+		t.Fatalf("catalog after repointing = %v, want the second switch's model; the memo served the first one's rows",
+			launchModelNames(catalog))
+	}
+	if slices.Contains(launchModelNames(catalog), "alpha") {
+		t.Fatalf("catalog after repointing = %v, want no rows from the first switch", launchModelNames(catalog))
+	}
+	if firstCalls != 1 || secondCalls != 1 {
+		t.Fatalf("fetch counts = %d then %d, want 1 each: a repoint must cost exactly one new fetch",
+			firstCalls, secondCalls)
+	}
+}
+
+// The memo is keyed on the credential too, not only the endpoint: one host
+// serves a different tenant per key, so a key that changes under a fixed
+// endpoint must not read the previous key's rows.
+func TestFetchCatalogRefetchesAfterTheKeyChanges(t *testing.T) {
+	calls := 0
+	srv := newCountingSwitch(t, `{"data":[{"id":"cheap"}]}`, &calls)
+
+	envconfig.SetBaseURL(srv)
+	t.Cleanup(func() {
+		envconfig.SetBaseURL("")
+		envconfig.SetAPIKey("")
+	})
+
+	envconfig.SetAPIKey("tenant-one-key")
+	if _, err := FetchCatalog(context.Background()); err != nil {
+		t.Fatalf("FetchCatalog with the first key: %v", err)
+	}
+	envconfig.SetAPIKey("tenant-two-key")
+	if _, err := FetchCatalog(context.Background()); err != nil {
+		t.Fatalf("FetchCatalog with the second key: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("the catalog was fetched %d times, want 2: a second key is a second tenant, not the same request", calls)
+	}
+}
+
+// The two launch-path readers share one fetch, which is the whole reason the
+// memo exists: a launch that fills capabilities from BestEffortCatalog and
+// then builds /model rows from FetchCatalog must not ask twice.
+func TestBestEffortCatalogAndFetchCatalogShareOneFetch(t *testing.T) {
+	calls := 0
+	srv := newCountingSwitch(t, `{"data":[{"id":"cheap"}]}`, &calls)
+	useSwitch(t, srv, "test-switch-key")
+
+	var warn strings.Builder
+	if got := BestEffortCatalog(context.Background(), &warn); len(got) == 0 {
+		t.Fatalf("BestEffortCatalog returned nothing: %s", warn.String())
+	}
+	if _, err := FetchCatalog(context.Background()); err != nil {
+		t.Fatalf("FetchCatalog: %v", err)
 	}
 	if calls != 1 {
 		t.Fatalf("the catalog was fetched %d times, want 1", calls)
@@ -115,8 +203,6 @@ func TestFetchCatalogPropagatesAndCachesTheFailure(t *testing.T) {
 	calls := 0
 	srv := newCountingSwitch(t, `{"error":"nope"}`, &calls, http.StatusInternalServerError)
 	useSwitch(t, srv, "test-switch-key")
-	ResetModelCatalog()
-	t.Cleanup(ResetModelCatalog)
 
 	for i := 0; i < 2; i++ {
 		if _, err := FetchCatalog(context.Background()); err == nil {
@@ -133,8 +219,6 @@ func TestFetchCatalogPropagatesAndCachesTheFailure(t *testing.T) {
 func TestFetchCatalogErrorNamesNoKey(t *testing.T) {
 	srv, _, _ := switchTestServer(t, `{"error":"nope"}`, http.StatusUnauthorized)
 	useSwitch(t, srv.URL, "sk-secret-value")
-	ResetModelCatalog()
-	t.Cleanup(ResetModelCatalog)
 
 	_, err := FetchCatalog(context.Background())
 	if err == nil {
@@ -151,8 +235,6 @@ func TestFetchCatalogOffersEveryClaudeTierFirst(t *testing.T) {
 	calls := 0
 	srv := newCountingSwitch(t, `{"data":[{"id":"team-opus-blend[1m]"},{"id":"smart[1m]"}]}`, &calls)
 	useSwitch(t, srv, "test-switch-key")
-	ResetModelCatalog()
-	t.Cleanup(ResetModelCatalog)
 
 	catalog, err := FetchCatalog(context.Background())
 	if err != nil {
@@ -177,8 +259,6 @@ func TestFetchCatalogListsATierOnceWhenTheSwitchListsItToo(t *testing.T) {
 	calls := 0
 	srv := newCountingSwitch(t, `{"data":[{"id":"smart[1m]"},{"id":"claude-tier-sonnet[1m]","input_modalities":["text","image"]}]}`, &calls)
 	useSwitch(t, srv, "test-switch-key")
-	ResetModelCatalog()
-	t.Cleanup(ResetModelCatalog)
 
 	catalog, err := FetchCatalog(context.Background())
 	if err != nil {
@@ -252,8 +332,6 @@ func TestFetchCatalogReportsNoModelsForAnEmptyListing(t *testing.T) {
 	calls := 0
 	srv := newCountingSwitch(t, `{"data":[]}`, &calls)
 	useSwitch(t, srv, "test-switch-key")
-	ResetModelCatalog()
-	t.Cleanup(ResetModelCatalog)
 
 	if _, err := FetchCatalog(context.Background()); !errors.Is(err, ErrNoModels) {
 		t.Fatalf("FetchCatalog on an empty listing = %v, want ErrNoModels", err)
