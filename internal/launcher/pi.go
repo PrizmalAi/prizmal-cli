@@ -510,8 +510,7 @@ func (p *Pi) Edit(models []LaunchModel) error {
 
 	// Build new models list:
 	// 1. Keep user-managed models (no _launch marker) - untouched
-	// 2. Keep launch-managed models (_launch marker) that are still selected,
-	//    except stale cloud entries that should be rebuilt below
+	// 2. Keep launch-managed models (_launch marker) that are still selected
 	// 3. Add new launch-managed models
 	var newModels []any
 	for _, m := range existingModels {
@@ -521,13 +520,6 @@ func (p *Pi) Edit(models []LaunchModel) error {
 				if !isManagedModel(modelObj) {
 					newModels = append(newModels, m)
 				} else if selectedSet[id] {
-					// Rebuild stale managed cloud entries so createConfig refreshes
-					// the whole entry instead of patching it in place.
-					if !hasContextWindow(modelObj) {
-						if _, ok := lookupCloudModelLimit(id); ok {
-							continue
-						}
-					}
 					newModels = append(newModels, m)
 					selectedSet[id] = false
 				}
@@ -706,19 +698,6 @@ func configProvider(providers map[string]any, id string) (map[string]any, bool) 
 	return m, ok
 }
 
-func hasContextWindow(cfg map[string]any) bool {
-	switch v := cfg["contextWindow"].(type) {
-	case float64:
-		return v > 0
-	case int:
-		return v > 0
-	case int64:
-		return v > 0
-	default:
-		return false
-	}
-}
-
 // createConfig builds Pi model config with capability detection.
 func createConfig(model LaunchModel) map[string]any {
 	cfg := map[string]any{
@@ -738,9 +717,8 @@ func createConfig(model LaunchModel) map[string]any {
 		cfg["reasoning"] = true
 	}
 
-	if model.ContextLength > 0 {
-		cfg["contextWindow"] = model.ContextLength
-	}
-
+	// No "contextWindow" is written: the Switch catalog reports none, so pi
+	// applies its own default and a value written here would only ever be a
+	// guess the operator could not correct from the catalog.
 	return cfg
 }
