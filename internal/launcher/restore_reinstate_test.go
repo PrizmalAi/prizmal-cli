@@ -138,16 +138,12 @@ func TestClineRestoreReinstatesPreviousProviderAndModes(t *testing.T) {
 // TestRestoreOnNeverRunHomeIsANoOp: on a machine prizmal never configured,
 // --restore has nothing to remove and must say so instead of reporting a
 // removal. It also writes nothing, so an untouched home stays untouched.
-// restoreOnly is the --restore half of a launcher; codex has it without
-// being an Editor, so the credential-at-rest table cannot drive it.
-type restoreOnly interface {
-	Restore() (RestoreOutcome, error)
-}
-
+// Restorer is the --restore half of a launcher; codex has it without being an
+// Editor, so the credential-at-rest table cannot drive it.
 func TestRestoreOnNeverRunHomeIsANoOp(t *testing.T) {
 	cases := []struct {
 		name     string
-		launcher restoreOnly
+		launcher Restorer
 	}{
 		{"pi", &Pi{}},
 		{"cline", &Cline{}},
