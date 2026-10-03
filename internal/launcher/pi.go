@@ -106,7 +106,7 @@ func (p *Pi) Run(model string, models []LaunchModel, args []string) error {
 	}
 
 	fmt.Fprintf(os.Stderr, "%sChecking Pi installation...%s\n", ansiGray, ansiReset)
-	bin, err := ensurePiInstalled()
+	bin, err := piInstaller.EnsureInstalled()
 	if err != nil {
 		return err
 	}
@@ -250,7 +250,52 @@ func isProviderQualifiedModel(value string) bool {
 	return ok && id != ""
 }
 
-func ensurePiInstalled() (string, error) {
+// piInstaller is pi's install story, and the one that is not just an install.
+//
+// pi is an npm package, so it is reached through Node.js and installed with
+// npm — and three things happen around that install which no other harness
+// has. Each is kept in pi's own adapter rather than averaged into the shared
+// pipeline:
+//
+//   - Locate upgrades a pi that is installed but too old, migrating the legacy
+//     @mariozechner package and reinstalling a release older than
+//     piEnvKeyReferenceVersion. Both are launch-time upgrades of a harness
+//     that is already present, so they run before any confirm.
+//   - Locate also reinstalls a package npm reports as installed when its
+//     binary is not on PATH, into the prefix npm reports, and without asking:
+//     the operator asked for pi and prizmal found it installed but broken.
+//   - Run captures npm's output and folds it into the returned error instead
+//     of streaming it, which is what pi's install errors have always said.
+//
+// Dependencies is nil because Locate refuses to reach for npm before it has
+// checked for it, and a probe behind that guard would answer after the confirm
+// rather than before it. piNpmPackage and piEnvKeyReferenceVersion stay put:
+// the version comparison decides a real credential bug, not an install.
+var piInstaller = Installer{
+	Name:        "pi",
+	DisplayName: "Pi",
+	Prompt:      "Install Pi with npm?",
+	Locate:      locatePi,
+	Relocate:    relocatePi,
+	Command:     piInstallerCommand,
+	Run:         func(bin string, args []string) error { return runQuietCommand(bin, args...) },
+}
+
+// locatePi returns the pi binary, upgrading what it finds rather than assuming
+// it can run. An install of the official package older than
+// piEnvKeyReferenceVersion sends the literal "$NAME" credential reference as
+// the key instead of reading it from the environment, and the legacy package is
+// not the package this CLI writes its configuration for, so both are replaced
+// on the spot rather than waiting for an operator to run npm.
+//
+// It also runs the one npm install a launch performs without asking: a package
+// npm reports as installed whose binary is not on PATH is reinstalled into npm's
+// own prefix, because the operator asked for pi and prizmal found it installed
+// but unreachable.
+//
+// The goos parameter is unused: npm resolves the same package on every
+// platform, and pi has no per-OS installer branch.
+func locatePi(string) (string, error) {
 	if _, err := exec.LookPath("pi"); err == nil {
 		install, pkgErr := installedPiPackageInfo()
 		if pkgErr != nil {
@@ -276,8 +321,11 @@ func ensurePiInstalled() (string, error) {
 		return "pi", nil
 	}
 
-	if _, err := exec.LookPath("npm"); err != nil {
-		return "", fmt.Errorf("pi is not installed and required dependencies are missing\n\nInstall the following first:\n  npm (Node.js): https://nodejs.org/\n\nThen re-run:\n  prizmal pi")
+	// Everything below runs npm, so npm is checked here rather than left to
+	// the shared dependency probe, which would answer after the confirm and
+	// leave the operator to read an exec failure instead of this.
+	if missing := missingOnPath([]Dependency{npmDependency}); len(missing) > 0 {
+		return "", missingDependencyError("pi", missing)
 	}
 
 	install, pkgErr := installedPiPackageInfo()
@@ -302,25 +350,25 @@ func ensurePiInstalled() (string, error) {
 		return "pi", nil
 	}
 
-	ok, err := ConfirmPrompt("Install Pi with npm?")
-	if err != nil {
-		return "", err
-	}
-	if !ok {
-		return "", fmt.Errorf("pi installation cancelled")
-	}
+	return "", errHarnessAbsent
+}
 
-	fmt.Fprintf(os.Stderr, "\nInstalling Pi...\n")
-	if err := installPiPackage(); err != nil {
-		return "", err
+// relocatePi is pi's second locate, after an npm install has run. It looks and
+// nothing more: locatePi reinstalls a package npm reports as installed when its
+// binary is missing, so running it again here would repeat the install that
+// just failed, in front of an operator already reading a failure.
+func relocatePi(string) (string, error) {
+	if _, err := exec.LookPath("pi"); err != nil {
+		return "", errHarnessAbsent
 	}
-
-	if err := requirePiOnPath(); err != nil {
-		return "", err
-	}
-
-	fmt.Fprintf(os.Stderr, "%sPi installed successfully%s\n\n", ansiGreen, ansiReset)
 	return "pi", nil
+}
+
+// piInstallerCommand is the npm install of the official package. There is no
+// prefix here: this is the install an operator agreed to, and npm's own global
+// prefix is where it belongs.
+func piInstallerCommand(string) (string, []string, error) {
+	return "npm", []string{"install", "-g", piNpmPackage + "@latest"}, nil
 }
 
 func requirePiOnPath() error {
@@ -328,10 +376,6 @@ func requirePiOnPath() error {
 		return fmt.Errorf("pi was installed but the binary was not found on PATH\n\nYou may need to restart your shell")
 	}
 	return nil
-}
-
-func installPiPackage() error {
-	return installPiPackageWithPrefix("")
 }
 
 func installPiPackageWithPrefix(prefix string) error {
