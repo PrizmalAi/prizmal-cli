@@ -1,9 +1,11 @@
 package launch
 
 import (
+	"bufio"
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -38,23 +40,75 @@ func writeFakeBinary(t *testing.T, dir, name string) string {
 // order and record what it was asked, standing in for the operator. It fails
 // the test if a prompt arrives that the test did not prepare for, which is how
 // a pipeline that asks where it should not is caught.
+//
+// The confirm gate reads its answer from stdin rather than from a replaceable
+// variable, so the replies arrive the way an operator's do: as lines on the
+// reader the gate consults. The prompts are recorded as they are written, which
+// is what lets a test read what it was asked while it is still running, and the
+// count is checked against the replies when the test ends so an extra prompt is
+// a failure rather than an EOF the pipeline happens to survive.
 func answerPrompts(t *testing.T, replies ...bool) *[]string {
 	t.Helper()
-	asked := &[]string{}
-	previous := DefaultConfirmPrompt
+
+	var lines strings.Builder
+	for _, reply := range replies {
+		if reply {
+			lines.WriteString("y\n")
+		} else {
+			lines.WriteString("n\n")
+		}
+	}
+	previousReader := confirmReader
+	confirmReader = bufio.NewReader(strings.NewReader(lines.String()))
 	t.Cleanup(func() {
-		DefaultConfirmPrompt = previous
+		confirmReader = previousReader
+		// The auto-approve policy is process state: a test that turned it on
+		// would otherwise suppress the prompt the next test expects, and the
+		// answer would never be read.
 		SetConfirmPolicy(false)
 	})
-	DefaultConfirmPrompt = func(prompt string, _ ConfirmOptions) (bool, error) {
-		*asked = append(*asked, prompt)
+
+	asked := &[]string{}
+	recorder := &promptRecorder{asked: asked}
+	previousOut := confirmOut
+	confirmOut = recorder
+	t.Cleanup(func() {
+		confirmOut = previousOut
 		if len(*asked) > len(replies) {
-			t.Fatalf("unexpected confirmation prompt %d: %q", len(*asked), prompt)
+			t.Errorf("unexpected confirmation prompt %d: %q", len(*asked), (*asked)[len(replies)])
 		}
-		return replies[len(*asked)-1], nil
-	}
+	})
 	return asked
 }
+
+// promptRecorder collects the confirmation prompts a launch writes, so a test
+// can assert what it was asked without reading a pipe after the fact. It holds
+// a partial line between writes: the gate writes the question and its suffix in
+// one Fprintf today, but nothing in the interface promises that.
+type promptRecorder struct {
+	asked   *[]string
+	pending strings.Builder
+}
+
+func (p *promptRecorder) Write(b []byte) (int, error) {
+	p.pending.Write(b)
+	for {
+		text := p.pending.String()
+		loc := promptPattern.FindStringSubmatchIndex(text)
+		if loc == nil {
+			break
+		}
+		*p.asked = append(*p.asked, strings.TrimSpace(text[loc[2]:loc[3]]))
+		rest := text[loc[1]:]
+		p.pending.Reset()
+		p.pending.WriteString(rest)
+	}
+	return len(b), nil
+}
+
+// promptPattern splits what the gate writes into prompts, each of which it
+// writes as the question followed by its default-answer suffix.
+var promptPattern = regexp.MustCompile(`(?s)(.*?)\s\([yY]/[nN]\)\s`)
 
 // recordingInstaller is a fake harness: it is installed or it is not, and the
 // installer it offers is recorded rather than run.

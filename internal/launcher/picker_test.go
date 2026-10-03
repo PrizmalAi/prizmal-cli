@@ -280,15 +280,13 @@ func TestPickerQuitBindingExcludesSelectionKeys(t *testing.T) {
 	}
 }
 
-// An aborted pick is a decision, not a failure. PickModel reports it as a
+// An aborted pick is a decision, not a failure. Asking reports it as a
 // cancellation so a caller can exit quietly instead of printing an error the
 // operator caused on purpose.
-func TestPickModelReportsCancellation(t *testing.T) {
-	original := ModelPickerMenu
-	t.Cleanup(func() { ModelPickerMenu = original })
-	ModelPickerMenu = func([]ModelRow) (string, error) { return "", ErrCancelled }
+func TestAskingReportsCancellation(t *testing.T) {
+	ask := Asking{Menu: func([]ModelRow) (string, error) { return "", ErrCancelled }}
 
-	_, err := PickModel(ModelRows([]LaunchModel{{Name: "a-model"}}))
+	_, err := ask.Pick(ModelRows([]LaunchModel{{Name: "a-model"}}))
 	if !errors.Is(err, ErrCancelled) {
 		t.Fatalf("error = %v, want ErrCancelled so the caller exits quietly", err)
 	}
@@ -361,33 +359,58 @@ func TestPickerEscAbortsWithoutChoosing(t *testing.T) {
 }
 
 // An empty catalog is an error rather than an empty menu: a list with nothing
-// in it and no way to leave with a model has nothing to offer.
-func TestPickModelRefusesAnEmptyList(t *testing.T) {
-	_, err := PickModel(nil)
+// in it and no way to leave with a model has nothing to offer. The refusal
+// belongs to the ask rather than to one menu, so it holds before any menu is
+// reached — a launch must not open a frame it has nothing to put in, whichever
+// menu it was handed.
+func TestAskingRefusesAnEmptyList(t *testing.T) {
+	opened := false
+	ask := Asking{Menu: func([]ModelRow) (string, error) {
+		opened = true
+		return "a-model", nil
+	}}
+
+	_, err := ask.Pick(nil)
 	if !errors.Is(err, ErrNoModels) {
-		t.Fatalf("PickModel(nil) error = %v, want ErrNoModels", err)
+		t.Fatalf("Pick(nil) error = %v, want ErrNoModels", err)
+	}
+	if opened {
+		t.Error("the menu opened over an empty list")
+	}
+}
+
+// The zero Asking asks nobody, and says so rather than panicking. A caller that
+// forgets to wire one is a bug, and a nil call would take the process down with
+// a stack trace instead of a message.
+func TestZeroAskingRefusesRatherThanPansics(t *testing.T) {
+	var ask Asking
+
+	if ask.CanAsk() {
+		t.Error("the zero Asking reports a person is there to ask")
+	}
+	if _, err := ask.Pick(ModelRows([]LaunchModel{{Name: "a-model"}})); err == nil {
+		t.Error("the zero Asking picked a model with no menu wired")
 	}
 }
 
 // A selection returns the chosen model id, not its label.
-func TestPickModelReturnsTheChosenModel(t *testing.T) {
-	original := ModelPickerMenu
-	t.Cleanup(func() { ModelPickerMenu = original })
-
-	ModelPickerMenu = func(rows []ModelRow) (string, error) {
-		if len(rows) != 2 {
-			t.Fatalf("menu saw %d rows, want 2", len(rows))
-		}
-		// The label is what a person reads; the model is what routes.
-		if rows[0].Label != "tier-haiku" || rows[0].Model != "claude-tier-haiku" {
-			t.Fatalf("row 0 = %+v", rows[0])
-		}
-		return rows[1].Model, nil
+func TestAskingReturnsTheChosenModel(t *testing.T) {
+	ask := Asking{
+		Menu: func(rows []ModelRow) (string, error) {
+			if len(rows) != 2 {
+				t.Fatalf("menu saw %d rows, want 2", len(rows))
+			}
+			// The label is what a person reads; the model is what routes.
+			if rows[0].Label != "tier-haiku" || rows[0].Model != "claude-tier-haiku" {
+				t.Fatalf("row 0 = %+v", rows[0])
+			}
+			return rows[1].Model, nil
+		},
 	}
 
-	got, err := PickModel(ModelRows([]LaunchModel{{Name: "claude-tier-haiku"}, {Name: "gpt-oss:20b"}}))
+	got, err := ask.Pick(ModelRows([]LaunchModel{{Name: "claude-tier-haiku"}, {Name: "gpt-oss:20b"}}))
 	if err != nil {
-		t.Fatalf("PickModel: %v", err)
+		t.Fatalf("Pick: %v", err)
 	}
 	if got != "gpt-oss:20b" {
 		t.Fatalf("chosen = %q, want gpt-oss:20b", got)

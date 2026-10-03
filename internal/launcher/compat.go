@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -70,7 +71,15 @@ func lookupCloudModelLimit(string) (struct{ Context, Output int }, bool) {
 	return struct{ Context, Output int }{}, false
 }
 
-var confirmReader = bufio.NewReader(os.Stdin)
+// confirmReader is where the confirmation gate reads an answer, and confirmOut
+// where it writes the question. Both are variables so a test can stand in for
+// the operator without a terminal: the reader supplies the reply, and the
+// writer is what lets a test assert the question it was asked. They are the
+// pair, and neither replaces any behaviour of its own.
+var (
+	confirmReader           = bufio.NewReader(os.Stdin)
+	confirmOut    io.Writer = os.Stderr
+)
 
 // ansiGray dims text.
 const ansiGray = "\033[37m"
@@ -130,7 +139,7 @@ func plainConfirmPrompt(prompt string, options ConfirmOptions) (bool, error) {
 	if !defaultNo {
 		suffix = "(Y/n)"
 	}
-	fmt.Fprintf(os.Stderr, "%s %s ", prompt, suffix)
+	fmt.Fprintf(confirmOut, "%s %s ", prompt, suffix)
 	line, err := confirmReader.ReadString('\n')
 	if err != nil && line == "" {
 		return false, err
