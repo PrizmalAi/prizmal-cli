@@ -207,25 +207,6 @@ func disambiguateLabels(rows []ModelRow) {
 	}
 }
 
-// ModelPickerMenu renders the interactive menu and returns the chosen model
-// id. It is a package variable so tests can drive the selection without a
-// terminal, in the same way StdinIsTerminal is.
-var ModelPickerMenu func(rows []ModelRow) (string, error)
-
-// PickModel asks the operator to choose from rows. It returns ErrNoModels
-// rather than opening an empty menu, which would render a list with nothing to
-// select and no way to leave with a model.
-func PickModel(rows []ModelRow) (string, error) {
-	if len(rows) == 0 {
-		return "", ErrNoModels
-	}
-	menu := ModelPickerMenu
-	if menu == nil {
-		menu = defaultModelPickerMenu
-	}
-	return menu(rows)
-}
-
 // pickerMaxVisible is how many models the picker shows at once. A display
 // choice carried over from the huh picker, never sized against the chrome.
 const pickerMaxVisible = 12

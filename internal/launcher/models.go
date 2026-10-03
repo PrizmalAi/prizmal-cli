@@ -7,11 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"slices"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
-	"golang.org/x/term"
 )
 
 // ErrNoModel is returned when a launch has no model and no way to ask for one.
@@ -188,15 +186,6 @@ func BestEffortCatalog(ctx context.Context, warn io.Writer) []LaunchModel {
 func CatalogError(err error) error {
 	return fmt.Errorf("could not read models from %s with api key from %s: %w",
 		envconfig.BaseURL(), envconfig.APIKeySource(), err)
-}
-
-// StdinIsTerminal reports whether stdin is an interactive terminal. A launch
-// with no model to send can only ask for one when a person is there to answer.
-//
-// It is a variable so tests can drive the interactive paths without a terminal,
-// in the same way ModelPickerMenu is.
-var StdinIsTerminal = func() bool {
-	return term.IsTerminal(int(os.Stdin.Fd()))
 }
 
 // LaunchModels builds the model list a runner is handed: the model the launch
