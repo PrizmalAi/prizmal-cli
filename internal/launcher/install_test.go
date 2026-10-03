@@ -62,7 +62,6 @@ type recordingInstaller struct {
 	installer Installer
 	located   string
 	findErr   error
-	relocated string
 	runBin    string
 	runArgs   []string
 	runs      int
