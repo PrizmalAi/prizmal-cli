@@ -93,21 +93,21 @@ type ConfirmOptions struct {
 	Default  ConfirmDefault
 }
 
-// DefaultConfirmPrompt provides a TUI-based confirmation prompt.
-var DefaultConfirmPrompt func(prompt string, options ConfirmOptions) (bool, error)
-
-type launchConfirmPolicy struct {
-	yes               bool
-	requireYesMessage bool
-}
-
-var currentLaunchConfirmPolicy launchConfirmPolicy
+// autoApproveConfirmations answers every confirmation with yes.
+//
+// It is package state because --yes is a property of the launch rather than of
+// any one prompt: main.go records it once before a runner runs, and the
+// prompts live inside the runner's own install and upgrade paths, which are
+// reached by code this package hands no arguments to. The alternative is a
+// bool on every Runner, for a flag that is either always on or always off for
+// the whole process.
+var autoApproveConfirmations bool
 
 // SetConfirmPolicy configures the auto-approve behavior for confirmation
 // prompts. When yes is true, all ConfirmPrompt calls return true without
 // prompting. This is wired from the --yes flag in main.go.
 func SetConfirmPolicy(yes bool) {
-	currentLaunchConfirmPolicy.yes = yes
+	autoApproveConfirmations = yes
 }
 
 // ConfirmPrompt is the shared confirmation gate (auto-approved by --yes).
@@ -118,14 +118,8 @@ func ConfirmPrompt(prompt string) (bool, error) {
 // ConfirmPromptWithOptions is the shared confirmation gate for launch flows
 // that need custom yes/no labels.
 func ConfirmPromptWithOptions(prompt string, options ConfirmOptions) (bool, error) {
-	if currentLaunchConfirmPolicy.yes {
+	if autoApproveConfirmations {
 		return true, nil
-	}
-	if currentLaunchConfirmPolicy.requireYesMessage {
-		return false, fmt.Errorf("%s requires confirmation; re-run with --yes to continue", prompt)
-	}
-	if DefaultConfirmPrompt != nil {
-		return DefaultConfirmPrompt(prompt, options)
 	}
 	return plainConfirmPrompt(prompt, options)
 }

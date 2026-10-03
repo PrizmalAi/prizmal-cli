@@ -66,9 +66,9 @@ func readDefaultModel(t *testing.T, home string) string {
 	return got.DefaultModel
 }
 
-// useStubSwitch points prizmal at a stub switch serving the catalog, and clears
-// the launch's cached list so the next fetch reads it. Pass a body to serve a
-// different catalog.
+// useStubSwitch points prizmal at a stub switch serving the catalog. The launch
+// keys its cached list on the endpoint and credential, so a fresh stub server
+// per test is already a fresh fetch. Pass a body to serve a different catalog.
 func useStubSwitch(t *testing.T, body ...string) {
 	t.Helper()
 	served := catalogBody
@@ -83,11 +83,9 @@ func useStubSwitch(t *testing.T, body ...string) {
 
 	envconfig.SetBaseURL(srv.URL)
 	envconfig.SetAPIKey("test-switch-key")
-	launcher.ResetModelCatalog()
 	t.Cleanup(func() {
 		envconfig.SetBaseURL("")
 		envconfig.SetAPIKey("")
-		launcher.ResetModelCatalog()
 	})
 }
 
@@ -103,11 +101,9 @@ func useFailingSwitch(t *testing.T) {
 
 	envconfig.SetBaseURL(srv.URL)
 	envconfig.SetAPIKey("test-switch-key")
-	launcher.ResetModelCatalog()
 	t.Cleanup(func() {
 		envconfig.SetBaseURL("")
 		envconfig.SetAPIKey("")
-		launcher.ResetModelCatalog()
 	})
 }
 
@@ -351,11 +347,9 @@ func TestPickDefaultModelGatesBeforeTheFetch(t *testing.T) {
 	envconfig.SetBaseURL("https://switch.example.test")
 	envconfig.SetAPIKey("")
 	t.Setenv(envconfig.KeyEnvVar, "")
-	launcher.ResetModelCatalog()
 	t.Cleanup(func() {
 		envconfig.SetBaseURL("")
 		envconfig.SetAPIKey("")
-		launcher.ResetModelCatalog()
 	})
 
 	cfg, _ := writeConfig(t, map[string]any{"version": 1})
@@ -559,11 +553,9 @@ func TestPickerRefusesAKeylessRemoteFetch(t *testing.T) {
 	envconfig.SetBaseURL("https://switch.example.test")
 	envconfig.SetAPIKey("")
 	t.Setenv(envconfig.KeyEnvVar, "")
-	launcher.ResetModelCatalog()
 	t.Cleanup(func() {
 		envconfig.SetBaseURL("")
 		envconfig.SetAPIKey("")
-		launcher.ResetModelCatalog()
 	})
 
 	cfg, _ := writeConfig(t, map[string]any{"version": 1})
