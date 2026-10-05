@@ -21,10 +21,10 @@
 
 
 
-
   Select Model and Effort
 
 
 › 1. smart (current)
+  2. flash
 
-  enter default · s session · esc back
+  enter select · esc back

@@ -8,7 +8,7 @@
 
   >_ OpenAI Codex (v0.160.0)
 
-  Model:               smart (reasoning none, summaries auto)
+  Model:               smart (reasoning medium, summaries auto)
   Model provider:      prizmal
   Directory:           ~/project
   Permissions:         Workspace (Ask for approval)
