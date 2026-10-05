@@ -96,17 +96,17 @@ func ReauthWarning(reauthBy *time.Time, now time.Time) string {
 	if remaining > WarnReauthWindow {
 		return ""
 	}
-	when := formatRemaining(remaining)
-	return fmt.Sprintf("Your Prizmal sign-in expires in %s. Run prizmal login to re-approve this device.", when)
+	if remaining < 0 {
+		return "Your Prizmal sign-in is past its deadline. Run prizmal login to re-approve this device."
+	}
+	return fmt.Sprintf("Your Prizmal sign-in expires in %s. Run prizmal login to re-approve this device.", formatRemaining(remaining))
 }
 
 // formatRemaining spells a duration the way a warning reads: whole days or
 // hours, floored, and "less than an hour" below that rather than a minutes
-// count nobody acts on.
+// count nobody acts on. A passed deadline never reaches it: ReauthWarning
+// answers that with its own sentence.
 func formatRemaining(d time.Duration) string {
-	if d < 0 {
-		return "less than an hour (already due)"
-	}
 	if d >= 24*time.Hour {
 		return fmt.Sprintf("%d day(s)", int(d.Hours()/24))
 	}

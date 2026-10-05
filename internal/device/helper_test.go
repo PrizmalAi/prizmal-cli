@@ -164,6 +164,12 @@ func TestReauthWarning(t *testing.T) {
 	if got := ReauthWarning(ptr(now.Add(90*time.Minute)), now); !strings.Contains(got, "1 hour") {
 		t.Fatalf("a 90-minute deadline = %q, want an hours count", got)
 	}
+	// A deadline already past gets its own sentence: "expires in less than an
+	// hour (already due)" contradicts itself, so the expired case says due
+	// outright.
+	if got := ReauthWarning(ptr(now.Add(-time.Hour)), now); !strings.Contains(got, "past its deadline") || strings.Contains(got, "expires in") {
+		t.Fatalf("an expired deadline = %q, want the due sentence without the expiry phrasing", got)
+	}
 }
 
 func ptr(t time.Time) *time.Time { return &t }
