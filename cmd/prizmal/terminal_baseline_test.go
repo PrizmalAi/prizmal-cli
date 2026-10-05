@@ -601,23 +601,35 @@ func withBaselineVersion(got, want string) string {
 // and the reason.
 func pinnedClaudeDir(t *testing.T) (string, string) {
 	t.Helper()
-	pinned, err := os.ReadFile(filepath.Join(claudeBaselineDir, "claude-code-version"))
+	return pinnedHarnessDir(t, "claude", "Claude Code", filepath.Join(claudeBaselineDir, "claude-code-version"), 0)
+}
+
+// pinnedHarnessDir returns the directory of the binary on PATH when the
+// version it prints is the one recorded in versionFile. Otherwise it returns
+// "" and the reason. field is the index of the version in the output of
+// `<binary> --version`, and a negative index counts from the end.
+func pinnedHarnessDir(t *testing.T, binary, label, versionFile string, field int) (string, string) {
+	t.Helper()
+	pinned, err := os.ReadFile(versionFile)
 	if err != nil {
-		t.Fatalf("read pinned Claude Code version: %v", err)
+		t.Fatalf("read pinned %s version: %v", label, err)
 	}
 	want := strings.TrimSpace(string(pinned))
 
-	path, err := exec.LookPath("claude")
+	path, err := exec.LookPath(binary)
 	if err != nil {
-		return "", "Claude Code is not on PATH"
+		return "", label + " is not on PATH"
 	}
 	out, err := exec.Command(path, "--version").Output()
 	if err != nil {
-		return "", fmt.Sprintf("claude --version: %v", err)
+		return "", fmt.Sprintf("%s --version: %v", binary, err)
 	}
 	fields := strings.Fields(string(out))
-	if len(fields) == 0 || fields[0] != want {
-		return "", fmt.Sprintf("Claude Code %s is installed, and the baselines were recorded with %s", strings.TrimSpace(string(out)), want)
+	if field < 0 {
+		field += len(fields)
+	}
+	if field < 0 || field >= len(fields) || fields[field] != want {
+		return "", fmt.Sprintf("%s %s is installed, and the baselines were recorded with %s", label, strings.TrimSpace(string(out)), want)
 	}
 	return filepath.Dir(path), ""
 }
@@ -946,29 +958,10 @@ func withBaselineCodexVersion(got, want string) string {
 }
 
 // pinnedCodexDir returns the directory of the codex binary on PATH when its
-// version is the one the baselines were recorded with. Otherwise it returns ""
-// and the reason.
+// version is the one the baselines were recorded with, as pinnedClaudeDir does.
 func pinnedCodexDir(t *testing.T) (string, string) {
 	t.Helper()
-	pinned, err := os.ReadFile(filepath.Join(codexBaselineDir, "codex-version"))
-	if err != nil {
-		t.Fatalf("read pinned Codex version: %v", err)
-	}
-	want := strings.TrimSpace(string(pinned))
-
-	path, err := exec.LookPath("codex")
-	if err != nil {
-		return "", "Codex is not on PATH"
-	}
-	out, err := exec.Command(path, "--version").Output()
-	if err != nil {
-		return "", fmt.Sprintf("codex --version: %v", err)
-	}
-	fields := strings.Fields(string(out))
-	if len(fields) == 0 || fields[len(fields)-1] != want {
-		return "", fmt.Sprintf("Codex %s is installed, and the baselines were recorded with %s", strings.TrimSpace(string(out)), want)
-	}
-	return filepath.Dir(path), ""
+	return pinnedHarnessDir(t, "codex", "Codex", filepath.Join(codexBaselineDir, "codex-version"), -1)
 }
 
 // seedCodexState writes the Codex state a returning user has, so the launch
