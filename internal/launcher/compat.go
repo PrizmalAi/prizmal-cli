@@ -75,10 +75,6 @@ func findLaunchModel(models []LaunchModel, name string) (LaunchModel, bool) {
 	return LaunchModel{}, false
 }
 
-// isCloudModelName reports whether a name refers to a cloud-served model.
-// prizmal has no cloud catalog, so this is always false.
-func isCloudModelName(string) bool { return false }
-
 // lookupCloudModelLimit always reports no limit known.
 func lookupCloudModelLimit(string) (struct{ Context, Output int }, bool) {
 	return struct{ Context, Output int }{}, false
