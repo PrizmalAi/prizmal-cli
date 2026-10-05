@@ -3,6 +3,7 @@ package launch
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -34,6 +35,7 @@ func fakeBin(t *testing.T, scripts map[string]string) string {
 }
 
 func TestEnsureCodexInstalledRunsNpmWhenMissing(t *testing.T) {
+	skipWithoutShell(t)
 	dir := fakeBin(t, nil)
 	log := filepath.Join(dir, "npm.log")
 	script := `echo "$@" > ` + log + "\n" + `printf '#!/bin/sh\necho codex-cli 0.160.0\n' > ` + filepath.Join(dir, "codex") + "\n" + `/bin/chmod +x ` + filepath.Join(dir, "codex")
@@ -58,6 +60,7 @@ func TestEnsureCodexInstalledWithoutNpmNamesTheDependency(t *testing.T) {
 }
 
 func TestEnsureCodexInstalledSkipsNpmWhenPresent(t *testing.T) {
+	skipWithoutShell(t)
 	fakeBin(t, map[string]string{"codex": "exit 0", "npm": "exit 1"})
 	if err := ensureCodexInstalled(); err != nil {
 		t.Fatalf("ensureCodexInstalled: %v", err)
@@ -147,4 +150,13 @@ func countEnv(env []string, prefix string) int {
 		}
 	}
 	return n
+}
+
+// skipWithoutShell skips a test that stands in for a binary with a shell
+// script, which Windows cannot run as an executable.
+func skipWithoutShell(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-script stand-ins do not run on Windows")
+	}
 }
