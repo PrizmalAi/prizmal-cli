@@ -1,6 +1,15 @@
-// Package config also holds the Prizmal CLI's own configuration:
-// a single file at ~/.prizmal/config.json carrying the Prizmal Switch
-// provider base URL and API key.
+// Package config holds the Prizmal CLI's configuration: a single file at
+// ~/.prizmal/config.json carrying the Prizmal Switch provider base URL and
+// API key.
+//
+// This package is the file's only reader and its only writer. A second
+// module once shared this directory and the same path under a different
+// schema ({integrations: {...}}, written 0644), so each Save truncated
+// whatever the other had written — a Save of the per-integration shape
+// replaced the operator's plaintext api_key with {"integrations":{}} and
+// reported no error. One struct owns the file so that cannot come back; a
+// new persisted setting becomes a field on Config, which MarshalIndent
+// carries and Load reads.
 //
 // The API key is stored as plain text by default, matching how the
 // downstream coding harnesses store their own credentials. Three forms are
@@ -199,6 +208,11 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	var c Config
+	// A parse failure returns its error and never an empty Config. Swallowing
+	// it and handing back a zero value is how a file holding the operator's
+	// api_key once got overwritten with `{}` by the next Save, with nothing
+	// reporting the loss: the caller cannot tell an absent config from a
+	// destroyed one.
 	if err := json.Unmarshal(data, &c); err != nil {
 		return nil, err
 	}

@@ -185,3 +185,66 @@ func mustPath(t *testing.T) string {
 	}
 	return p
 }
+
+// TestLoadRejectsCorruptFile pins that unparseable JSON is an error, not an
+// empty Config. A caller that cannot distinguish a destroyed file from an
+// absent one will treat the zero value as truth and write over whatever was
+// there — which is how a stored api_key went missing without a word.
+func TestLoadRejectsCorruptFile(t *testing.T) {
+	d := useTempHome(t)
+	writeRaw(t, filepath.Join(d, PrizmalDir, PrizmalFileName), "this is not json at all")
+	cfg, err := Load()
+	if err == nil {
+		t.Fatalf("expected a parse error, got Config %+v", cfg)
+	}
+	if cfg != nil {
+		t.Fatalf("expected nil Config on a parse error, got %+v", cfg)
+	}
+}
+
+// TestSaveRoundTripsEveryConfigField holds the property the deleted
+// per-integration module broke: a Save writes every field Config models, and
+// a Load of the result returns all of them. A second module with its own
+// struct on the same path satisfied this for one schema by erasing the other's
+// keys silently, so it is worth pinning on all four at once.
+func TestSaveRoundTripsEveryConfigField(t *testing.T) {
+	useTempHome(t)
+	c := &Config{
+		Version:      PrizmalConfigVersion,
+		BaseURL:      "https://switch.example.com",
+		APIKey:       NewPlainAPIKey("sk-roundtrip"),
+		DefaultModel: "smart",
+	}
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.BaseURL != c.BaseURL {
+		t.Errorf("base_url = %q, want %q", got.BaseURL, c.BaseURL)
+	}
+	if got.APIKey == nil || got.APIKey.Plain != "sk-roundtrip" {
+		t.Errorf("api_key = %+v, want plain sk-roundtrip", got.APIKey)
+	}
+	if got.DefaultModel != c.DefaultModel {
+		t.Errorf("default_model = %q, want %q", got.DefaultModel, c.DefaultModel)
+	}
+	if got.Version != c.Version {
+		t.Errorf("version = %d, want %d", got.Version, c.Version)
+	}
+}
+
+// writeRaw puts content at a path, creating the config directory first. Tests
+// that need to plant a file the CLI would never write use it instead of
+// Config.Save, so the planted bytes reach disk untouched.
+func writeRaw(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
