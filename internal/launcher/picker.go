@@ -454,9 +454,9 @@ func newPickerModel(heading string, options []Option) pickerModel {
 		labelWidth = max(labelWidth, min(ansi.StringWidth(opt.Label), pickerWidth/2))
 	}
 
-	delegate := list.NewDefaultDelegate()
-	delegate.ShowDescription = false
-
+	// pickerDelegate draws the row: the ▸ cursor, one line per row, and the
+	// description in the column the label width caps. The tests below fail if
+	// this menu ever takes the default delegate instead.
 	l := list.New(items, pickerDelegate{labelWidth: labelWidth}, pickerWidth, pickerMenuHeight(len(items)))
 	// The list draws the heading in its title bar. That row is reserved anyway
 	// while filtering is available, so putting the heading there costs nothing
