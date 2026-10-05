@@ -660,7 +660,21 @@ func renderBaseline(t *testing.T, tmuxPath, prizmalBin, claudeDir string, tc bas
 
 	// Claude Code keeps writing into HOME while tmux closes it, so a
 	// t.TempDir cleanup would fail the test on a file created mid-removal.
-	root, err := os.MkdirTemp("", "prizmal-baseline-")
+	//
+	// Codex on Linux refuses to create its helper binaries under /tmp and warns
+	// instead, so its cases run from the user cache directory.
+	tempBase := ""
+	if tc.codex {
+		cache, err := os.UserCacheDir()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(cache, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		tempBase = cache
+	}
+	root, err := os.MkdirTemp(tempBase, "prizmal-baseline-")
 	if err != nil {
 		t.Fatal(err)
 	}
