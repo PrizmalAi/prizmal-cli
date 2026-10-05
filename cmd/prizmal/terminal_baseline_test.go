@@ -240,6 +240,9 @@ var (
 	stepCodexPrompt      = baselineStep{waitFor: "f2 to view"}
 	stepCodexOpenModel   = baselineStep{literal: "/model", waitFor: "/model"}
 	stepCodexModelPicker = baselineStep{key: "Enter", waitFor: "Select Model"}
+	stepCodexWarnings    = baselineStep{key: "F2", waitFor: "warning"}
+	stepCodexSendHi      = baselineStep{literal: "hi", waitFor: "hi"}
+	stepCodexSubmit      = baselineStep{key: "Enter", waitFor: "PRIZMAL-STUB-REPLY"}
 	stepCodexTypeStatus  = baselineStep{literal: "/status", waitFor: "/status"}
 	stepCodexStatus      = baselineStep{key: "Enter", waitFor: "Session"}
 	// stepClaudeReady waits for the prompt's footer in any permission mode. A
@@ -265,6 +268,20 @@ var codexBaselineCases = []baselineCase{
 		name: "codex-status-m-smart-100x30", cols: 100, rows: 30,
 		args: []string{"-m", "smart", "codex"}, codex: true,
 		steps: []baselineStep{stepCodexPrompt, stepCodexTypeStatus, stepCodexStatus},
+	},
+	// The footer's "1 warning" is Codex's own: it starts without its shared
+	// background server whenever the launch passes --profile or a -c override,
+	// and a custom provider needs one of them. F2 opens the warning.
+	{
+		name: "codex-warnings-m-smart-100x30", cols: 100, rows: 30,
+		args: []string{"-m", "smart", "codex"}, codex: true,
+		steps: []baselineStep{stepCodexPrompt, stepCodexWarnings},
+	},
+	// One prompt first, so /status shows the stub's usage and the context window.
+	{
+		name: "codex-status-after-turn-m-smart-100x30", cols: 100, rows: 30,
+		args: []string{"-m", "smart", "codex"}, codex: true,
+		steps: []baselineStep{stepCodexPrompt, stepCodexSendHi, stepCodexSubmit, stepCodexTypeStatus, stepCodexStatus},
 	},
 	{
 		name: "codex-exec-m-smart-100x30", cols: 100, rows: 30,
@@ -1091,6 +1108,9 @@ var codexSessionPattern = regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4
 var (
 	codexGreetingPattern = regexp.MustCompile(`(?m)(^     ~/project\n\n)  [^\n]+`)
 	codexWorkdirPattern  = regexp.MustCompile(`(?s)(workdir: ).*?(\nmodel: )`)
+	// codexWorkedPattern matches the line a turn ends with: its duration and
+	// the wall-clock time it finished.
+	codexWorkedPattern = regexp.MustCompile(`(?m)^(  Worked for ).*$`)
 )
 
 // withStableCodexValues replaces the per-run values on Codex's screens with a
@@ -1098,6 +1118,7 @@ var (
 func withStableCodexValues(screen string) string {
 	screen = codexSessionPattern.ReplaceAllString(screen, "<session-id>")
 	screen = codexGreetingPattern.ReplaceAllString(screen, "${1}  <greeting>")
+	screen = codexWorkedPattern.ReplaceAllString(screen, "${1}<elapsed>")
 	return codexWorkdirPattern.ReplaceAllString(screen, "${1}<workdir>${2}")
 }
 
