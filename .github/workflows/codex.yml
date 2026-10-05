@@ -46,6 +46,10 @@ jobs:
         env:
           PRIZMAL_HARNESS_LAUNCH: require
         run: go test -count=1 -v -run 'TestHarnessLaunchCodex$' ./cmd/prizmal
+      - name: Codex device-key auth
+        env:
+          PRIZMAL_HARNESS_LAUNCH: require
+        run: go test -count=1 -v -run 'TestCodexRerunsTheAuthCommandAfterA401$|TestCodexDiscoveryShapes$|TestCodexDeviceLaunchRunsOnTheDeviceToken$' ./cmd/prizmal
 
   terminal-baselines:
     runs-on: ubuntu-latest

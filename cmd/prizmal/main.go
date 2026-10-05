@@ -573,7 +573,7 @@ func launch(name string, extraArgs []string, cfg *config.Config) error {
 	runner := spec.Runner
 
 	// A first-run browser sign-in can leave device mode on before any
-	// harness was named. For a runner with no refresh contract — Codex,
+	// harness was named. For a runner with no refresh contract —
 	// Cline, OpenCode — device login is ignored: the launch runs on the
 	// ordinary key sources, exactly as if the machine had never signed in
 	// with a device. Leaving device mode on would outrank the switch key the
@@ -689,8 +689,8 @@ func launch(name string, extraArgs []string, cfg *config.Config) error {
 	}
 
 	// A device's sign-in deadline is worth a warning before it arrives, so the
-	// operator re-approves on their own time. Claude Code is the only harness
-	// that runs in device mode, and the warning belongs on the launch it
+	// operator re-approves on their own time. Claude Code and Codex are the only harnesses
+	// that run in device mode, and the warning belongs on the launch it
 	// affects.
 	if envconfig.DeviceMode() {
 		if ct, err := device.LoadCachedToken(); err == nil {

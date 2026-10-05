@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
@@ -21,6 +22,12 @@ import (
 type Codex struct{}
 
 func (c *Codex) String() string { return "Codex" }
+
+// SupportsDeviceMode reports that Codex can run from an enrolled device: a
+// provider's command-backed auth re-runs a command for the bearer token every
+// refresh interval and again after a 401, so the launcher can hand it
+// `prizmal auth token` instead of a fixed key.
+func (c *Codex) SupportsDeviceMode() bool { return true }
 
 const (
 	codexProfileName    = "prizmal"
@@ -42,6 +49,13 @@ const (
 	// Switch serves a model with a smaller window. $HARNESS_CONTEXT_LENGTH
 	// overrides it for an operator who knows better.
 	codexFallbackContextWindow = 1_000_000
+
+	// codexRefreshIntervalMs is how long Codex keeps a token from the auth
+	// command before running it again. It is the Claude Code interval for the
+	// same reason: the device token lives 10 minutes, and a refresh every 4
+	// leaves at least 6 on the token in hand. Codex's own default of 5
+	// minutes would refresh with only 5 left.
+	codexRefreshIntervalMs = claudeHelperTTLMs
 
 	codexRootProfileKey          = "profile"
 	codexRootModelKey            = "model"
@@ -98,12 +112,50 @@ func (c *Codex) Run(model string, models []LaunchModel, args []string) error {
 	return cmd.Run()
 }
 
+// codexChildEnv returns the environment Codex is launched with.
+//
+// With a switch key, the key travels on OPENAI_API_KEY: the generated profile
+// names that variable via env_key rather than embedding the key, so nothing
+// credential-shaped outlives the launched process.
+//
+// In device mode no credential travels on the environment at all. Codex runs
+// `prizmal auth token` for its bearer token, and an OPENAI_API_KEY the operator
+// exported for OpenAI itself is removed so it can neither reach the Switch nor
+// be mistaken for the provider's key. The Switch URL this launch resolved is
+// pinned for the helper, which resolves its own (see ensureHelperBaseURL).
 // envVars returns the child environment that carries the provider credential.
 // This is the only channel the key travels on: the generated profile names
 // OPENAI_API_KEY via env_key rather than embedding the key, so nothing
 // credential-shaped outlives the launched process.
+//
+// In device mode it carries nothing. The profile names Codex's command-backed
+// provider auth instead, and Codex runs `prizmal auth token` for its bearer
+// token rather than reading a fixed key from the environment.
 func (c *Codex) envVars() []string {
+	if envconfig.DeviceMode() {
+		return nil
+	}
 	return []string{"OPENAI_API_KEY=" + envconfig.APIKey()}
+}
+
+// codexAuthCommand is the command Codex runs for a device token: this binary,
+// and the arguments that select its helper subcommand. Codex executes it
+// directly, not through a shell, so the path needs no quoting.
+func codexAuthCommand() (string, []string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", nil, fmt.Errorf("find the prizmal executable: %w", err)
+	}
+	return exe, []string{"auth", "token"}, nil
+}
+
+// codexAuthArgsTOML spells the helper arguments as a TOML array.
+func codexAuthArgsTOML(args []string) string {
+	quoted := make([]string, len(args))
+	for i, a := range args {
+		quoted[i] = strconv.Quote(a)
+	}
+	return "[" + strings.Join(quoted, ", ") + "]"
 }
 
 // codexInheritedVars are the variables the CLI never passes on to Codex.
@@ -129,6 +181,9 @@ func codexChildEnv() []string {
 	for _, name := range codexInheritedVars {
 		drop[name] = true
 	}
+	// An OPENAI_API_KEY from the operator's shell never reaches Codex: with a
+	// switch key the launch sets its own, and in device mode there is none.
+	drop["OPENAI_API_KEY"] = true
 	fixed := (&Codex{}).envVars()
 	for _, kv := range fixed {
 		name, _, _ := strings.Cut(kv, "=")
@@ -143,7 +198,13 @@ func codexChildEnv() []string {
 		}
 		env = append(env, kv)
 	}
-	return append(env, fixed...)
+	env = append(env, fixed...)
+	// The helper is a separate prizmal process that resolves the Switch URL from
+	// scratch, so this launch's resolved host is pinned for it.
+	if envconfig.DeviceMode() {
+		env = ensureHelperBaseURL(env, envconfig.BaseURL())
+	}
+	return env
 }
 
 // codexHygieneOverrides are the -c settings that keep a launch quiet: Codex
@@ -300,7 +361,19 @@ func codexManagedConfigOverrides(modelCatalogPath string) []string {
 		fmt.Sprintf("model_providers.%s.name=%q", codexProfileName, codexProviderName),
 		fmt.Sprintf("model_providers.%s.base_url=%q", codexProfileName, codexBaseURL()),
 		fmt.Sprintf("model_providers.%s.wire_api=%q", codexProfileName, "responses"),
-		fmt.Sprintf("model_providers.%s.env_key=%q", codexProfileName, "OPENAI_API_KEY"),
+	}
+	if envconfig.DeviceMode() {
+		// Codex rejects a provider that sets both env_key and a command, so
+		// device mode names the command and leaves env_key out.
+		if command, args, err := codexAuthCommand(); err == nil {
+			overrides = append(overrides,
+				fmt.Sprintf("model_providers.%s.auth.command=%q", codexProfileName, command),
+				fmt.Sprintf("model_providers.%s.auth.args=%s", codexProfileName, codexAuthArgsTOML(args)),
+				fmt.Sprintf("model_providers.%s.auth.refresh_interval_ms=%d", codexProfileName, codexRefreshIntervalMs),
+			)
+		}
+	} else {
+		overrides = append(overrides, fmt.Sprintf("model_providers.%s.env_key=%q", codexProfileName, "OPENAI_API_KEY"))
 	}
 	if modelCatalogPath != "" {
 		overrides = append(overrides, fmt.Sprintf("%s=%q", codexRootModelCatalogJSONKey, modelCatalogPath))
@@ -438,14 +511,28 @@ func writeCodexNamedProfileConfig(profilePath, profileName, model, modelCatalogP
 		lines = append(lines, fmt.Sprintf("%s = %q", codexRootModelCatalogJSONKey, modelCatalogPath))
 	}
 	text := strings.Join(lines, "\n") + "\n\n"
-	text += strings.Join([]string{
+	providerLines := []string{
 		codexProviderHeaderFor(profileName),
 		fmt.Sprintf("name = %q", codexProviderName),
 		fmt.Sprintf("base_url = %q", baseURL),
 		`wire_api = "responses"`,
-		fmt.Sprintf("env_key = %q", "OPENAI_API_KEY"),
-		"",
-	}, "\n")
+	}
+	if envconfig.DeviceMode() {
+		command, args, err := codexAuthCommand()
+		if err != nil {
+			return err
+		}
+		providerLines = append(providerLines,
+			"",
+			fmt.Sprintf("[model_providers.%s.auth]", profileName),
+			fmt.Sprintf("command = %q", command),
+			fmt.Sprintf("args = %s", codexAuthArgsTOML(args)),
+			fmt.Sprintf("refresh_interval_ms = %d", codexRefreshIntervalMs),
+		)
+	} else {
+		providerLines = append(providerLines, fmt.Sprintf("env_key = %q", "OPENAI_API_KEY"))
+	}
+	text += strings.Join(append(providerLines, ""), "\n")
 
 	parsed, err := codexParseConfig(text)
 	if err != nil {
