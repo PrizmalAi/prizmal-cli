@@ -130,6 +130,8 @@ A launch that already has its model continues after the warning, without the ext
 
 Each doc covers how a launch configures that harness, what its device-login behavior is, how to undo the configuration with `--restore`, and how to run the harness against the Switch without the CLI.
 
+A `codex` launch lists every model your switch key serves in Codex's `/model` picker, with the Switch's descriptions and the launched model first. Each entry offers the low, medium and high reasoning efforts. For the same list without `prizmal`, write a catalog with one entry per model from `GET /v1/models` and point `model_catalog_json` at it. Each entry needs `slug`, `display_name`, `description`, `supported_reasoning_levels` and a `priority` that sorts the default first.
+
 A `codex` launch gives Codex its own system prompt. It reads the prompt of the installed Codex's default model with `codex debug models --bundled`, so the prompt always matches the installed version, and it stops with an error when Codex can't print it. To get the same prompt without `prizmal`, point `model_catalog_json` at a catalog whose entry for your model copies `base_instructions` and `model_messages` from that command's output.
 
 ## Commands
