@@ -9,6 +9,10 @@ name: Codex
 # passes when that reply reaches stdout. No Switch key is involved.
 # PRIZMAL_HARNESS_LAUNCH=require turns a missing harness into a failure, so
 # the job cannot pass by skipping.
+#
+# terminal-baselines compares Codex's screens, drawn in tmux against the same
+# stub switch, to the files under cmd/prizmal/testdata/terminal/codex, with the
+# Codex version recorded in codex-version beside them.
 
 on:
   push:
@@ -42,3 +46,30 @@ jobs:
         env:
           PRIZMAL_HARNESS_LAUNCH: require
         run: go test -count=1 -v -run 'TestHarnessLaunchCodex$' ./cmd/prizmal
+
+  terminal-baselines:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: stable
+          cache: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      # Codex warns when bubblewrap, its sandbox helper, is missing or cannot
+      # create user namespaces, and a developer machine has no such warning.
+      # Ubuntu runners restrict unprivileged user namespaces, so the job lifts
+      # the restriction.
+      - name: Install tmux and bubblewrap
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq tmux bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Install the pinned Codex
+        run: npm install -g "@openai/codex@$(cat cmd/prizmal/testdata/terminal/codex/codex-version)"
+      - name: Compare terminal baselines
+        env:
+          PRIZMAL_TERMINAL_BASELINES: require
+        run: go test -count=1 -v -run 'TestTerminalBaselinesCodex$' ./cmd/prizmal

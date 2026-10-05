@@ -1,0 +1,19 @@
+using api key from: config file (~/.prizmal/config.json)
+OpenAI Codex v0.160.0
+--------
+workdir: <workdir>
+model: smart
+provider: prizmal
+approval: never
+sandbox: read-only
+reasoning effort: none
+reasoning summaries: none
+session id: <session-id>
+--------
+user
+hi
+codex
+PRIZMAL-STUB-REPLY
+tokens used
+2
+[prizmal exited 0]

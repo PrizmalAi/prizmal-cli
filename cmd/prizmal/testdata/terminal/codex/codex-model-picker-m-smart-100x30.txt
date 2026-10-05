@@ -1,0 +1,30 @@
+
+  >_ OpenAI Codex (v0.160.0)
+     ~/project
+
+  <greeting>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  Select Model and Effort
+
+
+› 1. smart (current)
+
+  enter default · s session · esc back

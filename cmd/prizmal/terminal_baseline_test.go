@@ -41,6 +41,10 @@ var updateBaselines = flag.Bool("update-baselines", false, "rewrite testdata/ter
 const (
 	claudeBaselineDir = "testdata/terminal/claude"
 
+	// codexBaselineDir holds the screens of the real Codex, which the codex
+	// workflow records with the version in codex-version beside them.
+	codexBaselineDir = "testdata/terminal/codex"
+
 	// prizmalBaselineDir holds the screens prizmal's own subcommands draw: the
 	// first-run prompt and the device-login flow. They come from the real
 	// prizmal binary and the stub switch, with no harness involved.
@@ -165,7 +169,11 @@ type baselineCase struct {
 	// a stand-in on PATH, because prizmal asks to install Claude Code before
 	// it opens its picker when none is found.
 	claude bool
-	steps  []baselineStep
+	// codex marks a case that runs the real Codex.
+	codex bool
+	// codexDir is set by the runner: where the pinned codex binary lives.
+	codexDir string
+	steps    []baselineStep
 	// entries replaces catalog when the stub must send a tier or description.
 	entries []stubserver.Entry
 	// argsAfter are appended after a `--` separator, so a case can pass text
@@ -197,11 +205,43 @@ var (
 	stepOpenUsage     = baselineStep{literal: "/usage", waitFor: "/usage"}
 	stepShowUsage     = baselineStep{key: "Enter", waitFor: "Esc to cancel"}
 	stepPrizmalExit   = baselineStep{waitFor: "[prizmal exited"}
+
+	stepCodexPrompt      = baselineStep{waitFor: "f2 to view"}
+	stepCodexOpenModel   = baselineStep{literal: "/model", waitFor: "/model"}
+	stepCodexModelPicker = baselineStep{key: "Enter", waitFor: "Select Model"}
+	stepCodexTypeStatus  = baselineStep{literal: "/status", waitFor: "/status"}
+	stepCodexStatus      = baselineStep{key: "Enter", waitFor: "Session"}
 	// stepClaudeReady waits for the prompt's footer in any permission mode. A
 	// session on a model that auto mode is closed to starts in manual mode,
 	// whose footer has no shift+tab hint.
 	stepClaudeReady = baselineStep{waitFor: "for agents"}
 )
+
+// codexBaselineCases are the screens of the real Codex. Each launches it
+// through prizmal with a model passed as -m, so no picker shows first.
+var codexBaselineCases = []baselineCase{
+	{
+		name: "codex-startup-m-smart-100x30", cols: 100, rows: 30,
+		args: []string{"-m", "smart", "codex"}, codex: true,
+		steps: []baselineStep{stepCodexPrompt},
+	},
+	{
+		name: "codex-model-picker-m-smart-100x30", cols: 100, rows: 30,
+		args: []string{"-m", "smart", "codex"}, codex: true,
+		steps: []baselineStep{stepCodexPrompt, stepCodexOpenModel, stepCodexModelPicker},
+	},
+	{
+		name: "codex-status-m-smart-100x30", cols: 100, rows: 30,
+		args: []string{"-m", "smart", "codex"}, codex: true,
+		steps: []baselineStep{stepCodexPrompt, stepCodexTypeStatus, stepCodexStatus},
+	},
+	{
+		name: "codex-exec-m-smart-100x30", cols: 100, rows: 30,
+		args:      []string{"-m", "smart", "codex"},
+		argsAfter: []string{"exec", "--skip-git-repo-check", "-s", "read-only", "hi"}, codex: true,
+		steps: []baselineStep{stepPrizmalExit},
+	},
+}
 
 var claudeBaselineCases = []baselineCase{
 	{
@@ -427,20 +467,28 @@ func launchArgs(tc baselineCase) []string {
 }
 
 func TestTerminalBaselinesClaude(t *testing.T) {
-	runBaselineCases(t, claudeBaselineCases, claudeBaselineDir, true)
+	runBaselineCases(t, claudeBaselineCases, claudeBaselineDir, true, false)
+}
+
+// TestTerminalBaselinesCodex renders the screens of the real Codex, launched
+// through prizmal against the stub switch. Add a screen with a case in
+// codexBaselineCases and run with -update-baselines.
+func TestTerminalBaselinesCodex(t *testing.T) {
+	runBaselineCases(t, codexBaselineCases, codexBaselineDir, false, true)
 }
 
 // TestTerminalBaselinesPrizmal renders the screens prizmal draws itself: the
 // first-run prompt and the device-login flow. It needs no harness, so it runs
 // wherever tmux is, and its screens live under testdata/terminal/prizmal.
 func TestTerminalBaselinesPrizmal(t *testing.T) {
-	runBaselineCases(t, prizmalBaselineCases, prizmalBaselineDir, false)
+	runBaselineCases(t, prizmalBaselineCases, prizmalBaselineDir, false, false)
 }
 
 // runBaselineCases renders one group of cases in parallel and compares each to
-// its baseline. needsClaude marks the group that runs the real Claude Code and
-// so needs the pinned version installed; the others skip when tmux is absent.
-func runBaselineCases(t *testing.T, cases []baselineCase, dir string, needsClaude bool) {
+// its baseline. needsClaude and needsCodex mark a group that runs that real
+// harness and so needs its pinned version installed; the others skip when tmux
+// is absent.
+func runBaselineCases(t *testing.T, cases []baselineCase, dir string, needsClaude, needsCodex bool) {
 	if testing.Short() {
 		t.Skip("skipping terminal baselines in short mode")
 	}
@@ -468,6 +516,11 @@ func runBaselineCases(t *testing.T, cases []baselineCase, dir string, needsClaud
 		claudeDir, claudeReason = pinnedClaudeDir(t)
 	}
 
+	codexDir, codexReason := "", ""
+	if needsCodex {
+		codexDir, codexReason = pinnedCodexDir(t)
+	}
+
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -477,8 +530,13 @@ func runBaselineCases(t *testing.T, cases []baselineCase, dir string, needsClaud
 			if tc.claude && claudeDir == "" {
 				skipOrFail(t, "%s", claudeReason)
 			}
+			if tc.codex && codexDir == "" {
+				skipOrFail(t, "%s", codexReason)
+			}
+			tc.codexDir = codexDir
 			got, ansi := renderBaseline(t, tmuxPath, prizmalBin, claudeDir, tc)
 			got = withStableElapsed(got)
+			got = withStableCodexValues(got)
 			got = withStableDeviceValues(got)
 
 			if shots := os.Getenv(baselineShotsEnv); shots != "" {
@@ -496,6 +554,8 @@ func runBaselineCases(t *testing.T, cases []baselineCase, dir string, needsClaud
 			want, err := os.ReadFile(path)
 			if err == nil {
 				got = withBaselineVersion(got, string(want))
+				got = withBaselineCodexVersion(got, string(want))
+				got = withBaselineCodexVersion(got, string(want))
 			}
 			if *updateBaselines {
 				// A screen that differs only in the Claude Code version is
@@ -541,23 +601,35 @@ func withBaselineVersion(got, want string) string {
 // and the reason.
 func pinnedClaudeDir(t *testing.T) (string, string) {
 	t.Helper()
-	pinned, err := os.ReadFile(filepath.Join(claudeBaselineDir, "claude-code-version"))
+	return pinnedHarnessDir(t, "claude", "Claude Code", filepath.Join(claudeBaselineDir, "claude-code-version"), 0)
+}
+
+// pinnedHarnessDir returns the directory of the binary on PATH when the
+// version it prints is the one recorded in versionFile. Otherwise it returns
+// "" and the reason. field is the index of the version in the output of
+// `<binary> --version`, and a negative index counts from the end.
+func pinnedHarnessDir(t *testing.T, binary, label, versionFile string, field int) (string, string) {
+	t.Helper()
+	pinned, err := os.ReadFile(versionFile)
 	if err != nil {
-		t.Fatalf("read pinned Claude Code version: %v", err)
+		t.Fatalf("read pinned %s version: %v", label, err)
 	}
 	want := strings.TrimSpace(string(pinned))
 
-	path, err := exec.LookPath("claude")
+	path, err := exec.LookPath(binary)
 	if err != nil {
-		return "", "Claude Code is not on PATH"
+		return "", label + " is not on PATH"
 	}
 	out, err := exec.Command(path, "--version").Output()
 	if err != nil {
-		return "", fmt.Sprintf("claude --version: %v", err)
+		return "", fmt.Sprintf("%s --version: %v", binary, err)
 	}
 	fields := strings.Fields(string(out))
-	if len(fields) == 0 || fields[0] != want {
-		return "", fmt.Sprintf("Claude Code %s is installed, and the baselines were recorded with %s", strings.TrimSpace(string(out)), want)
+	if field < 0 {
+		field += len(fields)
+	}
+	if field < 0 || field >= len(fields) || fields[field] != want {
+		return "", fmt.Sprintf("%s %s is installed, and the baselines were recorded with %s", label, strings.TrimSpace(string(out)), want)
 	}
 	return filepath.Dir(path), ""
 }
@@ -588,7 +660,21 @@ func renderBaseline(t *testing.T, tmuxPath, prizmalBin, claudeDir string, tc bas
 
 	// Claude Code keeps writing into HOME while tmux closes it, so a
 	// t.TempDir cleanup would fail the test on a file created mid-removal.
-	root, err := os.MkdirTemp("", "prizmal-baseline-")
+	//
+	// Codex on Linux refuses to create its helper binaries under /tmp and warns
+	// instead, so its cases run from the user cache directory.
+	tempBase := ""
+	if tc.codex {
+		cache, err := os.UserCacheDir()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(cache, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		tempBase = cache
+	}
+	root, err := os.MkdirTemp(tempBase, "prizmal-baseline-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -623,6 +709,10 @@ func renderBaseline(t *testing.T, tmuxPath, prizmalBin, claudeDir string, tc bas
 	}
 
 	path := binDir
+	if tc.codex {
+		path += ":" + tc.codexDir
+		seedCodexState(t, home, project)
+	}
 	if tc.claude {
 		path += ":" + claudeDir
 		seedClaudeState(t, home, project)
@@ -683,7 +773,7 @@ func renderBaseline(t *testing.T, tmuxPath, prizmalBin, claudeDir string, tc bas
 	}
 
 	timeout := pickerTimeout
-	if tc.claude {
+	if tc.claude || tc.codex {
 		timeout = claudeTimeout
 	}
 	for _, step := range tc.steps {
@@ -844,5 +934,63 @@ func TestSeedClaudeStateTurnsOffAnimation(t *testing.T) {
 	}
 	if settings["prefersReducedMotion"] != true {
 		t.Fatalf("prefersReducedMotion = %v, want true", settings["prefersReducedMotion"])
+	}
+}
+
+// codexVersionPattern matches the version in Codex's banner, in the TUI and in
+// a codex exec header. The comparison reads it as the recorded one for the
+// same reason it does for Claude Code's.
+var codexVersionPattern = regexp.MustCompile(`OpenAI Codex (\(v[0-9]+\.[0-9]+\.[0-9]+\)|v[0-9]+\.[0-9]+\.[0-9]+)`)
+
+// The session id on /status and on a codex exec run changes per run.
+var codexSessionPattern = regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
+
+// Codex greets a new session with a phrase it picks at random, and a codex
+// exec run prints the working directory, which is a temp path that wraps at
+// 100 columns. The greeting is the line under the folder row of the header.
+var (
+	codexGreetingPattern = regexp.MustCompile(`(?m)(^     ~/project\n\n)  [^\n]+`)
+	codexWorkdirPattern  = regexp.MustCompile(`(?s)(workdir: ).*?(\nmodel: )`)
+)
+
+// withStableCodexValues replaces the per-run values on Codex's screens with a
+// placeholder.
+func withStableCodexValues(screen string) string {
+	screen = codexSessionPattern.ReplaceAllString(screen, "<session-id>")
+	screen = codexGreetingPattern.ReplaceAllString(screen, "${1}  <greeting>")
+	return codexWorkdirPattern.ReplaceAllString(screen, "${1}<workdir>${2}")
+}
+
+// withBaselineCodexVersion rewrites the Codex version in got to the one in
+// want, the recorded baseline.
+func withBaselineCodexVersion(got, want string) string {
+	recorded := codexVersionPattern.FindString(want)
+	if recorded == "" {
+		return got
+	}
+	return codexVersionPattern.ReplaceAllLiteralString(got, recorded)
+}
+
+// pinnedCodexDir returns the directory of the codex binary on PATH when its
+// version is the one the baselines were recorded with, as pinnedClaudeDir does.
+func pinnedCodexDir(t *testing.T) (string, string) {
+	t.Helper()
+	return pinnedHarnessDir(t, "codex", "Codex", filepath.Join(codexBaselineDir, "codex-version"), -1)
+}
+
+// seedCodexState writes the Codex state a returning user has, so the launch
+// opens at the prompt: the project folder trusted. Prizmal merges its own
+// profile into this file at launch.
+func seedCodexState(t *testing.T, home, project string) {
+	t.Helper()
+	dir := filepath.Join(home, ".codex")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The welcome screen animates and picks a random greeting; with animations
+	// off it still greets, but without the motion a capture could land in.
+	config := fmt.Sprintf("[tui]\nanimations = false\n\n[projects.%q]\ntrust_level = \"trusted\"\n", project)
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(config), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -1,0 +1,30 @@
+
+  >_ OpenAI Codex (v0.160.0)
+     ~/project
+
+  <greeting>
+
+/status
+
+  >_ OpenAI Codex (v0.160.0)
+
+  Model:               smart (reasoning none, summaries auto)
+  Model provider:      prizmal
+  Directory:           ~/project
+  Permissions:         Workspace (Ask for approval)
+  Agents.md:           <none>
+  Collaboration mode:  Default
+  Session:             <session-id>
+
+  Token usage:         0 total  (0 input + 0 output)
+  Limits:              data not available yet
+
+
+
+
+
+
+› Ask Codex to do anything
+
+  smart default · ~/project
+  ? for shortcuts                                                          ⚠ 1 warning · f2 to view

@@ -85,6 +85,15 @@ launches a model of each tier and fails when its session starts outside auto
 mode, so a Claude Code release that changes which models get auto mode fails
 when the pinned version moves.
 
+`TestTerminalBaselinesCodex`, run by the Codex workflow, covers Codex's
+startup screen, `/model` picker and `/status` screen, and a `codex exec` run.
+It launches Codex with `-m`, with Codex installed at the version that
+`cmd/prizmal/testdata/terminal/codex/codex-version` records. To add a screen,
+add a case to `codexBaselineCases` and regenerate with `-run
+TestTerminalBaselinesCodex`. Codex picks a random greeting and prints a temp
+working directory and a session id, so the comparison replaces each with a
+placeholder.
+
 `TestTerminalBaselinesPrizmal` covers the screens prizmal draws for its own
 commands: the first-run prompt and the device-login flow, under
 `cmd/prizmal/testdata/terminal/prizmal`. It needs tmux but no harness, and the
