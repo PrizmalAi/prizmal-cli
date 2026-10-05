@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -12,9 +13,12 @@ import (
 )
 
 // sandboxCodexHome points HOME and USERPROFILE at a temp dir so config writes
-// never touch a real user config, and returns the dir.
+// never touch a real user config, and returns the dir. It also puts a codex
+// on PATH that prints a bundled catalog, because a launch reads Codex's system
+// prompt from the binary and CI runners have none installed.
 func sandboxCodexHome(t *testing.T) string {
 	t.Helper()
+	fakeCodexBundle(t, fakeCodexCatalog)
 	d := t.TempDir()
 	t.Setenv("HOME", d)
 	t.Setenv("USERPROFILE", d)
@@ -182,8 +186,11 @@ func fakeCodexBundle(t *testing.T, catalog string) {
 	if err := os.WriteFile(data, []byte(catalog), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	script := "#!/bin/sh\nif [ \"$1 $2 $3\" = \"debug models --bundled\" ]; then cat '" + data + "'; exit 0; fi\nexit 1\n"
-	if err := os.WriteFile(filepath.Join(dir, "codex"), []byte(script), 0o755); err != nil {
+	name, script := "codex", "#!/bin/sh\nif [ \"$1 $2 $3\" = \"debug models --bundled\" ]; then cat '"+data+"'; exit 0; fi\nexit 1\n"
+	if runtime.GOOS == "windows" {
+		name, script = "codex.bat", "@echo off\r\ntype \""+data+"\"\r\n"
+	}
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
