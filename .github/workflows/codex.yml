@@ -59,10 +59,14 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
-      # Codex warns when bubblewrap, its sandbox helper, is not on PATH, and a
-      # developer machine has it, so the runner must too.
+      # Codex warns when bubblewrap, its sandbox helper, is missing or cannot
+      # create user namespaces, and a developer machine has no such warning.
+      # Ubuntu runners restrict unprivileged user namespaces, so the job lifts
+      # the restriction.
       - name: Install tmux and bubblewrap
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq tmux bubblewrap
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq tmux bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Install the pinned Codex
         run: npm install -g "@openai/codex@$(cat cmd/prizmal/testdata/terminal/codex/codex-version)"
       - name: Compare terminal baselines
