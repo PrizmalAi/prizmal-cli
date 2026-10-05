@@ -2,6 +2,7 @@ package launch
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -687,7 +688,7 @@ func readCodexSystemPrompt() (codexSystemPrompt, error) {
 		}
 	}
 	if best < 0 {
-		return codexSystemPrompt{}, fmt.Errorf("Codex's bundled catalog has no listed model with a system prompt")
+		return codexSystemPrompt{}, errors.New("the catalog bundled with Codex has no listed model with a system prompt")
 	}
 	m := bundle.Models[best]
 	return codexSystemPrompt{baseInstructions: m.BaseInstructions, modelMessages: m.ModelMessages}, nil
