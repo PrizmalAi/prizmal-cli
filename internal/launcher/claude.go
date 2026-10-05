@@ -320,7 +320,8 @@ func claudeChildEnv(model string, rows []ModelRow) []string {
 		env = append(env, kv)
 	}
 	env = append(env, fixed...)
-	// Claude Code builds the /model picker's Default row from the Opus tier,	// and ANTHROPIC_DEFAULT_OPUS_MODEL is the first place it reads that tier
+	// Claude Code builds the /model picker's Default row from the Opus tier,
+	// and ANTHROPIC_DEFAULT_OPUS_MODEL is the first place it reads that tier
 	// from. The settings JSON has no field for the row's text. Unset, the row
 	// shows the Opus model from Claude Code's own catalog, whatever the launch
 	// routes to. Setting it to the pinned model makes the row show that model.
