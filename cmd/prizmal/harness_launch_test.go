@@ -168,7 +168,8 @@ func runHarnessLaunch(t *testing.T, harness string, mode harnessLaunchKeyMode) {
 	skipHarnessLaunchInShortMode(t)
 	harnessPath := harnessLaunchOnPath(t, harness)
 
-	srvOpts := []stubserver.ServerOption{stubserver.WithModels(harnessLaunchModel)}
+	recorder := &stubserver.Recorder{}
+	srvOpts := []stubserver.ServerOption{stubserver.WithModels(harnessLaunchModel), stubserver.WithRecorder(recorder)}
 	switch mode {
 	case harnessLaunchDeviceLogin:
 		// The stub accepts one credential: the device token its refresh just
@@ -207,6 +208,20 @@ func runHarnessLaunch(t *testing.T, harness string, mode harnessLaunchKeyMode) {
 		// contract, so the config file's key is the one in use.
 		if !strings.Contains(stderr, "using api key from: config file") {
 			t.Errorf("launch did not announce the config key:\n--- stderr ---\n%s", tail(stderr, 50))
+		}
+	}
+	if harness == "codex" {
+		// Codex sends its system prompt as the request's instructions. A launch
+		// that hands Codex a catalog without one sends them empty, which the
+		// stub can see because it records the body of each responses request.
+		bodies := recorder.ResponsesBodies()
+		if len(bodies) == 0 {
+			t.Fatal("codex sent no responses request to the stub")
+		}
+		for i, body := range bodies {
+			if ins, _ := body["instructions"].(string); strings.TrimSpace(ins) == "" {
+				t.Errorf("responses request %d carries empty instructions", i)
+			}
 		}
 	}
 	if !strings.Contains(stdout, stubserver.Reply) {

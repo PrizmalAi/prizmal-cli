@@ -1,6 +1,7 @@
 package launch
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -168,5 +169,91 @@ func TestCodexEntryKeepsTheExplicitBaseInstructionsKey(t *testing.T) {
 	}
 	if instructions != "" {
 		t.Fatalf("base_instructions = %v, want the empty template the entry has always written", instructions)
+	}
+}
+
+// fakeCodexBundle puts a codex on PATH whose `debug models --bundled` prints
+// catalog, and returns nothing else: the launch reads Codex's own prompt from
+// the installed binary, so tests stand in for the binary.
+func fakeCodexBundle(t *testing.T, catalog string) {
+	t.Helper()
+	dir := t.TempDir()
+	data := filepath.Join(dir, "bundle.json")
+	if err := os.WriteFile(data, []byte(catalog), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\nif [ \"$1 $2 $3\" = \"debug models --bundled\" ]; then cat '" + data + "'; exit 0; fi\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(dir, "codex"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+const fakeCodexCatalog = `{"models":[
+ {"slug":"hidden","visibility":"hide","priority":0,"base_instructions":"hidden prompt","model_messages":{"instructions_template":"hidden prompt"}},
+ {"slug":"second","visibility":"list","priority":2,"base_instructions":"second prompt","model_messages":{"instructions_template":"second prompt"}},
+ {"slug":"first","visibility":"list","priority":1,"base_instructions":"first prompt","model_messages":{"instructions_template":"first prompt","permissions":{"a":"b"}}}
+]}`
+
+// TestCodexCatalogCarriesCodexsOwnSystemPrompt pins the fix for a launch that
+// sent Codex's request with empty instructions: the catalog entry holds the
+// prompt of the installed Codex's default model, whole.
+func TestCodexCatalogCarriesCodexsOwnSystemPrompt(t *testing.T) {
+	fakeCodexBundle(t, fakeCodexCatalog)
+	path := filepath.Join(t.TempDir(), "catalog.json")
+	if err := writeCodexModelCatalog(path, LaunchModel{Name: "prizmal-flash"}); err != nil {
+		t.Fatalf("writeCodexModelCatalog: %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var catalog struct {
+		Models []struct {
+			Slug          string `json:"slug"`
+			BaseInst      string `json:"base_instructions"`
+			ModelMessages struct {
+				Template    string         `json:"instructions_template"`
+				Permissions map[string]any `json:"permissions"`
+			} `json:"model_messages"`
+		} `json:"models"`
+	}
+	if err := json.Unmarshal(raw, &catalog); err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog.Models) != 1 {
+		t.Fatalf("got %d catalog entries, want 1", len(catalog.Models))
+	}
+	m := catalog.Models[0]
+	if m.Slug != "prizmal-flash" {
+		t.Errorf("slug = %q", m.Slug)
+	}
+	if m.BaseInst != "first prompt" || m.ModelMessages.Template != "first prompt" {
+		t.Errorf("prompt = %q / %q, want the lowest-priority listed model's prompt", m.BaseInst, m.ModelMessages.Template)
+	}
+	if m.ModelMessages.Permissions["a"] != "b" {
+		t.Errorf("model_messages was not copied whole: %v", m.ModelMessages.Permissions)
+	}
+}
+
+// TestCodexCatalogFailsWhenThePromptIsUnreadable keeps a launch from falling
+// back to an empty prompt, which is the defect this guards against.
+func TestCodexCatalogFailsWhenThePromptIsUnreadable(t *testing.T) {
+	for name, catalog := range map[string]string{
+		"not json":      `nope`,
+		"no entries":    `{"models":[]}`,
+		"empty prompts": `{"models":[{"slug":"x","visibility":"list","priority":1,"base_instructions":""}]}`,
+		"only hidden":   `{"models":[{"slug":"x","visibility":"hide","priority":1,"base_instructions":"p"}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			fakeCodexBundle(t, catalog)
+			path := filepath.Join(t.TempDir(), "catalog.json")
+			if err := writeCodexModelCatalog(path, LaunchModel{Name: "prizmal-flash"}); err == nil {
+				t.Fatal("want an error, got none")
+			}
+			if _, err := os.Stat(path); err == nil {
+				t.Fatal("a catalog was written without a prompt")
+			}
+		})
 	}
 }

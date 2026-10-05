@@ -8,6 +8,8 @@
 //   - writes <name>.called.args and <name>.called.env markers under
 //     $MOCK_EXPECTATIONS_DIR so the parent test can verify the harness binary
 //     was actually invoked and what it saw;
+//   - on `codex debug models --bundled`, prints a one-model catalog with a
+//     system prompt;
 //   - on a bare `--version` first arg, prints a version string and exits 0
 //     (codex install-discovery path);
 //   - validates expectations from mock.json under $MOCK_EXPECTATIONS_DIR and
@@ -88,6 +90,12 @@ func Run() int {
 	// codex install discovery calls `codex --version`.
 	if len(args) == 1 && args[0] == "--version" {
 		fmt.Println("codex-cli 0.134.0")
+		return 0
+	}
+
+	// A codex launch reads the bundled catalog for Codex's system prompt.
+	if binName == "codex" && len(args) == 3 && args[0] == "debug" && args[1] == "models" && args[2] == "--bundled" {
+		fmt.Println(`{"models":[{"slug":"mock","visibility":"list","priority":1,"base_instructions":"mock system prompt","model_messages":{"instructions_template":"mock system prompt"}}]}`)
 		return 0
 	}
 
