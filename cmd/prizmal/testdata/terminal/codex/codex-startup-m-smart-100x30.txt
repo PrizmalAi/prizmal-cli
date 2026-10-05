@@ -1,0 +1,30 @@
+
+  >_ OpenAI Codex (v0.160.0)
+     ~/project
+
+  <greeting>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+› Ask Codex to do anything
+
+  smart default · ~/project
+  ? for shortcuts                                                          ⚠ 1 warning · f2 to view
