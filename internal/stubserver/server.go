@@ -7,6 +7,7 @@
 package stubserver
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -74,6 +75,25 @@ type Entry struct {
 	Description string
 }
 
+// Recorder keeps the JSON body of every POST /v1/responses the stub receives,
+// so a test can assert on what a harness sent.
+type Recorder struct {
+	mu     sync.Mutex
+	bodies []map[string]any
+}
+
+// ResponsesBodies returns a copy of the recorded request bodies, oldest first.
+func (r *Recorder) ResponsesBodies() []map[string]any {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]map[string]any(nil), r.bodies...)
+}
+
+// WithRecorder records every responses request into rec.
+func WithRecorder(rec *Recorder) ServerOption {
+	return func(c *serverConfig) { c.recorder = rec }
+}
+
 // serverConfig is what the options build: the /v1/models fixture, and whether
 // POST /v1/cli/token approves the device. The two are independent, so a test
 // can set either, both, or neither.
@@ -88,6 +108,7 @@ type serverConfig struct {
 	issuer       *DeviceTokenIssuer
 	toolLoop     *piToolLoop
 	usagePlan    *UsagePlan
+	recorder     *Recorder
 }
 
 // ServerOption configures a stub server.
@@ -467,7 +488,28 @@ func NewServer(opts ...ServerOption) *httptest.Server {
 	for _, opt := range opts {
 		opt(&c)
 	}
-	return httptest.NewServer(handler(&c))
+	h := handler(&c)
+	if c.recorder != nil {
+		h = c.recorder.wrap(h)
+	}
+	return httptest.NewServer(h)
+}
+
+// wrap records the body of each responses request, then restores it for h.
+func (r *Recorder) wrap(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodPost && req.URL.Path == "/v1/responses" {
+			raw, _ := io.ReadAll(req.Body)
+			req.Body = io.NopCloser(bytes.NewReader(raw))
+			var body map[string]any
+			if json.Unmarshal(raw, &body) == nil {
+				r.mu.Lock()
+				r.bodies = append(r.bodies, body)
+				r.mu.Unlock()
+			}
+		}
+		h(w, req)
+	}
 }
 
 // handler serves the stub API. A nil models serves the default fixture.

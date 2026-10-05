@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -167,8 +168,19 @@ func runHarnessLaunch(t *testing.T, harness string, mode harnessLaunchKeyMode) {
 	harnessArgs := launchCase.args
 	skipHarnessLaunchInShortMode(t)
 	harnessPath := harnessLaunchOnPath(t, harness)
+	// The prompt a launch must put on the wire is Codex's own: the test reads it
+	// from the installed binary, exactly as the launch does.
+	promptText := ""
+	if harness == "codex" {
+		prompt, err := launcher.CodexSystemPrompt()
+		if err != nil {
+			t.Fatalf("read Codex's system prompt: %v", err)
+		}
+		promptText = prompt
+	}
 
-	srvOpts := []stubserver.ServerOption{stubserver.WithModels(harnessLaunchModel)}
+	recorder := &stubserver.Recorder{}
+	srvOpts := []stubserver.ServerOption{stubserver.WithModels(harnessLaunchModel), stubserver.WithRecorder(recorder)}
 	switch mode {
 	case harnessLaunchDeviceLogin:
 		// The stub accepts one credential: the device token its refresh just
@@ -207,6 +219,21 @@ func runHarnessLaunch(t *testing.T, harness string, mode harnessLaunchKeyMode) {
 		// contract, so the config file's key is the one in use.
 		if !strings.Contains(stderr, "using api key from: config file") {
 			t.Errorf("launch did not announce the config key:\n--- stderr ---\n%s", tail(stderr, 50))
+		}
+	}
+	if harness == "codex" {
+		// A launch that hands Codex a catalog with no system prompt sends a
+		// session with nothing describing its tools, its sandbox or its editing
+		// rules. The stub records the body of each responses request, so the
+		// test can read the prompt off the wire.
+		bodies := recorder.ResponsesBodies()
+		if len(bodies) == 0 {
+			t.Fatal("codex sent no responses request to the stub")
+		}
+		for i, body := range bodies {
+			if err := codexWireCarriesASystemPrompt(body, promptText); err != nil {
+				t.Errorf("responses request %d: %v", i, err)
+			}
 		}
 	}
 	if !strings.Contains(stdout, stubserver.Reply) {
@@ -287,6 +314,46 @@ func runHarnessCommand(t *testing.T, prizmalBin, home, project, harnessPath, har
 	cmd.WaitDelay = 10 * time.Second
 	runErr = cmd.Run()
 	return outBuf.String(), errBuf.String(), ctx.Err() != nil, runErr
+}
+
+// codexWireCarriesASystemPrompt reports whether a responses request carries
+// Codex's system prompt. The two Codex generations put it in different places:
+// 0.160 sends it as the request's instructions, and 0.162 sends the same text
+// rendered as the first developer message of the input. An empty catalog
+// produces neither, and that is the regression the caller guards against.
+func codexWireCarriesASystemPrompt(body map[string]any, prompt string) error {
+	if ins, _ := body["instructions"].(string); prompt != "" && strings.Contains(ins, prompt) {
+		return nil
+	}
+	for _, item := range inputItems(body) {
+		if item["type"] != "message" || item["role"] != "developer" {
+			continue
+		}
+		content, _ := item["content"].([]any)
+		for _, part := range content {
+			p, ok := part.(map[string]any)
+			if !ok {
+				continue
+			}
+			if text, _ := p["text"].(string); prompt != "" && strings.Contains(text, prompt) {
+				return nil
+			}
+		}
+	}
+	return errors.New("the request carries no system prompt")
+}
+
+// inputItems returns the request's input when it is a list of items, which is
+// the shape a launch that writes a model catalog sends.
+func inputItems(body map[string]any) []map[string]any {
+	raw, _ := body["input"].([]any)
+	items := make([]map[string]any, 0, len(raw))
+	for _, item := range raw {
+		if m, ok := item.(map[string]any); ok {
+			items = append(items, m)
+		}
+	}
+	return items
 }
 
 // tail returns the last n lines of s.
