@@ -73,11 +73,20 @@ var harnessLaunchCases = map[string]harnessLaunchCase{
 	},
 }
 
-func TestHarnessLaunchClaude(t *testing.T)   { runHarnessLaunch(t, "claude") }
-func TestHarnessLaunchCodex(t *testing.T)    { runHarnessLaunch(t, "codex") }
-func TestHarnessLaunchCline(t *testing.T)    { runHarnessLaunch(t, "cline") }
-func TestHarnessLaunchOpencode(t *testing.T) { runHarnessLaunch(t, "opencode") }
-func TestHarnessLaunchPi(t *testing.T)       { runHarnessLaunch(t, "pi") }
+func TestHarnessLaunchClaude(t *testing.T)   { runHarnessLaunch(t, "claude", false) }
+func TestHarnessLaunchCodex(t *testing.T)    { runHarnessLaunch(t, "codex", false) }
+func TestHarnessLaunchCline(t *testing.T)    { runHarnessLaunch(t, "cline", false) }
+func TestHarnessLaunchOpencode(t *testing.T) { runHarnessLaunch(t, "opencode", false) }
+func TestHarnessLaunchPi(t *testing.T)       { runHarnessLaunch(t, "pi", false) }
+
+// Pi has no way to refresh a short-lived device token, so a machine signed in
+// with a device key must run it on the switch key the config already holds:
+// device login is ignored for the launch entirely. The enrolled key below
+// cannot refresh, so the stub's reply on stdout proves the launch never
+// touched device login, and the announce line names the key that ran.
+func TestHarnessLaunchPiRunsOnTheConfigKeyWithADeviceKeyEnrolled(t *testing.T) {
+	runHarnessLaunch(t, "pi", true)
+}
 
 // TestHarnessLaunchRegistryCompleteness checks that every integration in the
 // registry has a launch case, and that the case's workflow runs its test with
@@ -116,8 +125,9 @@ func TestHarnessLaunchRegistryCompleteness(t *testing.T) {
 
 // runHarnessLaunch launches harness through a freshly built prizmal, passing
 // its case's arguments after the integration name, and asserts that the
-// stub's reply is on stdout.
-func runHarnessLaunch(t *testing.T, harness string) {
+// stub's reply is on stdout. With a device key enrolled, it also asserts the
+// launch announced the config file as its key source.
+func runHarnessLaunch(t *testing.T, harness string, withDeviceKey bool) {
 	t.Helper()
 	harnessArgs := harnessLaunchCases[harness].args
 	if testing.Short() {
@@ -143,7 +153,15 @@ func runHarnessLaunch(t *testing.T, harness string) {
 		t.Fatalf("build prizmal: %v\n%s", err, out)
 	}
 
-	srv := stubserver.NewWithModels(harnessLaunchModel)
+	srvOpts := []stubserver.ServerOption{stubserver.WithModels(harnessLaunchModel)}
+	if withDeviceKey {
+		// The device refresh must succeed, which is the state the launch
+		// has to ignore for a harness with no refresh contract: on an
+		// unapproving stub the launch would fall back to the config key on
+		// its own, and the test would pass without exercising the rule.
+		srvOpts = append(srvOpts, stubserver.WithDeviceApproval())
+	}
+	srv := stubserver.NewServer(srvOpts...)
 	t.Cleanup(srv.Close)
 
 	// A fresh HOME gives the harness no config of its own, the state a
@@ -161,6 +179,14 @@ func runHarnessLaunch(t *testing.T, harness string) {
 		"base_url": srv.URL,
 		"api_key":  stubserver.StubKey,
 	})
+	if withDeviceKey {
+		// Bytes, not a valid key file: if the launch used device login, the
+		// refresh would fail before any harness ran, rather than quietly
+		// succeeding against the stub.
+		if err := os.WriteFile(filepath.Join(home, ".prizmal", "device.key"), make([]byte, 32), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), harnessLaunchTimeout)
 	defer cancel()
@@ -188,6 +214,14 @@ func runHarnessLaunch(t *testing.T, harness string) {
 	cmd.WaitDelay = 10 * time.Second
 	runErr := cmd.Run()
 
+	if withDeviceKey {
+		// The announce line names the key the launch ran on. Device login
+		// must be ignored for a harness without a refresh contract, so the
+		// config file's key is the one in use.
+		if !strings.Contains(stderr.String(), "using api key from: config file") {
+			t.Errorf("launch did not announce the config key:\n--- stderr ---\n%s", tail(stderr.String(), 50))
+		}
+	}
 	if !strings.Contains(stdout.String(), stubserver.Reply) {
 		t.Fatalf("%s did not print the stub's reply %q on stdout (run error: %v, timed out: %v)\n--- stdout ---\n%s\n--- stderr ---\n%s",
 			harness, stubserver.Reply, runErr, ctx.Err() != nil, tail(stdout.String(), 50), tail(stderr.String(), 50))

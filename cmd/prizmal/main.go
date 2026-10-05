@@ -135,9 +135,12 @@ Examples:
 			// has a working credential in hand.
 			//
 			// It runs only for a command that needs a credential — --list, a
-			// pick, or a launch. A bare `prizmal` lists the integrations and
-			// must not refresh a token, or hit the network, to print a table.
-			if apiKey == "" && (listFlag || pickFlag || len(args) > 0) {
+			// pick, or a launch — and only when device login applies to it:
+			// a launch of a harness with no refresh contract ignores device
+			// login entirely and runs on the key this block already resolved.
+			// A bare `prizmal` lists the integrations and must not refresh a
+			// token, or hit the network, to print a table.
+			if apiKey == "" && (listFlag || pickFlag || len(args) > 0) && deviceLoginApplies(listFlag, args) {
 				if err := enterDeviceMode(); err != nil {
 					return err
 				}
@@ -553,6 +556,18 @@ func launch(name string, extraArgs []string, cfg *config.Config) error {
 
 	runner := spec.Runner
 
+	// A first-run browser sign-in can leave device mode on before any
+	// harness was named. For a runner with no refresh contract — Pi, Codex,
+	// Cline, OpenCode — device login is ignored: the launch runs on the
+	// ordinary key sources, exactly as if the machine had never signed in
+	// with a device. Leaving device mode on would outrank the switch key the
+	// config already holds and hand the harness a token that expires in ten
+	// minutes. (launch itself never enters device mode; the enterDeviceMode
+	// gate in the root command skips it for these runners.)
+	if envconfig.DeviceMode() && !launcher.SupportsDeviceMode(runner) {
+		envconfig.SetDeviceMode(false)
+	}
+
 	// Before anything writes a config, take any Switch key out of the
 	// retained backups: a rotated or foreign key the write-time scrub cannot
 	// see, or a copy of a file this build no longer touches. It runs on
@@ -655,14 +670,6 @@ func launch(name string, extraArgs []string, cfg *config.Config) error {
 	announceKeySource(os.Stderr)
 	if err := requireCredentialForRemote(); err != nil {
 		return err
-	}
-
-	// A runner with no credential-refresh contract cannot run from a device
-	// token: it receives the key once and would keep sending an expired token
-	// after ten minutes. In device mode those runners stop here and ask for a
-	// switch key, which has no expiry.
-	if envconfig.DeviceMode() && !launcher.SupportsDeviceMode(runner) {
-		return launcher.DeviceModeRefusal(spec.Runner.String())
 	}
 
 	// A device's sign-in deadline is worth a warning before it arrives, so the

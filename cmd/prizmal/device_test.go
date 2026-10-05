@@ -13,6 +13,7 @@ import (
 
 	"github.com/PrizmalAi/prizmal-cli/internal/device"
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
+	launcher "github.com/PrizmalAi/prizmal-cli/internal/launcher"
 )
 
 // captureStdout runs f with os.Stdout redirected to a pipe and returns what it
@@ -177,6 +178,40 @@ func resetDeviceModeState(t *testing.T) {
 		envconfig.SetDeviceMode(false)
 		envconfig.SetDeviceToken("")
 	})
+}
+
+// deviceLoginApplies is keyed on the harness the launch names, so its
+// decisions are the registry's, not a hand-written list. TestOnlyClaudeSupportsDeviceMode
+// pins the same split on the launcher side.
+func TestDeviceLoginAppliesByHarness(t *testing.T) {
+	resetDeviceModeState(t)
+	for _, tc := range []struct {
+		name     string
+		listFlag bool
+		args     []string
+		want     bool
+	}{
+		{"a --list has no harness behind it", true, []string{"pi"}, true},
+		{"a bare --pick has no harness behind it", false, nil, true},
+		{"claude refreshes its own token", false, []string{"claude"}, true},
+		{"pi receives the key once", false, []string{"pi"}, false},
+		{"codex receives the key once", false, []string{"codex"}, false},
+		{"cline receives the key once", false, []string{"cline"}, false},
+		{"opencode receives the key once", false, []string{"opencode"}, false},
+		{"an unknown word is not a harness", false, []string{"bogus"}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := deviceLoginApplies(tc.listFlag, tc.args); got != tc.want {
+				t.Errorf("deviceLoginApplies(%v, %q) = %v, want %v", tc.listFlag, tc.args, got, tc.want)
+			}
+		})
+	}
+	for _, spec := range launcher.ListAllIntegrationSpecs() {
+		want := spec.Name == "claude"
+		if got := deviceLoginApplies(false, []string{spec.Name}); got != want {
+			t.Errorf("deviceLoginApplies for %q = %v, want %v", spec.Name, got, want)
+		}
+	}
 }
 
 // captureStderr runs f with os.Stderr redirected to a pipe and returns what it

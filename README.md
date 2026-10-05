@@ -61,7 +61,7 @@ Once your tenant approves a device, a launch uses it automatically. `prizmal cla
 
 A device token is a bearer credential that expires 10 minutes after issue, and the Switch binds it to one tenant. The private key never leaves the machine. The next refresh stops once a tenant manager revokes the device or disables the tenant, or sets the member inactive.
 
-Only Claude Code has a documented credential-refresh contract, so only it runs in device mode. Launching `codex`, `cline`, `opencode`, or `pi` on a machine signed in with a device key stops and asks for a switch key, which has no expiry and doesn't need a helper.
+Only Claude Code has a documented credential-refresh contract, so only it runs in device mode. Launching `codex`, `cline`, `opencode`, or `pi` on a machine signed in with a device key ignores device login and runs on the switch key the config already holds, which has no expiry and doesn't need a helper. With no switch key, the launch asks for one, as any unauthenticated launch does.
 
 ### Switch key
 
@@ -96,7 +96,7 @@ using api key from: config file (~/.prizmal/config.json)
 
 The announcement prints the source only, never the key's value, a prefix of it, its length, or a hash.
 
-An enrolled device key takes precedence over both the config file and `$PRIZMAL_SWITCH_KEY`, since it is the credential your tenant approved for this machine. `--api-key` and `--url` still win for one launch, so you can use a switch key on a device-signed machine.
+An enrolled device key takes precedence over both the config file and `$PRIZMAL_SWITCH_KEY` on the launches device login serves — `claude`, `--list`, and a model pick — since it is the credential your tenant approved for this machine. A `codex`, `cline`, `opencode`, or `pi` launch ignores the device key and resolves its credential the ordinary way. `--api-key` and `--url` still win for one launch, so you can use a switch key on a device-signed machine.
 
 `prizmal login` prints nothing on stdout. It signs in and exits. `prizmal auth token` is the internal `apiKeyHelper` command Claude Code runs: it prints one device token on stdout and nothing else, and you don't run it by hand.
 
@@ -122,7 +122,7 @@ A launch that already has its model continues after the warning, without the ext
 | `cline` | Cline | | `OPENAI_API_KEY`, which cline reads when `providers.openai-compatible.settings` has no `apiKey` |
 | `pi` | Pi coding agent | | `PRIZMAL_SWITCH_KEY`, which `"apiKey": "$PRIZMAL_SWITCH_KEY"` in `~/.pi/agent/models.json` refers to (pi 0.77.0 or later) |
 
-On a machine signed in with a device key, only `claude` runs. The others receive a switch key once through the environment and cannot refresh a device token, so they stop and ask for one.
+On a machine signed in with a device key, only `claude` runs in device mode. The others ignore device login and receive the switch key from the config file, the environment, or `--api-key`, resolved once as usual.
 
 ## Commands
 

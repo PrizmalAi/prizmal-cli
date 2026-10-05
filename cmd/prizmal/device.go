@@ -39,6 +39,25 @@ func deviceKeyExists() bool {
 	return err == nil
 }
 
+// deviceLoginApplies decides whether the command about to run may use device
+// login. A device token is a credential the CLI refreshes itself, so a --list
+// and a bare --pick may, whatever a first-run sign-in left behind. A launch of
+// a harness with no refresh contract — Pi, Codex, Cline, OpenCode — may not:
+// entering device mode would outrank the switch key the config already holds
+// and then hand the harness a token that expires in ten minutes, so device
+// login is ignored for it and the launch runs on that key. An unknown word is
+// not a harness; the launch fails on it later either way.
+func deviceLoginApplies(listFlag bool, args []string) bool {
+	if listFlag || len(args) == 0 {
+		return true
+	}
+	spec, err := launcher.LookupIntegrationSpec(args[0])
+	if err != nil {
+		return true
+	}
+	return launcher.SupportsDeviceMode(spec.Runner)
+}
+
 // enterDeviceMode turns an enrolled device key into the launch's credential:
 // it refreshes a device token and puts it in envconfig, where the catalog
 // fetch and the launchers read it. It is a no-op when no device key exists.
@@ -56,6 +75,10 @@ func deviceKeyExists() bool {
 // key when the device handshake works, not when it fails with a usable
 // credential sitting right there. Silently proceeding on the fallback, with
 // one warning, beats hard-erroring a launch that has a real key in hand.
+//
+// deviceLoginApplies decides whether this runs at all: a launch of a harness
+// without a refresh contract never reaches it, so device login stays entirely
+// out of that launch.
 func enterDeviceMode() error {
 	if !deviceKeyExists() {
 		return nil
