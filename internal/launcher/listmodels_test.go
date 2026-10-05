@@ -2,7 +2,9 @@ package launch
 
 import (
 	"context"
+	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -108,22 +110,75 @@ func TestParseSwitchCatalogSkipsEntriesWithNoName(t *testing.T) {
 	}
 }
 
-// ListSwitchModels returns the names in the order the Switch listed them, which
-// is `default` first and the rest sorted; re-sorting here would fight that.
-func TestListSwitchModelsKeepsTheSwitchOrder(t *testing.T) {
+// ListSwitchModels answers the same question the picker does, so the tier
+// aliases the Switch does not list lead the way they lead --pick. The
+// Switch's own entries keep its order underneath: `default` first and the rest
+// sorted, and re-sorting here would fight that.
+func TestListSwitchModelsOffersEveryClaudeTierFirst(t *testing.T) {
 	srv, _, _ := switchTestServer(t, `{"data":[
 		{"id":"default[1m]","name":"default"},
 		{"id":"alpha[1m]","name":"alpha"},
 		{"id":"zeta[1m]","name":"zeta"}
 	]}`, http.StatusOK)
 	useSwitch(t, srv.URL, "test-switch-key")
+	ResetModelCatalog()
+	t.Cleanup(ResetModelCatalog)
 
 	names, err := ListSwitchModels(context.Background())
 	if err != nil {
 		t.Fatalf("ListSwitchModels: %v", err)
 	}
-	if len(names) != 3 || names[0] != "default" || names[1] != "alpha" || names[2] != "zeta" {
-		t.Fatalf("names = %v, want [default alpha zeta]", names)
+	want := []string{
+		"claude-tier-opus", "claude-tier-sonnet", "claude-tier-haiku", "claude-tier-fable",
+		"default", "alpha", "zeta",
+	}
+	if !slices.Equal(names, want) {
+		t.Fatalf("names = %v, want %v", names, want)
+	}
+}
+
+// A listing and a picker must report the same routable set. `--list` used to
+// read the raw catalog while `--pick` went through withClaudeTiers, so an
+// operator scripting `--list` to build a menu missed four names that
+// `prizmal --model <tier alias>` launches. Two readers of one question is what
+// let the README's claim drift away from both.
+func TestListSwitchModelsAgreesWithThePicker(t *testing.T) {
+	srv, _, _ := switchTestServer(t, `{"data":[
+		{"id":"team-opus-blend[1m]","tier":"opus"},
+		{"id":"smart[1m]"}
+	]}`, http.StatusOK)
+	useSwitch(t, srv.URL, "test-switch-key")
+	ResetModelCatalog()
+	t.Cleanup(ResetModelCatalog)
+
+	names, err := ListSwitchModels(context.Background())
+	if err != nil {
+		t.Fatalf("ListSwitchModels: %v", err)
+	}
+	catalog, err := FetchCatalog(context.Background())
+	if err != nil {
+		t.Fatalf("FetchCatalog: %v", err)
+	}
+	var pick []string
+	for _, m := range catalog {
+		pick = append(pick, m.Name)
+	}
+	if !slices.Equal(names, pick) {
+		t.Fatalf("--list reports %v but --pick offers %v", names, pick)
+	}
+}
+
+// A tenant that lists nothing has no models, which is not a failed fetch: a
+// picker must be able to tell the two apart, and so must a listing, whose empty
+// answer exits 0 with a message.
+func TestListSwitchModelsReportsNoModelsForAnEmptyListing(t *testing.T) {
+	srv, _, _ := switchTestServer(t, `{"data":[]}`, http.StatusOK)
+	useSwitch(t, srv.URL, "test-switch-key")
+	ResetModelCatalog()
+	t.Cleanup(ResetModelCatalog)
+
+	if _, err := ListSwitchModels(context.Background()); !errors.Is(err, ErrNoModels) {
+		t.Fatalf("ListSwitchModels on an empty listing = %v, want ErrNoModels", err)
 	}
 }
 
@@ -133,6 +188,8 @@ func TestListSwitchModelsKeepsTheSwitchOrder(t *testing.T) {
 func TestListSwitchModelsFailsOnABadStatus(t *testing.T) {
 	srv, _, _ := switchTestServer(t, `{"error":"nope"}`, http.StatusInternalServerError)
 	useSwitch(t, srv.URL, "test-switch-key")
+	ResetModelCatalog()
+	t.Cleanup(ResetModelCatalog)
 
 	if _, err := ListSwitchModels(context.Background()); err == nil {
 		t.Fatal("ListSwitchModels accepted a 500")
@@ -145,6 +202,8 @@ func TestListSwitchModelsFailsOnABadStatus(t *testing.T) {
 func TestListSwitchModelsSendsTheSwitchKey(t *testing.T) {
 	srv, gotAuth, gotPath := switchTestServer(t, `{"data":[{"id":"default[1m]","name":"default"}]}`, http.StatusOK)
 	useSwitch(t, srv.URL, "test-switch-key")
+	ResetModelCatalog()
+	t.Cleanup(ResetModelCatalog)
 
 	if _, err := ListSwitchModels(context.Background()); err != nil {
 		t.Fatalf("ListSwitchModels: %v", err)
@@ -162,6 +221,8 @@ func TestListSwitchModelsSendsTheSwitchKey(t *testing.T) {
 func TestListSwitchModelsErrorNamesNoKey(t *testing.T) {
 	srv, _, _ := switchTestServer(t, `{"error":{"message":"boom"}}`, http.StatusUnauthorized)
 	useSwitch(t, srv.URL, "sk-secret-value")
+	ResetModelCatalog()
+	t.Cleanup(ResetModelCatalog)
 
 	_, err := ListSwitchModels(context.Background())
 	if err == nil {
