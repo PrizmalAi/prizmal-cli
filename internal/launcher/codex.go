@@ -26,8 +26,8 @@ const (
 	codexRestoreSuccess = "Codex launch configuration removed."
 
 	// codexFallbackContextWindow is the context window every Codex catalog
-	// entry declares, and it is a stated ceiling rather than a claim about the
-	// model behind the name. GET /v1/models carries no context length (the
+	// entry declares, and it is the 1M window every model the Switch serves
+	// has today, stated rather than learned. GET /v1/models carries no context length (the
 	// Switch sends id, input_modalities, tier and description), so nothing here
 	// can learn the real one, and no model name is mapped to a window because
 	// such a table would be guesswork about an endpoint prizmal knows nothing
@@ -36,11 +36,10 @@ const (
 	// Codex derives auto-compaction from this number — 90% of context_window
 	// unless the entry says otherwise (ModelInfo::auto_compact_token_limit in
 	// codex-rs/protocol) — so declaring too small a window makes Codex discard
-	// conversation history an endpoint with a larger window would have accepted.
-	// That is why $HARNESS_CONTEXT_LENGTH overrides it: an operator who knows
-	// the real window has no other way to say so, and the value has to be right
-	// for a long session rather than safe for a short one.
-	codexFallbackContextWindow = 128_000
+	// conversation history the Switch would have accepted. Revisit this when the
+	// Switch serves a model with a smaller window. $HARNESS_CONTEXT_LENGTH
+	// overrides it for an operator who knows better.
+	codexFallbackContextWindow = 1_000_000
 
 	codexRootProfileKey          = "profile"
 	codexRootModelKey            = "model"

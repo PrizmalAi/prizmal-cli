@@ -105,8 +105,8 @@ func TestCodexEntryDeclaresTheDocumentedContextWindow(t *testing.T) {
 		Capabilities: []model.Capability{model.CapabilityVision, model.CapabilityCompletion},
 	})
 
-	if got := codexContextWindow(t, entry); got != codexFallbackContextWindow {
-		t.Fatalf("context_window = %d, want the documented fallback %d", got, codexFallbackContextWindow)
+	if got := codexContextWindow(t, entry); got != 1_000_000 {
+		t.Fatalf("context_window = %d, want 1000000: every model the Switch serves has a 1M window", got)
 	}
 }
 
