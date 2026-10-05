@@ -66,7 +66,8 @@ var (
 	stepClaudeReady = baselineStep{waitFor: "for agents"}
 )
 
-// claudeBaselineCases are the screens of the real Claude Code, and the prizmal picker shown before it. = []baselineCase{
+// claudeBaselineCases are the screens of the real Claude Code, and of the
+// prizmal picker that opens before it.
 var claudeBaselineCases = []baselineCase{
 	{
 		name: "prizmal-picker-100x30", cols: 100, rows: 30,

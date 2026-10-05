@@ -11,7 +11,7 @@
 
   >_ OpenAI Codex (v0.160.0)
 
-  Model:               smart (reasoning none, summaries auto)
+  Model:               smart (reasoning medium, summaries auto)
   Model provider:      prizmal
   Directory:           ~/project
   Permissions:         Workspace (Ask for approval)
@@ -20,7 +20,7 @@
   Session:             <session-id>
 
   Token usage:         2 total  (1 input + 1 output)
-  Context window:      100% left (2 used / 122K)
+  Context window:      100% left (2 used / 950K)
   Limits:              data not available yet
 
 
