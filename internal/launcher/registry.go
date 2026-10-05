@@ -77,8 +77,9 @@ var integrationSpecs = []*IntegrationSpec{
 				_, err := exec.LookPath("codex")
 				return err == nil
 			},
-			URL:     "https://developers.openai.com/codex/cli/",
-			Command: []string{"npm", "install", "-g", "@openai/codex"},
+			EnsureInstalled: ensureCodexInstalled,
+			URL:             "https://developers.openai.com/codex/cli/",
+			Command:         []string{"npm", "install", "-g", "@openai/codex"},
 		},
 	},
 	{
