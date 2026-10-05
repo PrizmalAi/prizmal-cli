@@ -170,19 +170,25 @@ func apiKeyHelperCommand() (string, error) {
 // deviceSettingsJSON adds the apiKeyHelper to a launch's settings JSON. It is
 // merged into the object claudeSettingsJSON built, so the model, the overrides
 // and the picker rows stay exactly as they are and only the credential channel
-// is added.
+// is added. The values decode as raw JSON rather than any, because re-encoding
+// an any map sorts every object's keys, and the modelOverrides order is part
+// of the contract with Claude Code (see orderedModelOverrides).
 func deviceSettingsJSON(settings string) (string, error) {
 	helper, err := apiKeyHelperCommand()
 	if err != nil {
 		return "", err
 	}
-	merged := map[string]any{}
+	merged := map[string]json.RawMessage{}
 	if settings != "" {
 		if err := json.Unmarshal([]byte(settings), &merged); err != nil {
 			return "", fmt.Errorf("add apiKeyHelper to Claude Code settings: %w", err)
 		}
 	}
-	merged["apiKeyHelper"] = helper
+	helperJSON, err := json.Marshal(helper)
+	if err != nil {
+		return "", fmt.Errorf("add apiKeyHelper to Claude Code settings: %w", err)
+	}
+	merged["apiKeyHelper"] = helperJSON
 	data, err := json.Marshal(merged)
 	if err != nil {
 		return "", fmt.Errorf("add apiKeyHelper to Claude Code settings: %w", err)

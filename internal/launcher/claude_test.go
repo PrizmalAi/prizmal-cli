@@ -262,6 +262,33 @@ func TestDeviceSettingsJSONAddsHelperToExistingSettings(t *testing.T) {
 	}
 }
 
+// TestDeviceSettingsJSONKeepsTheOverrideKeyOrder verifies the device merge
+// leaves the modelOverrides object's key order untouched. Claude Code names a
+// model by alias as the first key, in object order, that maps to it, so a
+// resorted object makes a tier alias run as the oldest model mapped to it.
+func TestDeviceSettingsJSONKeepsTheOverrideKeyOrder(t *testing.T) {
+	settings, err := claudeSettingsJSON("claude-tier-haiku", nil)
+	if err != nil {
+		t.Fatalf("claudeSettingsJSON: %v", err)
+	}
+	merged, err := deviceSettingsJSON(settings)
+	if err != nil {
+		t.Fatalf("deviceSettingsJSON: %v", err)
+	}
+	var before, after struct {
+		ModelOverrides json.RawMessage `json:"modelOverrides"`
+	}
+	if err := json.Unmarshal([]byte(settings), &before); err != nil {
+		t.Fatalf("settings is not JSON: %v", err)
+	}
+	if err := json.Unmarshal([]byte(merged), &after); err != nil {
+		t.Fatalf("merged settings is not JSON: %v", err)
+	}
+	if string(before.ModelOverrides) != string(after.ModelOverrides) {
+		t.Fatalf("modelOverrides key order changed through the device merge\nbefore: %s\nafter:  %s", before.ModelOverrides, after.ModelOverrides)
+	}
+}
+
 // An inherited variable must not appear twice, which would make the child's
 // value depend on which duplicate the OS reads first.
 func TestClaudeChildEnvKeepsOneEntryPerName(t *testing.T) {
