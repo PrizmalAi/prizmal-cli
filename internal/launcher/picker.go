@@ -43,6 +43,11 @@ type tierProfile struct {
 	// a tier word would resolve to nothing: the session would warn that the
 	// model is unknown and run on the unknown-model profile. Each id is one
 	// every supported Claude Code release carries.
+	//
+	// No tier runs as a haiku model. Claude Code refuses auto mode to a
+	// model released before Claude Opus 4.6, Haiku 4.5 among them, so the
+	// haiku tier runs as Sonnet 5 and keeps auto mode. The row still reads "Haiku tier",
+	// and the Switch routes it by its own name.
 	behavesAs string
 	// oneMillion reports whether that model accepts a 1M context window.
 	// Claude Code drops a /model row that asks for 1M on a model without one.
@@ -56,7 +61,7 @@ type tierProfile struct {
 var tierProfiles = map[modelTier]tierProfile{
 	modelTierOpus:   {behavesAs: "claude-opus-5", oneMillion: true, description: "Opus tier"},
 	modelTierSonnet: {behavesAs: "claude-sonnet-5", oneMillion: true, description: "Sonnet tier"},
-	modelTierHaiku:  {behavesAs: "claude-haiku-4-5-20251001", oneMillion: false, description: "Haiku tier"},
+	modelTierHaiku:  {behavesAs: "claude-sonnet-5", oneMillion: true, description: "Haiku tier"},
 	modelTierFable:  {behavesAs: "claude-fable-5-1", oneMillion: true, description: "Fable tier"},
 }
 

@@ -219,11 +219,39 @@ The first two variables connect Claude Code to the Switch. The others match what
 | `ENABLE_CLAUDEAI_MCP_SERVERS=false` | Hides the startup warning about claude.ai connectors, which need a claude.ai login that this launch doesn't use. |
 | `CLAUDE_CODE_ATTRIBUTION_HEADER=0`, `DISABLE_ERROR_REPORTING=1`, `DISABLE_FEEDBACK_COMMAND=1`, `CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1` | Turn off the attribution header, error reports to Anthropic, `/feedback`, and the feedback survey. |
 
-Claude Code flags work as usual, so `claude --model sonnet` and `claude --resume <session-id>` go after `claude` on the last line.
+Claude Code flags work as usual, so `claude --resume <session-id>` goes after `claude` on the last line.
+
+### Choose a model
+
+Pass the model with `--model` and append `[1m]`, so Claude Code budgets the 1M-token window the Switch serves. Without the suffix, Claude Code compacts a session at 200k tokens. For the name, use one of your tenant's router configs, or a tier alias that routes to the config your tenant assigned to that tier: `claude-tier-opus`, `claude-tier-sonnet`, `claude-tier-haiku` or `claude-tier-fable`.
+
+```bash
+claude --model 'claude-tier-haiku[1m]'
+```
+
+Use the alias for the haiku tier, and avoid `--model haiku`. Claude Code reads `haiku` as Claude Haiku 4.5, and it turns auto mode off for every model released before Claude Opus 4.6, Haiku 4.5 among them.
+
+To get the tier rows in `/model` with the window and model profile `prizmal claude` gives them, save these settings as `prizmal-claude.json`:
+
+```json
+{
+  "modelPicker": {
+    "replaceBuiltInOptions": true,
+    "options": [
+      {"model": "claude-tier-opus[1m]", "behavesAs": "claude-opus-5", "description": "Opus tier"},
+      {"model": "claude-tier-sonnet[1m]", "behavesAs": "claude-sonnet-5", "description": "Sonnet tier"},
+      {"model": "claude-tier-haiku[1m]", "behavesAs": "claude-sonnet-5", "description": "Haiku tier"},
+      {"model": "claude-tier-fable[1m]", "behavesAs": "claude-fable-5-1", "description": "Fable tier"}
+    ]
+  }
+}
+```
+
+Then add `--settings prizmal-claude.json` to the command. A row's `behavesAs` sets the prompt profile and effort defaults Claude Code applies, and its `description` is the row's text. The haiku row behaves as Sonnet 5 so that auto mode stays on. The Switch routes each request by the row's own model name.
 
 `prizmal claude` adds a few things this command leaves out:
 
-- The `/model` menu lists your tenant's models. Without the CLI, it shows Claude Code's built-in list.
+- The `/model` menu lists every model your switch key routes to. Without the CLI, it lists the rows in your settings file, or Claude Code's built-in list.
 - It removes model variables such as `ANTHROPIC_MODEL` that your shell exports, so they can't change the model a launch runs.
 - It installs Claude Code when the `claude` binary is missing.
 

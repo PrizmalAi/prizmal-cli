@@ -232,8 +232,8 @@ func claudeChildEnv(model string, rows []ModelRow) []string {
 const oneMillionSuffix = "[1m]"
 
 // claudeModelName returns the model name to hand Claude Code: the switch's own
-// name with exactly one [1m] suffix, or none for a haiku name, whatever the
-// switch sent. Every trailing suffix is stripped first, so the result does not
+// name with exactly one [1m] suffix, or none for a tier without a 1M window,
+// whatever the switch sent. Every trailing suffix is stripped first, so the result does not
 // depend on whether the id arrived bare, suffixed, or doubly suffixed.
 //
 // The suffix is a client-side budgeting instruction. Claude Code strips it
@@ -241,9 +241,10 @@ const oneMillionSuffix = "[1m]"
 // switch routes it as usual. Without it Claude Code assumes a 200k window and
 // compacts a long session early.
 //
-// A name whose tier has no 1M window, which is haiku, gets no suffix. Claude
-// Code drops a /model row that asks for 1M on such a model, and budgets the
-// tier's own window without the suffix.
+// A name whose tier has no 1M window gets no suffix. Claude Code drops a
+// /model row that asks for 1M on such a model, and budgets the tier's own
+// window without the suffix. The Switch serves every tier with a 1M window
+// today, so every tier name gets the suffix.
 func claudeModelName(model string) string {
 	if model == "" {
 		return ""
@@ -353,8 +354,16 @@ func claudeSettingsJSON(model string, rows []ModelRow) (string, error) {
 // Each value is spelled by claudeModelName, like the pinned model and the
 // picker rows. A request that resolves through a tier short name takes this
 // value as its model, so a value without the [1m] suffix would budget a 200k
-// window and compact a long session early. The haiku value is bare because
-// Haiku 4.5 has no 1M window.
+// window and compact a long session early.
+//
+// A tier whose rows behave as a model outside its own lineage has no entries.
+// Claude Code reads the overrides before a row's behavesAs: it resolves a
+// model whose name equals an override value to that value's key, with or
+// without the [1m] suffix. A haiku-tier session or /model row would then run
+// as Haiku 4.5. Claude Code refuses auto mode to Haiku 4.5, which came out
+// before Claude Opus 4.6, and drops a Haiku 4.5 row that asks for 1M. Without the entries, a
+// request that resolves to a haiku id reaches the Switch as that id, and the
+// Switch routes any claude-haiku- id to the tenant's haiku-tier config.
 //
 // The newest ids (claude-opus-5-5, claude-sonnet-5-5) are ones only recent
 // Claude Code releases know. An older release drops those keys, and it never
@@ -362,11 +371,20 @@ func claudeSettingsJSON(model string, rows []ModelRow) (string, error) {
 func claudeModelOverrides() map[string]string {
 	overrides := make(map[string]string)
 	for tier, ids := range claudeFamilyIDs {
+		if !profileInLineage(tier) {
+			continue
+		}
 		for _, id := range ids {
 			overrides[id] = claudeModelName(claudeTierModel(tier))
 		}
 	}
 	return overrides
+}
+
+// profileInLineage reports whether a tier's rows behave as a model of the
+// tier's own lineage.
+func profileInLineage(tier modelTier) bool {
+	return slices.Contains(claudeFamilyIDs[tier], tierProfiles[tier].behavesAs)
 }
 
 // modelOverride is one modelOverrides entry.
@@ -413,6 +431,9 @@ func claudeOrderedModelOverrides() orderedModelOverrides {
 	overrides := claudeModelOverrides()
 	ordered := make(orderedModelOverrides, 0, len(overrides))
 	for _, tier := range tierWords {
+		if !profileInLineage(tier) {
+			continue
+		}
 		profile := tierProfiles[tier].behavesAs
 		ids := append([]string{profile}, slices.DeleteFunc(slices.Clone(claudeFamilyIDs[tier]), func(id string) bool {
 			return id == profile

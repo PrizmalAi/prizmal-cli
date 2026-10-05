@@ -132,7 +132,8 @@ var (
 	stepShowUsage     = baselineStep{key: "Enter", waitFor: "Esc to cancel"}
 	stepPrizmalExit   = baselineStep{waitFor: "[prizmal exited"}
 	// stepClaudeReady waits for the prompt's footer in any permission mode. A
-	// haiku session starts in manual mode, whose footer has no shift+tab hint.
+	// session on a model that auto mode is closed to starts in manual mode,
+	// whose footer has no shift+tab hint.
 	stepClaudeReady = baselineStep{waitFor: "for agents"}
 )
 
@@ -202,9 +203,10 @@ var claudeBaselineCases = []baselineCase{
 		args: []string{"claude", "--model", "team-opus-blend", "-p", "hi"}, catalog: tierCatalog, claude: true,
 		steps: []baselineStep{stepPrizmalExit},
 	},
-	// A haiku alias runs as Haiku 4.5 with its 200k window. The alias is also a
-	// modelOverrides value, and with sorted keys it ran as the retired Claude
-	// 3.5 Haiku. Its /model row needs no [1m], which drops the row.
+	// A haiku alias runs as Sonnet 5 with a 1M window, in auto mode. As Haiku
+	// 4.5, the profile its tier names, it started in manual mode with no way
+	// to cycle into auto, because Claude Code refuses auto mode to a model
+	// released before Claude Opus 4.6.
 	{
 		name: "claude-context-model-haiku-100x40", cols: 100, rows: 40,
 		args: []string{"claude", "--model", "claude-tier-haiku"}, catalog: tierCatalog, claude: true,

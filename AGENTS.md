@@ -30,6 +30,19 @@ the README's integration table. The edit is a real configuration change: it
 persists, and the user removes it with `--restore`, never by re-running or
 exiting `prizmal`.
 
+## Design principle: the CLI is optional
+
+A person can use the Switch from each harness without installing `prizmal`.
+The README documents, for each harness, the environment variables, settings
+and model spellings that reproduce what a `prizmal` launch configures. The
+interactive parts are the exception: the model picker, the sign-in menu and
+the harness install prompt have no manual equivalent.
+
+When a change alters what a launch configures, such as an environment
+variable, a settings field or a model name's spelling, the same pull request
+updates the harness's manual instructions in the README. When the manual
+setup cannot match the launch, the README says what the launch adds.
+
 ## No ticket references in committed files
 
 Never write a `PRI-NNNN` ticket reference in a committed file. Git already
@@ -68,6 +81,10 @@ prizmal model picker and Claude Code's startup screen, `/model` picker and
 It launches Claude Code through the picker and with a model passed as `-m`
 or `--model`, with Claude Code installed at the version that
 `cmd/prizmal/testdata/terminal/claude/claude-code-version` records.
+`TestClaudeTiersStartInAutoMode` runs in the same job on the same version. It
+launches a model of each tier and fails when its session starts outside auto
+mode, so a Claude Code release that changes which models get auto mode fails
+when the pinned version moves.
 
 When a pull request changes a baseline, its body must include a pixel
 screenshot of every changed screen. The text diff lists the rows that moved,
