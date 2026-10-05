@@ -130,7 +130,7 @@ A launch that already has its model continues after the warning, without the ext
 
 Each doc covers how a launch configures that harness, what its device-login behavior is, how to undo the configuration with `--restore`, and how to run the harness against the Switch without the CLI.
 
-A `codex` launch gives Codex its own system prompt, read from the Codex you have installed so it always matches the version you run. [docs/codex.md](docs/codex.md) shows the same by hand.
+A `codex` launch lists every model your switch key serves in Codex's `/model` picker, with the Switch's descriptions, the launched model first, and the low, medium and high reasoning efforts. A launch also gives Codex its own system prompt, read from the Codex you have installed so it always matches the version you run. [docs/codex.md](docs/codex.md) shows both by hand.
 
 ## Commands
 
