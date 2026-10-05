@@ -633,7 +633,7 @@ func codexCatalogModels(modelName string, models []LaunchModel) []LaunchModel {
 	for _, m := range models {
 		// The Claude tier aliases are rows for Claude Code's picker. A folded
 		// model is shown by its tier alias there, so Codex gets the model.
-		if launchModelMatches(m.Name, modelName) || isClaudeTierModel(m.Name) {
+		if launchModelMatches(m.Name, modelName) || isClaudeTierModel(m.Name) || isReservedModelName(m.Name) {
 			continue
 		}
 		out = append(out, m.WithCloudLimits())
@@ -775,8 +775,6 @@ func buildCodexModelEntry(launchModel LaunchModel) map[string]any {
 		"base_instructions":            "",
 		"support_verbosity":            true,
 		"default_verbosity":            "low",
-		"supports_parallel_tool_calls": false,
-		"supports_reasoning_summaries": false,
 		"supported_reasoning_levels":   codexReasoningLevels,
 		"experimental_supported_tools": []any{},
 	}

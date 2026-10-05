@@ -197,6 +197,7 @@ func LaunchModels(chosen string, catalog []LaunchModel, includeCatalog bool) []L
 		models[0].Capabilities = entry.Capabilities
 		models[0].Tier = entry.Tier
 		models[0].Description = entry.Description
+		models[0].ContextLength = entry.ContextLength
 	}
 	if !includeCatalog {
 		return models

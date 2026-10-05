@@ -313,3 +313,40 @@ func TestCodexCatalogListsTheTenantCatalogWithEffortLevels(t *testing.T) {
 		t.Errorf("description = %q, want the catalog's text", got.Models[0].Description)
 	}
 }
+
+// TestCodexCatalogDeclaresTheWindowTheSwitchPublishes pins the 1M window: an
+// id the Switch decorates with [1m] becomes a bare slug whose entry declares
+// 1000000, and an undecorated id keeps the fallback window.
+func TestCodexCatalogDeclaresTheWindowTheSwitchPublishes(t *testing.T) {
+	fakeCodexBundle(t, fakeCodexCatalog)
+	t.Setenv("HARNESS_CONTEXT_LENGTH", "")
+	body := `{"data":[{"id":"prizmal-flash[1m]"},{"id":"prizmal-core"}]}`
+	catalog, err := parseSwitchCatalog([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	models := LaunchModels("prizmal-flash", catalog, true)
+	path := filepath.Join(t.TempDir(), "catalog.json")
+	if err := writeCodexModelCatalog(path, codexCatalogModels("prizmal-flash", models)); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(path)
+	var got struct {
+		Models []struct {
+			Slug   string `json:"slug"`
+			Window int    `json:"context_window"`
+		} `json:"models"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]int{"prizmal-flash": 1_000_000, "prizmal-core": codexFallbackContextWindow}
+	if len(got.Models) != 2 {
+		t.Fatalf("entries = %+v", got.Models)
+	}
+	for _, m := range got.Models {
+		if want[m.Slug] != m.Window {
+			t.Errorf("%s context_window = %d, want %d", m.Slug, m.Window, want[m.Slug])
+		}
+	}
+}
