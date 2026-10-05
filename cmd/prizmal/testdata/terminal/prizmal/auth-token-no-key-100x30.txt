@@ -1,0 +1,2 @@
+error: no device key on this machine; run prizmal login
+[prizmal exited 1]

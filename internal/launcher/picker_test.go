@@ -339,7 +339,7 @@ func TestPickerCursorWalksTheListInOrder(t *testing.T) {
 
 	// 0, a mid-page index, the first row of the second page, and the last row.
 	for _, downs := range []int{0, 5, 12, count - 1} {
-		m := newPickerModel(rows)
+		m := modelPickerModel(rows)
 		var model tea.Model = m
 		for i := 0; i < downs; i++ {
 			model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
@@ -359,7 +359,7 @@ func TestPickerCursorWalksTheListInOrder(t *testing.T) {
 func TestPickerSelectsTheModelNotTheLabel(t *testing.T) {
 	rows := []ModelRow{{Label: "tier-haiku", Model: "claude-tier-haiku"}}
 
-	m := newPickerModel(rows)
+	m := modelPickerModel(rows)
 	var model tea.Model = m
 	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
@@ -373,7 +373,7 @@ func TestPickerSelectsTheModelNotTheLabel(t *testing.T) {
 func TestPickerEscAbortsWithoutChoosing(t *testing.T) {
 	rows := []ModelRow{{Label: "a", Model: "a"}}
 
-	m := newPickerModel(rows)
+	m := modelPickerModel(rows)
 	var model tea.Model = m
 	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
 
@@ -467,7 +467,7 @@ func TestPickerDrawsARowPerModel(t *testing.T) {
 			rows = append(rows, ModelRow{Label: name, Model: name})
 		}
 
-		m := newPickerModel(rows)
+		m := modelPickerModel(rows)
 		drawn := strings.Count(m.View(), "model-")
 		want := min(models, pickerMaxVisible)
 		if drawn != want {
@@ -519,7 +519,7 @@ func TestSelectedStyleRendersGreen(t *testing.T) {
 func TestPickerEscClearsTheFilterBeforeQuitting(t *testing.T) {
 	rows := []ModelRow{{Label: "aaa", Model: "aaa"}, {Label: "bbb", Model: "bbb"}}
 
-	m := newPickerModel(rows)
+	m := modelPickerModel(rows)
 	var model tea.Model = m
 	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
 	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
@@ -555,7 +555,7 @@ func pickerHelpLine(m tea.Model) string {
 // fresh menu once advertised "enter apply" and "esc clear filter" with nothing
 // typed yet, and the line corrected itself only after a filter round-trip.
 func TestPickerHelpLineNamesFilteringKeysOnlyWhileFiltering(t *testing.T) {
-	var model tea.Model = newPickerModel([]ModelRow{{Label: "a", Model: "a"}, {Label: "b", Model: "b"}})
+	var model tea.Model = modelPickerModel([]ModelRow{{Label: "a", Model: "a"}, {Label: "b", Model: "b"}})
 
 	browsing := pickerHelpLine(model)
 	for _, want := range []string{"up", "down", "/ filter", "esc quit without saving"} {
@@ -582,7 +582,7 @@ func TestPickerHelpLineNamesFilteringKeysOnlyWhileFiltering(t *testing.T) {
 
 // With no filter active, esc still quits, which is the way out of the menu.
 func TestPickerEscQuitsWhenNotFiltering(t *testing.T) {
-	m := newPickerModel([]ModelRow{{Label: "a", Model: "a"}})
+	m := modelPickerModel([]ModelRow{{Label: "a", Model: "a"}})
 	var model tea.Model = m
 
 	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
@@ -650,7 +650,7 @@ func TestNoTierRunsAsAHaikuModel(t *testing.T) {
 // The prizmal picker shows each row's description beside its label, in one
 // column, as Claude Code's /model does.
 func TestPickerShowsDescriptionsInOneColumn(t *testing.T) {
-	view := newPickerModel(ModelRows([]LaunchModel{
+	view := modelPickerModel(ModelRows([]LaunchModel{
 		{Name: "claude-tier-opus"},
 		{Name: "smart", Tier: "sonnet"},
 		{Name: "plain"},
@@ -683,11 +683,77 @@ func TestPickerShowsDescriptionsInOneColumn(t *testing.T) {
 // One long model name must not push every other row's description past the
 // menu's width.
 func TestPickerCapsTheLabelColumn(t *testing.T) {
-	view := ansi.Strip(newPickerModel(ModelRows([]LaunchModel{
+	view := ansi.Strip(modelPickerModel(ModelRows([]LaunchModel{
 		{Name: "smart", Description: "Everyday coding"},
 		{Name: strings.Repeat("x", 76)},
 	})).View())
 	if !strings.Contains(view, "Everyday coding") {
 		t.Fatalf("a long label hid the other row's description:\n%s", view)
+	}
+}
+
+// modelPickerModel builds the shared picker over model rows, the way the model
+// picker does, so the model-specific tests keep asserting the model picker's
+// behaviour on top of the generalized widget.
+func modelPickerModel(rows []ModelRow) pickerModel {
+	return newPickerModel(modelPickerHeading, modelOptions(rows))
+}
+
+// The picker is not model-specific: PickOption takes a heading and options and
+// returns the chosen value.
+func TestPickOptionReturnsTheChosenValue(t *testing.T) {
+	original := PickerMenu
+	t.Cleanup(func() { PickerMenu = original })
+
+	var gotHeading string
+	var gotOptions []Option
+	PickerMenu = func(heading string, options []Option) (string, error) {
+		gotHeading, gotOptions = heading, options
+		return options[1].Value, nil
+	}
+
+	options := []Option{
+		{Label: "Sign in with your browser", Value: "browser", Description: "Approve this machine"},
+		{Label: "Paste a key", Value: "key"},
+	}
+	got, err := PickOption("Sign in", options)
+	if err != nil {
+		t.Fatalf("PickOption: %v", err)
+	}
+	if got != "key" {
+		t.Fatalf("chosen = %q, want key", got)
+	}
+	if gotHeading != "Sign in" {
+		t.Errorf("heading = %q, want Sign in", gotHeading)
+	}
+	if len(gotOptions) != 2 || gotOptions[0].Label != "Sign in with your browser" {
+		t.Errorf("options = %+v, want the two passed in", gotOptions)
+	}
+}
+
+// An empty option list is an error, not an empty menu.
+func TestPickOptionRefusesAnEmptyList(t *testing.T) {
+	if _, err := PickOption("Sign in", nil); !errors.Is(err, ErrNoOptions) {
+		t.Fatalf("PickOption(nil) error = %v, want ErrNoOptions", err)
+	}
+}
+
+// The generalized picker selects the option's Value, not its Label, and draws
+// the heading it was given in the title bar.
+func TestPickerSelectsTheValueAndDrawsTheHeading(t *testing.T) {
+	m := newPickerModel("Sign in", []Option{
+		{Label: "Sign in with your browser", Value: "browser"},
+		{Label: "Paste a key", Value: "key"},
+	})
+
+	if !strings.Contains(ansi.Strip(m.View()), "Sign in") {
+		t.Errorf("view does not draw the heading:\n%s", m.View())
+	}
+
+	var model tea.Model = m
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if got := model.(pickerModel).chosen; got != "browser" {
+		t.Fatalf("selected %q, want the value browser", got)
 	}
 }

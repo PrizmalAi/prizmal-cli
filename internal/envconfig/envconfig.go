@@ -29,6 +29,8 @@ var (
 	configURL   string
 	keyOverride string
 	configKey   string
+	deviceToken string
+	deviceMode  bool
 )
 
 // KeySource names where the provider API key came from. The names are printed
@@ -42,11 +44,40 @@ const (
 	KeySourceEnv KeySource = "$" + KeyEnvVar
 	// KeySourceConfig means the config file's api_key set the key.
 	KeySourceConfig KeySource = "config file (~/.prizmal/config.json)"
+	// KeySourceDevice means an enrolled device produced the credential: the
+	// CLI refreshes a device token from ~/.prizmal/device.key and hands it to
+	// the launch instead of a switch key.
+	KeySourceDevice KeySource = "device login (~/.prizmal/device.key)"
 	// KeySourceNone means no source produced a key. The wording stays neutral
 	// between an unauthenticated launch and an unauthenticated listing, which
 	// share this announcement.
 	KeySourceNone KeySource = "none (unauthenticated)"
 )
+
+// SetDeviceMode marks this process as running from an enrolled device. In
+// device mode the credential is a device token (a signed, short-lived bearer),
+// not a switch key, and the launchers that cannot refresh one refuse to run.
+func SetDeviceMode(on bool) {
+	mu.Lock()
+	defer mu.Unlock()
+	deviceMode = on
+}
+
+// DeviceMode reports whether this process runs in device mode.
+func DeviceMode() bool {
+	mu.RLock()
+	defer mu.RUnlock()
+	return deviceMode
+}
+
+// SetDeviceToken sets the device token a device-mode process holds. It is used
+// for the catalog fetch, which authenticates with the same bearer the harness
+// will send.
+func SetDeviceToken(tok string) {
+	mu.Lock()
+	defer mu.Unlock()
+	deviceToken = strings.TrimSpace(tok)
+}
 
 // SetConfigBaseURL records the provider URL read from the config file. It sits
 // below the --url flag and $PRIZMAL_SWITCH_URL in precedence.
@@ -88,8 +119,18 @@ func APIKeySource() KeySource {
 
 func resolveAPIKey() (string, KeySource) {
 	mu.RLock()
-	flag, cfg := keyOverride, configKey
+	flag, cfg, devTok, dev := keyOverride, configKey, deviceToken, deviceMode
 	mu.RUnlock()
+	// Device mode outranks every switch-key source. An enrolled device is the
+	// credential the tenant approved; a stale $PRIZMAL_SWITCH_KEY exported in
+	// the shell must not silently take its place and route the session under a
+	// key the operator forgot about.
+	if dev {
+		if devTok != "" {
+			return devTok, KeySourceDevice
+		}
+		return "", KeySourceNone
+	}
 	if flag != "" {
 		return flag, KeySourceFlag
 	}

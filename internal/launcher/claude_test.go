@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -155,9 +156,13 @@ func TestClaudeEnvVarsSetNoModelVariables(t *testing.T) {
 }
 
 // TestClaudeChildEnvDropsInheritedModelVars is the acceptance criterion that no
-// model env var reaches the child. A value exported in the operator's shell for
-// Anthropic itself must not ride along and re-route a launch the operator aimed
-// at the Switch.
+// inherited model env var reaches the child. A value exported in the operator's
+// shell for Anthropic itself must not ride along and re-route a launch the
+// operator aimed at the Switch.
+//
+// ANTHROPIC_AUTH_TOKEN is in the drop list but is not checked here: the
+// switch-key launch sets it to the key, so it is legitimately present. Its
+// inherited value is covered by TestClaudeChildEnvAuthTokenIsTheLaunchValueNotTheInheritedOne.
 func TestClaudeChildEnvDropsInheritedModelVars(t *testing.T) {
 	resetAPIKey(t)
 	for _, name := range claudeInheritedModelVars {
@@ -167,12 +172,120 @@ func TestClaudeChildEnvDropsInheritedModelVars(t *testing.T) {
 	env := claudeChildEnv("", nil)
 
 	for _, name := range claudeInheritedModelVars {
+		if name == "ANTHROPIC_AUTH_TOKEN" {
+			continue
+		}
 		if strings.Contains(strings.Join(env, "\n"), name+"=") {
 			t.Errorf("%s reached the child environment", name)
 		}
 	}
-	if got := envValue(env, "ANTHROPIC_AUTH_TOKEN="); got != "" {
-		t.Errorf("ANTHROPIC_AUTH_TOKEN = %q, want the empty launch value", got)
+}
+
+// TestClaudeChildEnvAuthTokenIsTheLaunchValueNotTheInheritedOne pins the
+// switch-key path: ANTHROPIC_AUTH_TOKEN carries the launch's key, and an
+// inherited value of the same name never survives. The launch value must be
+// non-empty here, or a regression that drops it is indistinguishable from one
+// that keeps an empty entry.
+func TestClaudeChildEnvAuthTokenIsTheLaunchValueNotTheInheritedOne(t *testing.T) {
+	resetAPIKey(t)
+	envconfig.SetAPIKey("sk-launch-key")
+	t.Cleanup(func() { envconfig.SetAPIKey("") })
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "inherited-should-not-survive")
+	envconfig.SetDeviceMode(false)
+
+	env := claudeChildEnv("", nil)
+
+	if got := envValue(env, "ANTHROPIC_AUTH_TOKEN="); got != "sk-launch-key" {
+		t.Fatalf("ANTHROPIC_AUTH_TOKEN = %q, want the launch key, never the inherited one", got)
+	}
+}
+
+// TestClaudeChildEnvDeviceModeHasNoAuthToken pins the device-mode credential
+// channel: ANTHROPIC_AUTH_TOKEN is absent from the child environment from every
+// source, the helper TTL is set, and the console key stays empty. Claude Code
+// treats ANTHROPIC_AUTH_TOKEN as a fixed credential it never refreshes, so
+// leaving it set — even to a device token — would pin the session to the
+// launch-time token and stop the apiKeyHelper from refreshing it.
+func TestClaudeChildEnvDeviceModeHasNoAuthToken(t *testing.T) {
+	resetAPIKey(t)
+	envconfig.SetAPIKey("sk-should-not-appear")
+	envconfig.SetDeviceMode(true)
+	t.Cleanup(func() {
+		envconfig.SetAPIKey("")
+		envconfig.SetDeviceMode(false)
+	})
+	// An operator who exported ANTHROPIC_AUTH_TOKEN in their shell must not
+	// pass it through either.
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "inherited-should-not-survive")
+
+	env := claudeChildEnv("", nil)
+
+	if strings.Contains(strings.Join(env, "\n"), "ANTHROPIC_AUTH_TOKEN=") {
+		t.Fatalf("ANTHROPIC_AUTH_TOKEN is present in device mode:\n%v", env)
+	}
+	if got := envValue(env, "ANTHROPIC_API_KEY="); got != "" {
+		t.Fatalf("ANTHROPIC_API_KEY = %q, want empty in device mode", got)
+	}
+	if got := envValue(env, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS="); got != strconv.Itoa(claudeHelperTTLMs) {
+		t.Fatalf("CLAUDE_CODE_API_KEY_HELPER_TTL_MS = %q, want %d", got, claudeHelperTTLMs)
+	}
+}
+
+// TestDeviceSettingsJSONAddsHelperToExistingSettings verifies the apiKeyHelper
+// is merged into the launch settings without dropping the model, the overrides
+// or the picker rows the launch already built.
+func TestDeviceSettingsJSONAddsHelperToExistingSettings(t *testing.T) {
+	settings, err := deviceSettingsJSON(`{"model":"m[1m]","modelPicker":{"replaceBuiltInOptions":true}}`)
+	if err != nil {
+		t.Fatalf("deviceSettingsJSON: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(settings), &got); err != nil {
+		t.Fatalf("result is not JSON: %v", err)
+	}
+	if got["model"] != "m[1m]" {
+		t.Errorf("model was dropped: %v", got["model"])
+	}
+	if _, ok := got["modelPicker"]; !ok {
+		t.Error("modelPicker was dropped")
+	}
+	helper, _ := got["apiKeyHelper"].(string)
+	if !strings.HasSuffix(helper, " auth token") {
+		t.Errorf("apiKeyHelper = %q, want it to end with the helper subcommand", helper)
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(helper, strconv.Quote(exe)) {
+		t.Errorf("apiKeyHelper = %q, want the quoted executable %q first", helper, exe)
+	}
+}
+
+// TestDeviceSettingsJSONKeepsTheOverrideKeyOrder verifies the device merge
+// leaves the modelOverrides object's key order untouched. Claude Code names a
+// model by alias as the first key, in object order, that maps to it, so a
+// resorted object makes a tier alias run as the oldest model mapped to it.
+func TestDeviceSettingsJSONKeepsTheOverrideKeyOrder(t *testing.T) {
+	settings, err := claudeSettingsJSON("claude-tier-haiku", nil)
+	if err != nil {
+		t.Fatalf("claudeSettingsJSON: %v", err)
+	}
+	merged, err := deviceSettingsJSON(settings)
+	if err != nil {
+		t.Fatalf("deviceSettingsJSON: %v", err)
+	}
+	var before, after struct {
+		ModelOverrides json.RawMessage `json:"modelOverrides"`
+	}
+	if err := json.Unmarshal([]byte(settings), &before); err != nil {
+		t.Fatalf("settings is not JSON: %v", err)
+	}
+	if err := json.Unmarshal([]byte(merged), &after); err != nil {
+		t.Fatalf("merged settings is not JSON: %v", err)
+	}
+	if string(before.ModelOverrides) != string(after.ModelOverrides) {
+		t.Fatalf("modelOverrides key order changed through the device merge\nbefore: %s\nafter:  %s", before.ModelOverrides, after.ModelOverrides)
 	}
 }
 
@@ -768,5 +881,61 @@ func TestClaudeLaunchSpellsATieredConfigAsItsRow(t *testing.T) {
 	}
 	if !slices.Contains(claudeChildEnv("flash", rows), "ANTHROPIC_DEFAULT_OPUS_MODEL=flash[1m]") {
 		t.Errorf("child env lacks ANTHROPIC_DEFAULT_OPUS_MODEL=flash[1m]")
+	}
+}
+
+// TestEnsureHelperBaseURLPinsTheResolvedHost fixes the environment the
+// apiKeyHelper runs under. The helper is a separate prizmal process that
+// resolves the URL from scratch, so a launch aimed at a non-default host by
+// --url would otherwise let the helper fall back to the production default and
+// mint a token the launch's Switch cannot use.
+func TestEnsureHelperBaseURLPinsTheResolvedHost(t *testing.T) {
+	env := []string{"PATH=/usr/bin", "ANTHROPIC_BASE_URL=https://api.staging.prizmal.ai"}
+
+	got := ensureHelperBaseURL(env, "https://api.staging.prizmal.ai")
+	if v := envValue(got, envconfig.EnvVar+"="); v != "https://api.staging.prizmal.ai" {
+		t.Fatalf("%s = %q, want the resolved host pinned for the helper", envconfig.EnvVar, v)
+	}
+
+	// An operator's own exported URL is already the host the child resolves, so
+	// the pin does not add a second entry.
+	withEnv := append([]string{envconfig.EnvVar + "=https://operator.example.test"}, env...)
+	got2 := ensureHelperBaseURL(withEnv, "https://api.staging.prizmal.ai")
+	count := 0
+	for _, name := range envNames(got2) {
+		if name == envconfig.EnvVar {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("%s appears %d times, want the operator's single entry", envconfig.EnvVar, count)
+	}
+}
+
+// TestClaudeChildEnvNeverInheritsAnthropicAuthTokenOutsideDeviceMode pins the
+// switch-key path's precedence: the launch's own ANTHROPIC_AUTH_TOKEN wins and
+// the operator's exported one never rides along. That was true before device
+// mode existed (the launch value is a "fixed name", so the inherited copy is
+// skipped) and stays true now. No operator-facing switch key travels in this
+// variable, so dropping the inherited copy costs no credential.
+func TestClaudeChildEnvNeverInheritsAnthropicAuthTokenOutsideDeviceMode(t *testing.T) {
+	resetAPIKey(t)
+	envconfig.SetDeviceMode(false)
+	t.Cleanup(func() { envconfig.SetDeviceMode(false) })
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "inherited-shell-token")
+
+	// With an explicit switch key, the child carries it, never the inherited one.
+	envconfig.SetAPIKey("sk-explicit")
+	t.Cleanup(func() { envconfig.SetAPIKey("") })
+	if got := envValue(claudeChildEnv("", nil), "ANTHROPIC_AUTH_TOKEN="); got != "sk-explicit" {
+		t.Fatalf("ANTHROPIC_AUTH_TOKEN = %q, want the explicit key, never the inherited one", got)
+	}
+
+	// With no key from any prizmal source, the variable is empty exactly as
+	// before device mode: prizmal reads its key from $PRIZMAL_SWITCH_KEY, the
+	// flag, or the config file, never from ANTHROPIC_AUTH_TOKEN.
+	envconfig.SetAPIKey("")
+	if got := envValue(claudeChildEnv("", nil), "ANTHROPIC_AUTH_TOKEN="); got != "" {
+		t.Fatalf("ANTHROPIC_AUTH_TOKEN = %q, want empty when no prizmal key is configured", got)
 	}
 }

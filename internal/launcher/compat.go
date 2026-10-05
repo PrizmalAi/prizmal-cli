@@ -244,6 +244,22 @@ type OwningModelFlag interface {
 	OwnsModelFlag() bool
 }
 
+// DeviceModeRunner is a runner that can refresh its own credential from an
+// enrolled device key. Only Claude Code has a documented refresh contract (its
+// apiKeyHelper), so only it opts in. Every other runner receives the key once
+// through the environment and cannot refresh a short-lived device token; the
+// CLI ignores device login for them and runs them on the switch key the config
+// already holds.
+type DeviceModeRunner interface {
+	SupportsDeviceMode() bool
+}
+
+// SupportsDeviceMode reports whether a runner can run from an enrolled device.
+func SupportsDeviceMode(runner Runner) bool {
+	d, ok := runner.(DeviceModeRunner)
+	return ok && d.SupportsDeviceMode()
+}
+
 // Editor can edit config files for integrations that support model configuration.
 type Editor interface {
 	Paths() []string
@@ -260,10 +276,11 @@ type Configurer interface {
 // AnsiRed, AnsiGreen, AnsiReset and AnsiBold are exported ANSI helpers for
 // the CLI entrypoint.
 const (
-	AnsiRed   = ansiRed
-	AnsiGreen = ansiGreen
-	AnsiReset = ansiReset
-	AnsiBold  = ansiBold
+	AnsiRed    = ansiRed
+	AnsiGreen  = ansiGreen
+	AnsiYellow = ansiYellow
+	AnsiReset  = ansiReset
+	AnsiBold   = ansiBold
 )
 
 // readJSONFile returns nil, nil when the file is absent (there is nothing to
