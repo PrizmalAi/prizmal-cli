@@ -22,6 +22,13 @@ name: Claude Code
 # with each release. PRIZMAL_TERMINAL_BASELINES=require turns a missing tmux
 # or a different Claude Code version into a failure, so this job cannot pass
 # by skipping every case.
+#
+# The same job runs TestClaudeCompactsOnTheStatedWindowAndOnARecognizedRefusal:
+# three print-mode queries through prizmal and the pinned Claude Code against
+# the stub switch. It asserts that the compaction summary request goes out once
+# the count crosses the threshold the launch's window sets, that a refusal in
+# the "prompt is too long" shape also starts one, and that neither happens when
+# a shim removes the window or the refusal's text is not recognized.
 
 on:
   push:
@@ -75,4 +82,4 @@ jobs:
       - name: Compare terminal baselines
         env:
           PRIZMAL_TERMINAL_BASELINES: require
-        run: go test -count=1 -v -run 'TestTerminalBaselinesClaude|TestTerminalBaselinesPrizmal|TestClaudeTiersStartInAutoMode' ./cmd/prizmal
+        run: go test -count=1 -v -run 'TestTerminalBaselinesClaude|TestTerminalBaselinesPrizmal|TestClaudeTiersStartInAutoMode|TestClaudeCompactsOnTheStatedWindowAndOnARecognizedRefusal' ./cmd/prizmal

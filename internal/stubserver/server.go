@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 )
 
 // StubKey is the API key tests should pass via envconfig.SetAPIKey.
@@ -22,6 +23,13 @@ const StubKey = "stub-key"
 // test can find it in a harness's output, where the bare word "stub" could
 // also come from a model id or an error message.
 const Reply = "PRIZMAL-STUB-REPLY"
+
+// SummaryReply is the answer a usage plan gives a compaction request: an
+// analysis block and a summary, the shape the compaction's parser looks for
+// (the request's instructions end with a REMINDER to produce it). Its text is
+// distinctive, so a test can find the compaction's answer in the reply of the
+// request that asked for it.
+const SummaryReply = "<analysis>None needed.</analysis>\n<summary>\nSummary: the stub switch answered the compaction request.\n</summary>"
 
 // New returns a running httptest.Server that speaks all three dialects.
 // Callers must defer Close it.
@@ -70,6 +78,7 @@ type Entry struct {
 type serverConfig struct {
 	models         []map[string]any
 	deviceApproved bool
+	usagePlan      *UsagePlan
 }
 
 // ServerOption configures a stub server.
@@ -119,6 +128,137 @@ func WithDeviceApproval() ServerOption {
 	return func(c *serverConfig) { c.deviceApproved = true }
 }
 
+// UsagePlan is a test knob that makes the stub report usage, /v1/messages
+// by /v1/messages, the way Claude Code reads it. A plan that starts a
+// conversation near a compaction window makes Claude Code's next turn cross
+// the threshold, so a test can watch the requests the client sends as its
+// token count passes it.
+//
+// The plan counts every request the stub serves, so a test that wants a
+// threshold crossed mid-conversation reads Requests() and asserts on what the
+// client did as the numbers grew.
+type UsagePlan struct {
+	// InputTokens is the usage.input_tokens of request n, in order. The last
+	// value repeats after the list runs out.
+	inputTokens []int
+	// Requests records one entry per /v1/messages request: the JSON-encoded
+	// body, so a test can find the last message's text. Guarded by the mutex.
+	mu       sync.Mutex
+	bodies   []string
+	received int
+	// overflowLimit, when above zero, makes the stub refuse a request whose
+	// planned usage passes it, with a 400 carrying overflowMessage.
+	overflowLimit   int
+	overflowMessage string
+}
+
+// NewUsagePlan builds a plan whose input_tokens follow values turn by turn.
+func NewUsagePlan(inputTokens ...int) *UsagePlan {
+	return &UsagePlan{inputTokens: inputTokens}
+}
+
+// OverflowAbove makes the stub refuse, with HTTP 400 invalid_request_error, a
+// request whose planned input_tokens passes limit, the way an endpoint refuses
+// a prompt past its window. In message, {tokens} stands for the planned count
+// and {limit} for limit, so a test can spell the refusal the way a provider
+// does or in a shape no client recognizes. A compaction request is never
+// refused: the stub answers it with the summary. It returns the plan.
+func (p *UsagePlan) OverflowAbove(limit int, message string) *UsagePlan {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.overflowLimit = limit
+	p.overflowMessage = message
+	return p
+}
+
+// WithUsagePlan installs the plan on the stub's /v1/messages route.
+func WithUsagePlan(plan *UsagePlan) ServerOption {
+	return func(c *serverConfig) { c.usagePlan = plan }
+}
+
+// Requests returns how many /v1/messages calls the stub has served.
+func (p *UsagePlan) Requests() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.received
+}
+
+// LastBody returns the body of the most recent /v1/messages request, decoded
+// into a map, or nil when no request arrived.
+func (p *UsagePlan) LastBody() map[string]any {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.bodies) == 0 {
+		return nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(p.bodies[len(p.bodies)-1]), &m); err != nil {
+		return nil
+	}
+	return m
+}
+
+// Bodies returns every /v1/messages request body the stub has served, in
+// order, each decoded into a map.
+func (p *UsagePlan) Bodies() []map[string]any {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	bodies := make([]map[string]any, 0, len(p.bodies))
+	for _, raw := range p.bodies {
+		var m map[string]any
+		if err := json.Unmarshal([]byte(raw), &m); err != nil {
+			continue
+		}
+		bodies = append(bodies, m)
+	}
+	return bodies
+}
+
+// nextUsage records the request body and answers the plan's next turn: the
+// message id, which counts the request up, and the usage. The last plan
+// value repeats once the list runs out, so a conversation whose compaction
+// request arrives crosses the threshold on the turn the plan aims at and
+// stays past it afterward.
+//
+// The id is per request, spelled with the request's count: deterministic,
+// and distinct between replies. A client that anchors on a reply's usage
+// groups the conversation by that id, and one shared id would read as one
+// long turn.
+//
+// A request whose messages carry the compaction instructions ("CRITICAL:
+// Respond with TEXT ONLY", tQt in the 2.1.x binaries) is answered with an
+// analysis and a summary instead of the plan's reply: the compaction needs a
+// summary it can parse, and the shape it asks for is the one it parses. The
+// summary's text is distinctive so a test can find the compaction's answer.
+func (p *UsagePlan) nextUsage(body map[string]any) (string, map[string]any) {
+	raw, _ := json.Marshal(body)
+	p.mu.Lock()
+	p.bodies = append(p.bodies, string(raw))
+	n := p.received
+	p.received++
+	p.mu.Unlock()
+
+	if strings.Contains(string(raw), "CRITICAL: Respond with TEXT ONLY") {
+		return fmt.Sprintf("msg_stub_compact_%d", n), map[string]any{"input_tokens": 1, "output_tokens": 80, "summary": true}
+	}
+
+	tokens := 1
+	if len(p.inputTokens) > 0 {
+		tokens = p.inputTokens[len(p.inputTokens)-1]
+		if n < len(p.inputTokens) {
+			tokens = p.inputTokens[n]
+		}
+	}
+	if p.overflowLimit > 0 && tokens > p.overflowLimit {
+		message := strings.NewReplacer(
+			"{tokens}", fmt.Sprint(tokens),
+			"{limit}", fmt.Sprint(p.overflowLimit),
+		).Replace(p.overflowMessage)
+		return "", map[string]any{"overflow": message}
+	}
+	return fmt.Sprintf("msg_stub_%d", n), map[string]any{"input_tokens": tokens, "output_tokens": 1}
+}
+
 // NewServer returns a running stub server built from options. Callers must
 // defer Close it.
 func NewServer(opts ...ServerOption) *httptest.Server {
@@ -126,11 +266,11 @@ func NewServer(opts ...ServerOption) *httptest.Server {
 	for _, opt := range opts {
 		opt(&c)
 	}
-	return httptest.NewServer(handler(c.models, c.deviceApproved))
+	return httptest.NewServer(handler(c.models, c.deviceApproved, c.usagePlan))
 }
 
 // handler serves the stub API. A nil models serves the default fixture.
-func handler(models []map[string]any, deviceApproved bool) http.HandlerFunc {
+func handler(models []map[string]any, deviceApproved bool, usagePlan *UsagePlan) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// POST /v1/cli/token is the device refresh. The real Switch serves it
 		// without a bearer credential, because the request carries its own
@@ -163,7 +303,7 @@ func handler(models []map[string]any, deviceApproved bool) http.HandlerFunc {
 			handleResponses(w, r)
 
 		case method == http.MethodPost && path == "/v1/messages":
-			handleMessages(w, r)
+			handleMessages(w, r, usagePlan)
 
 		case method == http.MethodPost && path == "/v1/messages/count_tokens":
 			writeJSON(w, http.StatusOK, map[string]any{"input_tokens": 1})
@@ -221,25 +361,34 @@ func requestBody(r *http.Request) map[string]any {
 	return m
 }
 
-// wantsToolCall reports whether the last user message contains "stub-tool".
+// wantsToolCall reports whether any user message contains "stub-tool".
+//
+// Every user message is scanned, not just the last one: a harness appends
+// context injections (an environment block, a system reminder) as further
+// user-role messages after the prompt, and a trigger word in the prompt must
+// still fire through them.
 func wantsToolCall(body map[string]any) bool {
 	if body == nil {
 		return false
 	}
 	msgs, ok := body["messages"].([]any)
-	if !ok || len(msgs) == 0 {
-		return false
-	}
-	last := msgs[len(msgs)-1]
-	m, ok := last.(map[string]any)
 	if !ok {
 		return false
 	}
-	role, _ := m["role"].(string)
-	if role != "user" {
-		return false
+	for _, msg := range msgs {
+		m, ok := msg.(map[string]any)
+		if !ok {
+			continue
+		}
+		role, _ := m["role"].(string)
+		if role != "user" {
+			continue
+		}
+		if messageContains(m, "stub-tool") {
+			return true
+		}
 	}
-	return messageContains(m, "stub-tool")
+	return false
 }
 
 // messageContains checks if a message's content field contains the substring.
@@ -450,7 +599,11 @@ func startSSE(w http.ResponseWriter) (http.Flusher, bool) {
 	return flusher, true
 }
 
-func handleMessages(w http.ResponseWriter, r *http.Request) {
+// handleMessages answers the Anthropic dialect. With a usage plan installed,
+// each served request records its body for the test and carries the plan's
+// next input_tokens, so the conversation's token count moves the way the test
+// aims it.
+func handleMessages(w http.ResponseWriter, r *http.Request, plan *UsagePlan) {
 	body := requestBody(r)
 	toolCall := wantsToolCall(body)
 	stream := wantsStream(body)
@@ -458,6 +611,27 @@ func handleMessages(w http.ResponseWriter, r *http.Request) {
 	// The unified status header the real Switch sends, so a client that reads it
 	// draws the funded-tenant screen.
 	w.Header().Set("anthropic-ratelimit-unified-status", "allowed")
+
+	// Each served reply carries its own message id. A client that anchors on
+	// a reply's usage (Claude Code's token counter) groups the conversation
+	// by the reply id, and two replies with one id read as one long turn.
+	id := "msg_stub"
+	usage := map[string]any{"input_tokens": 1, "output_tokens": 1}
+	replyText := Reply
+	if plan != nil {
+		id, usage = plan.nextUsage(body)
+		if message, ok := usage["overflow"].(string); ok {
+			writeJSON(w, http.StatusBadRequest, map[string]any{
+				"type":  "error",
+				"error": map[string]any{"type": "invalid_request_error", "message": message},
+			})
+			return
+		}
+		if isSummary, _ := usage["summary"].(bool); isSummary {
+			usage = map[string]any{"input_tokens": 1, "output_tokens": 80}
+			replyText = SummaryReply
+		}
+	}
 
 	if stream {
 		flusher, ok := startSSE(w)
@@ -471,7 +645,7 @@ func handleMessages(w http.ResponseWriter, r *http.Request) {
 		writeSSEEvent(w, flusher, "message_start", map[string]any{
 			"type": "message_start",
 			"message": map[string]any{
-				"id":            "msg_stub",
+				"id":            id,
 				"type":          "message",
 				"role":          "assistant",
 				"model":         "prizmal/stub",
@@ -481,39 +655,40 @@ func handleMessages(w http.ResponseWriter, r *http.Request) {
 				"usage":         map[string]any{"input_tokens": 1, "output_tokens": 0},
 			},
 		})
-		writeSSEEvent(w, flusher, "content_block_start", map[string]any{
-			"type":          "content_block_start",
-			"index":         0,
-			"content_block": map[string]any{"type": "text", "text": ""},
-		})
-		writeSSEEvent(w, flusher, "content_block_delta", map[string]any{
-			"type":  "content_block_delta",
-			"index": 0,
-			"delta": map[string]any{"type": "text_delta", "text": Reply},
-		})
+		start := contentBlockStart(toolCall)
+		writeSSEEvent(w, flusher, "content_block_start", start)
+		writeSSEEvent(w, flusher, "content_block_delta", contentBlockDelta(toolCall, replyText))
 		writeSSEEvent(w, flusher, "content_block_stop", map[string]any{"type": "content_block_stop", "index": 0})
 		writeSSEEvent(w, flusher, "message_delta", map[string]any{
 			"type":  "message_delta",
 			"delta": map[string]any{"stop_reason": "end_turn", "stop_sequence": nil},
-			"usage": map[string]any{"output_tokens": 1},
+			"usage": usage,
 		})
 		writeSSEEvent(w, flusher, "message_stop", map[string]any{"type": "message_stop"})
 		return
 	}
 
-	content := []map[string]any{{"type": "text", "text": Reply}}
+	// The tool answer rides the same shapes the other dialects reply with, and
+	// carries stop_reason tool_use in the non-streamed body: a harness reads
+	// the stop reason to decide whether to run the tool and continue the turn.
+	stopReason := "end_turn"
+	if toolCall {
+		stopReason = "tool_use"
+	}
+
+	content := []map[string]any{{"type": "text", "text": replyText}}
 	if toolCall {
 		content = []map[string]any{{"type": "tool_use", "id": "toolu_stub", "name": "stub_tool", "input": map[string]any{}}}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"id":          "msg_stub",
+		"id":          id,
 		"type":        "message",
 		"role":        "assistant",
 		"model":       "prizmal/stub",
 		"content":     content,
-		"stop_reason": "end_turn",
-		"usage":       map[string]any{"input_tokens": 1, "output_tokens": 1},
+		"stop_reason": stopReason,
+		"usage":       usage,
 	})
 }
 
@@ -521,6 +696,42 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// contentBlockStart is the content_block_start event's value: a tool_use block
+// when the request asked for a tool, else the text block.
+func contentBlockStart(toolCall bool) map[string]any {
+	if toolCall {
+		return map[string]any{
+			"type":          "content_block_start",
+			"index":         0,
+			"content_block": map[string]any{"type": "tool_use", "id": "toolu_stub", "name": "stub_tool", "input": map[string]any{}},
+		}
+	}
+	return map[string]any{
+		"type":          "content_block_start",
+		"index":         0,
+		"content_block": map[string]any{"type": "text", "text": ""},
+	}
+}
+
+// contentBlockDelta is the content_block_delta event's value: the tool input
+// as a partial JSON delta when the request asked for a tool, else the reply
+// as a text delta. replyText replaces the default reply, which the summary
+// answer of a usage plan sets.
+func contentBlockDelta(toolCall bool, replyText string) map[string]any {
+	if toolCall {
+		return map[string]any{
+			"type":  "content_block_delta",
+			"index": 0,
+			"delta": map[string]any{"type": "input_json_delta", "partial_json": "{}"},
+		}
+	}
+	return map[string]any{
+		"type":  "content_block_delta",
+		"index": 0,
+		"delta": map[string]any{"type": "text_delta", "text": replyText},
+	}
 }
 
 func writeSSE(w http.ResponseWriter, flusher http.Flusher, v any) {

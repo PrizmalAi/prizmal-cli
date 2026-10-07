@@ -289,10 +289,24 @@ To get the tier rows in `/model` with the window and model profile `prizmal clau
 
 Then add `--settings prizmal-claude.json` to the command. A row's `behavesAs` sets the prompt profile and effort defaults Claude Code applies, and its `description` is the row's text. The haiku row behaves as Sonnet 5 so that auto mode stays on. The Switch routes each request by the row's own model name.
 
+### Auto-compaction
+
+A model name `prizmal claude` spells, with its `[1m]` suffix and your tenant's own names, is one Claude Code's model catalogue does not carry. For such a name Claude Code skips auto-compaction on its own: it waits for the endpoint to refuse the request, and a session stalls at the provider's limit. So the launch sets `CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000`, which tells Claude Code the window and turns its threshold check on. Claude Code then compacts a session at 967000 counted tokens, which is the window less its 20000-token output budget and a 13000-token margin.
+
+To reproduce this without the CLI, add the variable to the command:
+
+```bash
+CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000 claude --model 'claude-tier-haiku[1m]'
+```
+
+Set a smaller value to compact sooner. `/autocompact` does not change a window the variable sets.
+
+An HTTP 400 `invalid_request_error` whose message reads `prompt is too long: N tokens > M maximum` also makes Claude Code compact and retry, whatever the window's source. That is the second guard for a conversation that grows past the window between two checks.
+
 `prizmal claude` adds a few things this command leaves out:
 
 - The `/model` menu lists every model your switch key routes to. Without the CLI, it lists the rows in your settings file, or Claude Code's built-in list.
-- It removes model variables such as `ANTHROPIC_MODEL` that your shell exports, so they can't change the model a launch runs.
+- It removes model variables such as `ANTHROPIC_MODEL` that your shell exports, so they can't change the model a launch runs. It keeps a `CLAUDE_CODE_AUTO_COMPACT_WINDOW` you export when the value is a positive number under 1000000, and sets 1000000 otherwise.
 - It installs Claude Code when the `claude` binary is missing.
 
 ## Building

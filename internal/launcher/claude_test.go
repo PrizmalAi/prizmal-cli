@@ -163,6 +163,9 @@ func TestClaudeEnvVarsSetNoModelVariables(t *testing.T) {
 // ANTHROPIC_AUTH_TOKEN is in the drop list but is not checked here: the
 // switch-key launch sets it to the key, so it is legitimately present. Its
 // inherited value is covered by TestClaudeChildEnvAuthTokenIsTheLaunchValueNotTheInheritedOne.
+// CLAUDE_CODE_AUTO_COMPACT_WINDOW is skipped for the same reason: the launch
+// sets it, and TestClaudeChildEnvKeepsOnlyASmallerOperatorWindow covers what
+// becomes of an inherited value.
 func TestClaudeChildEnvDropsInheritedModelVars(t *testing.T) {
 	resetAPIKey(t)
 	for _, name := range claudeInheritedModelVars {
@@ -172,7 +175,7 @@ func TestClaudeChildEnvDropsInheritedModelVars(t *testing.T) {
 	env := claudeChildEnv("", nil)
 
 	for _, name := range claudeInheritedModelVars {
-		if name == "ANTHROPIC_AUTH_TOKEN" {
+		if name == "ANTHROPIC_AUTH_TOKEN" || name == claudeCompactWindowEnv {
 			continue
 		}
 		if strings.Contains(strings.Join(env, "\n"), name+"=") {

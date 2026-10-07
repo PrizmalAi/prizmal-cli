@@ -268,6 +268,10 @@ func (c *Claude) envVars() []string {
 // operator's shell for Anthropic itself must not ride along and re-route a
 // launch the operator did not aim at Anthropic.
 //
+// CLAUDE_CODE_AUTO_COMPACT_WINDOW is in the list too, and the CLI also sets it
+// for real, from claudeCompactWindowValue: the child sees the launch's window,
+// or a lower one the operator exported, never an inherited value as it came.
+//
 // ANTHROPIC_DEFAULT_OPUS_MODEL and CLAUDE_CODE_SUBAGENT_MODEL are in this list
 // and are also the two variables the CLI sets for real, from claudeChildEnv
 // below. A stale shell export must not give the child a model the operator
@@ -284,6 +288,7 @@ var claudeInheritedModelVars = []string{
 	"ANTHROPIC_MODEL",
 	"ANTHROPIC_SMALL_FAST_MODEL",
 	"CLAUDE_CODE_SUBAGENT_MODEL",
+	claudeCompactWindowEnv,
 	"ANTHROPIC_AUTH_TOKEN",
 }
 
@@ -320,6 +325,9 @@ func claudeChildEnv(model string, rows []ModelRow) []string {
 		env = append(env, kv)
 	}
 	env = append(env, fixed...)
+	// The compaction window: without it Claude Code never compacts these
+	// launches (claude_compact.go says why).
+	env = append(env, claudeCompactWindowEnv+"="+claudeCompactWindowValue(os.Getenv(claudeCompactWindowEnv)))
 	// Claude Code builds the /model picker's Default row from the Opus tier,
 	// and ANTHROPIC_DEFAULT_OPUS_MODEL is the first place it reads that tier
 	// from. The settings JSON has no field for the row's text. Unset, the row
