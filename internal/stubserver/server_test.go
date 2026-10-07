@@ -630,3 +630,86 @@ func TestAnthropicToolUseReportsToolUseStopReason(t *testing.T) {
 		t.Fatalf("stop_reason = %q, want tool_use", got)
 	}
 }
+
+// A usage plan answers request n with its n-th value, in order, and repeats
+// the last value once the list runs out. The first request gets the first
+// value, never the last.
+func TestUsagePlanAnswersInOrderThenRepeatsTheLast(t *testing.T) {
+	plan := NewUsagePlan(11, 22)
+	var got []int
+	for range 4 {
+		_, usage := plan.nextUsage(map[string]any{"messages": []any{}})
+		got = append(got, usage["input_tokens"].(int))
+	}
+	want := []int{11, 22, 22, 22}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("request %d reported %d input tokens, want %d (all: %v)", i, got[i], want[i], got)
+		}
+	}
+	if plan.Requests() != 4 {
+		t.Fatalf("Requests() = %d, want 4", plan.Requests())
+	}
+}
+
+// Every reply carries its own message id. A client that counts tokens from a
+// reply's usage groups the conversation by that id, and replies that share
+// one read as a single long turn.
+func TestUsagePlanGivesEachReplyItsOwnMessageID(t *testing.T) {
+	plan := NewUsagePlan(1)
+	first, _ := plan.nextUsage(map[string]any{})
+	second, _ := plan.nextUsage(map[string]any{})
+	if first == second {
+		t.Fatalf("two replies share the message id %q", first)
+	}
+}
+
+// A request that carries the compaction instructions gets the summary answer,
+// and the plan's own value is spent on the request all the same, so the
+// request count stays in step with the plan.
+func TestUsagePlanAnswersACompactionRequestWithTheSummary(t *testing.T) {
+	plan := NewUsagePlan(5, 6)
+	_, usage := plan.nextUsage(map[string]any{
+		"messages": []any{map[string]any{"role": "user", "content": "CRITICAL: Respond with TEXT ONLY. Do NOT call any tools."}},
+	})
+	if summary, _ := usage["summary"].(bool); !summary {
+		t.Fatalf("a compaction request was answered with %v, want the summary flag", usage)
+	}
+	_, next := plan.nextUsage(map[string]any{})
+	if next["input_tokens"].(int) != 6 {
+		t.Fatalf("the request after a compaction request reported %v input tokens, want the plan's second value 6", next["input_tokens"])
+	}
+}
+
+// A request whose planned count passes the overflow limit gets a 400
+// invalid_request_error with the message spelled from the template. A request
+// at or under the limit, and a compaction request, are answered as usual.
+func TestUsagePlanRefusesARequestPastTheOverflowLimit(t *testing.T) {
+	plan := NewUsagePlan(10, 2000, 10).OverflowAbove(1000, "prompt is too long: {tokens} tokens > {limit} maximum")
+	srv := NewServer(WithUsagePlan(plan))
+	defer srv.Close()
+
+	statuses := []int{}
+	var refusal map[string]any
+	for range 3 {
+		resp := postWithAuth(t, srv.URL+"/v1/messages", `{"model":"m","messages":[{"role":"user","content":"hi"}]}`)
+		statuses = append(statuses, resp.StatusCode)
+		if resp.StatusCode == http.StatusBadRequest {
+			_ = json.NewDecoder(resp.Body).Decode(&refusal)
+		}
+		_ = resp.Body.Close()
+	}
+	if statuses[0] != 200 || statuses[1] != 400 || statuses[2] != 200 {
+		t.Fatalf("statuses = %v, want [200 400 200]", statuses)
+	}
+	errObj, _ := refusal["error"].(map[string]any)
+	if errObj["type"] != "invalid_request_error" || errObj["message"] != "prompt is too long: 2000 tokens > 1000 maximum" {
+		t.Fatalf("refusal = %v", refusal)
+	}
+
+	resp := postWithAuth(t, srv.URL+"/v1/messages", `{"model":"m","messages":[{"role":"user","content":"CRITICAL: Respond with TEXT ONLY."}]}`)
+	_ = resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("a compaction request got %d, want 200", resp.StatusCode)
+	}
+}

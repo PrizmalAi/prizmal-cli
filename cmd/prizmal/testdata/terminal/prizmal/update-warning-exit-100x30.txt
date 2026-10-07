@@ -1,0 +1,8 @@
+prizmal v0.2.0 is available. You have v0.1.2.
+Download it from https://github.com/PrizmalAi/prizmal-cli/releases/latest
+Update available
+  Continue  Run v0.1.2
+▸ Exit
+
+cancelled
+[prizmal exited 1]

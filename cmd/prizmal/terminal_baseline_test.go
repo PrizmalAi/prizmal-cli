@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -192,6 +194,27 @@ type baselineCase struct {
 	deviceKey bool
 	// env is extra environment for the child, on top of the fixed set.
 	env []string
+	// update poses prizmal as release 0.1.2 and serves a newer release.
+	update *updateScenario
+	// updateOld and updateNew are set by the runner: prizmal built as releases
+	// 0.1.2 and 0.2.0.
+	updateOld, updateNew string
+	// configExtra adds fields to the config file the case starts with.
+	configExtra map[string]any
+}
+
+// updateScenario describes the install a case poses as and the release host it
+// talks to. The stub brew and go replace the binary with release 0.2.0 the way
+// the real ones do, by renaming a new file over the old one.
+type updateScenario struct {
+	// install is homebrew, go-install, source or archive.
+	install string
+	// latest is the release the host serves.
+	latest string
+	// failUpgrade makes the stub brew or go exit 1.
+	failUpgrade bool
+	// noStdin runs prizmal with stdin closed, which is how a script runs it.
+	noStdin bool
 }
 
 var (
@@ -454,6 +477,67 @@ var prizmalBaselineCases = []baselineCase{
 	},
 }
 
+// updateBaselineCases are the screens of the update check. Each case poses as
+// release 0.1.2 on an install method, against a release host that serves 0.2.0.
+// The stubs stand in for brew and go, so the upgrade and the relaunch run for
+// real, and the final screen shows the launch that follows.
+var updateBaselineCases = func() []baselineCase {
+	const latest = "v0.2.0"
+	launch := []string{"-m", "smart", "claude"}
+	offer := func(name, install string) baselineCase {
+		return baselineCase{name: name, cols: 100, rows: 30, args: launch,
+			update: &updateScenario{install: install, latest: latest},
+			steps:  []baselineStep{{waitFor: "Upgrade now"}}}
+	}
+	upgrade := func(name, install string, fail bool) baselineCase {
+		return baselineCase{name: name, cols: 100, rows: 30, args: launch,
+			update: &updateScenario{install: install, latest: latest, failUpgrade: fail},
+			steps:  []baselineStep{{waitFor: "Upgrade now"}, {key: "Enter", waitFor: "[prizmal exited"}}}
+	}
+	warn := func(name, install string) baselineCase {
+		return baselineCase{name: name, cols: 100, rows: 30, args: launch,
+			update: &updateScenario{install: install, latest: latest},
+			steps:  []baselineStep{{waitFor: "Continue"}}}
+	}
+	return []baselineCase{
+		offer("update-offer-homebrew-100x30", "homebrew"),
+		offer("update-offer-go-install-100x30", "go-install"),
+		upgrade("update-upgrade-homebrew-100x30", "homebrew", false),
+		upgrade("update-upgrade-go-install-100x30", "go-install", false),
+		upgrade("update-upgrade-homebrew-failed-100x30", "homebrew", true),
+		upgrade("update-upgrade-go-install-failed-100x30", "go-install", true),
+		{name: "update-declined-100x30", cols: 100, rows: 30, args: launch,
+			update: &updateScenario{install: "homebrew", latest: latest},
+			steps: []baselineStep{{waitFor: "Upgrade now"}, {key: "Down", waitFor: "Not now"},
+				{key: "Enter", waitFor: "[prizmal exited"}}},
+		{name: "update-offer-escape-100x30", cols: 100, rows: 30, args: launch,
+			update: &updateScenario{install: "homebrew", latest: latest},
+			steps:  []baselineStep{{waitFor: "Upgrade now"}, {key: "Escape", waitFor: "[prizmal exited"}}},
+		warn("update-warning-archive-100x30", "archive"),
+		warn("update-warning-source-100x30", "source"),
+		{name: "update-warning-continue-100x30", cols: 100, rows: 30, args: launch,
+			update: &updateScenario{install: "archive", latest: latest},
+			steps:  []baselineStep{{waitFor: "Continue"}, {key: "Enter", waitFor: "[prizmal exited"}}},
+		{name: "update-warning-exit-100x30", cols: 100, rows: 30, args: launch,
+			update: &updateScenario{install: "archive", latest: latest},
+			steps: []baselineStep{{waitFor: "Continue"}, {key: "Down", waitFor: "Exit"},
+				{key: "Enter", waitFor: "[prizmal exited"}}},
+		{name: "update-noninteractive-homebrew-100x30", cols: 100, rows: 30, args: launch,
+			update: &updateScenario{install: "homebrew", latest: latest, noStdin: true},
+			steps:  []baselineStep{stepPrizmalExit}},
+		{name: "update-noninteractive-archive-100x30", cols: 100, rows: 30, args: launch,
+			update: &updateScenario{install: "archive", latest: latest, noStdin: true},
+			steps:  []baselineStep{stepPrizmalExit}},
+		{name: "update-yes-100x30", cols: 100, rows: 30, args: append([]string{"--yes"}, launch...),
+			update: &updateScenario{install: "homebrew", latest: latest},
+			steps:  []baselineStep{stepPrizmalExit}},
+		{name: "update-disabled-100x30", cols: 100, rows: 30, args: launch,
+			update:      &updateScenario{install: "homebrew", latest: latest},
+			configExtra: map[string]any{"check_updates": false},
+			steps:       []baselineStep{stepPrizmalExit}},
+	}
+}()
+
 // launchArgs assembles the child's argument list: prizmal's own args, then a
 // `--` separator when the case passes text after the integration name, so the
 // first-run case can name the integration the menu would otherwise capture.
@@ -481,7 +565,7 @@ func TestTerminalBaselinesCodex(t *testing.T) {
 // first-run prompt and the device-login flow. It needs no harness, so it runs
 // wherever tmux is, and its screens live under testdata/terminal/prizmal.
 func TestTerminalBaselinesPrizmal(t *testing.T) {
-	runBaselineCases(t, prizmalBaselineCases, prizmalBaselineDir, false, false)
+	runBaselineCases(t, append(append([]baselineCase{}, prizmalBaselineCases...), updateBaselineCases...), prizmalBaselineDir, false, false)
 }
 
 // runBaselineCases renders one group of cases in parallel and compares each to
@@ -521,6 +605,15 @@ func runBaselineCases(t *testing.T, cases []baselineCase, dir string, needsClaud
 		codexDir, codexReason = pinnedCodexDir(t)
 	}
 
+	updateOld, updateNew := "", ""
+	for _, tc := range cases {
+		if tc.update != nil {
+			updateOld = buildPrizmalVersion(t, "0.1.2")
+			updateNew = buildPrizmalVersion(t, "0.2.0")
+			break
+		}
+	}
+
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -534,6 +627,7 @@ func runBaselineCases(t *testing.T, cases []baselineCase, dir string, needsClaud
 				skipOrFail(t, "%s", codexReason)
 			}
 			tc.codexDir = codexDir
+			tc.updateOld, tc.updateNew = updateOld, updateNew
 			got, ansi := renderBaseline(t, tmuxPath, prizmalBin, claudeDir, tc)
 			got = withStableElapsed(got)
 			got = withStableCodexValues(got)
@@ -693,11 +787,15 @@ func renderBaseline(t *testing.T, tmuxPath, prizmalBin, claudeDir string, tc bas
 		}
 	}
 	if !tc.noConfig {
-		writeJSONFile(t, filepath.Join(home, ".prizmal", "config.json"), map[string]any{
+		cfg := map[string]any{
 			"version":  1,
 			"base_url": srv.URL,
 			"api_key":  stubserver.StubKey,
-		})
+		}
+		for k, v := range tc.configExtra {
+			cfg[k] = v
+		}
+		writeJSONFile(t, filepath.Join(home, ".prizmal", "config.json"), cfg)
 	}
 	// A device key on disk is what makes prizmal enter device mode: the login
 	// case re-approves it and the auth case without it hits the no-key error.
@@ -743,8 +841,19 @@ func renderBaseline(t *testing.T, tmuxPath, prizmalBin, claudeDir string, tc bas
 	for _, kv := range tc.env {
 		envVars = append(envVars, shellQuote(kv))
 	}
+	stdin := ""
+	if tc.update != nil {
+		var updateEnv []string
+		prizmalBin, updateEnv = seedUpdate(t, root, binDir, tc)
+		for _, kv := range updateEnv {
+			envVars = append(envVars, shellQuote(kv))
+		}
+		if tc.update.noStdin {
+			stdin = " < /dev/null"
+		}
+	}
 	command := "env -i " + strings.Join(envVars, " ") + " sh -c " + shellQuote(
-		"cd "+shellQuote(project)+" && "+shellQuote(prizmalBin)+" "+shellJoin(launchArgs(tc))+`; echo "[prizmal exited $?]"; sleep 600`)
+		"cd "+shellQuote(project)+" && "+shellQuote(prizmalBin)+" "+shellJoin(launchArgs(tc))+stdin+`; echo "[prizmal exited $?]"; sleep 600`)
 
 	socket := filepath.Join(root, "tmux.sock")
 	tmux := func(args ...string) (string, error) {
@@ -991,6 +1100,76 @@ func seedCodexState(t *testing.T, home, project string) {
 	// off it still greets, but without the motion a capture could land in.
 	config := fmt.Sprintf("[tui]\nanimations = false\n\n[projects.%q]\ntrust_level = \"trusted\"\n", project)
 	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// buildPrizmalVersion builds prizmal as the given release, so a case can pose
+// as an installed release without a published one.
+func buildPrizmalVersion(t *testing.T, release string) string {
+	t.Helper()
+	out := filepath.Join(t.TempDir(), "prizmal-"+release)
+	build := exec.Command("go", "build", "-ldflags", "-X main.version="+release, "-o", out, ".")
+	if outb, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build prizmal %s: %v\n%s", release, err, outb)
+	}
+	return out
+}
+
+// seedUpdate lays out the install a case poses as and returns the path of the
+// prizmal to run and the extra environment. The binary sits at
+// <root>/prefix/bin/prizmal beside a stub brew. The stub go on PATH reports
+// that directory as GOBIN. Both stubs rename release 0.2.0 over the binary, as
+// brew and go install do, or exit 1 when the case fails the upgrade.
+func seedUpdate(t *testing.T, root, binDir string, tc baselineCase) (string, []string) {
+	t.Helper()
+	u := tc.update
+	bin := filepath.Join(root, "prefix", "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(bin, "prizmal")
+	copyExecutable(t, tc.updateOld, target)
+
+	replace := fmt.Sprintf("cp %s %s.new && mv %s.new %s", shellQuote(tc.updateNew), shellQuote(target), shellQuote(target), shellQuote(target))
+	brewBody, goBody := replace+"\n"+`echo "==> prizmal 0.1.2 -> 0.2.0"`, replace+"\n"+`echo "go: downloading github.com/PrizmalAi/prizmal-cli v0.2.0"`
+	if u.failUpgrade {
+		brewBody = `echo "Error: prizmal: download failed" >&2; exit 1`
+		goBody = `echo "go: github.com/PrizmalAi/prizmal-cli@v0.2.0: reading proxy: 404 Not Found" >&2; exit 1`
+	}
+	writeScript(t, filepath.Join(bin, "brew"), brewBody)
+	writeScript(t, filepath.Join(binDir, "go"), fmt.Sprintf(
+		"case \"$1\" in\nenv) echo %s; echo /nonexistent;;\ninstall)\n%s\n;;\nesac", shellQuote(bin), goBody))
+
+	releases := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/repos/"):
+			_, _ = fmt.Fprintf(w, `{"tag_name":%q}`, u.latest)
+		case strings.HasSuffix(r.URL.Path, "/Casks/prizmal.rb"):
+			_, _ = fmt.Fprintf(w, "cask \"prizmal\" do\n  version %q\nend\n", strings.TrimPrefix(u.latest, "v"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(releases.Close)
+
+	return target, []string{"PRIZMAL_TEST_INSTALL=" + u.install, "PRIZMAL_TEST_UPDATE_URL=" + releases.URL}
+}
+
+func writeScript(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func copyExecutable(t *testing.T, from, to string) {
+	t.Helper()
+	data, err := os.ReadFile(from)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(to, data, 0o755); err != nil {
 		t.Fatal(err)
 	}
 }
