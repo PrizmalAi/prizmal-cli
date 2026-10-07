@@ -28,7 +28,7 @@ type updateUI struct {
 
 // checkForUpdate runs before a launch. It never fails the launch: only the
 // operator choosing Exit ends it.
-func checkForUpdate(args []string) error {
+func checkForUpdate() error {
 	o := update.RunCheck(time.Now(), update.Current(version))
 	if o.Action == update.None {
 		return nil

@@ -1,6 +1,7 @@
 package update
 
 import (
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -372,4 +373,17 @@ func TestBaseURLOverrideNeedsTestingMode(t *testing.T) {
 	if got := baseURL("https://api.github.com"); got != "http://127.0.0.1:9" {
 		t.Fatalf("baseURL = %q", got)
 	}
+}
+
+func TestRunCheckNeverReachesARealHostFromATestingProcess(t *testing.T) {
+	setHome(t, t.TempDir())
+	hits := 0
+	serve(t, func(w http.ResponseWriter, _ *http.Request) { hits++; _, _ = w.Write([]byte(`{"tag_name":"v9.9.9"}`)) })
+	t.Setenv(envTesting, "testing")
+	t.Setenv(testURLEnv, "")
+	if o := RunCheck(now, archInst); o.Action != None || hits != 0 {
+		t.Fatalf("outcome %+v with %d requests: a testing process must not query a host it was not given", o, hits)
+	}
+	t.Setenv(testURLEnv, "http://127.0.0.1:1")
+	_ = RunCheck(now, archInst) // given a host, it checks that host and nothing else
 }

@@ -94,8 +94,13 @@ func defaultState() stateStore {
 // Disabled reports whether the operator turned the check off, by the
 // environment or by check_updates in the config file.
 func Disabled() bool {
-	if v := strings.ToLower(os.Getenv(OffEnv)); v != "" {
-		return v != "0" && v != "false" && v != "no" && v != "off"
+	switch strings.ToLower(os.Getenv(OffEnv)) {
+	case "":
+		// Unset: the config file decides.
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return true
 	}
 	cfg, err := config.Load()
 	return err == nil && cfg.CheckUpdates != nil && !*cfg.CheckUpdates
@@ -141,6 +146,10 @@ var goBinDir = func() (string, error) {
 // most maxCheckDelay. Every failure answers None: the check never blocks or
 // fails a launch.
 func RunCheck(now time.Time, inst Install) Outcome {
+	if underTest() && baseURL("") == "" {
+		// A test run reaches a stub host or nothing, never a real one.
+		return Outcome{}
+	}
 	return runCheck(now, inst, defaultState(), LatestFor(inst), maxCheckDelay)
 }
 

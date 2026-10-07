@@ -102,7 +102,7 @@ Examples:
 			// --restore and --persist answer a question, and the device
 			// subcommands feed another program, so none of them ask.
 			if len(args) > 0 && !listFlag && !restore && !persistOnly {
-				if err := checkForUpdate(args); err != nil {
+				if err := checkForUpdate(); err != nil {
 					return err
 				}
 			}

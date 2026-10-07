@@ -242,3 +242,36 @@ func TestUpgradeHasNothingToRunForAnArchive(t *testing.T) {
 		t.Fatal("Upgrade of an archive install succeeded")
 	}
 }
+
+func TestUpgradeKeepsTheSwitchKeyOutOfBrewAndGo(t *testing.T) {
+	got := upgradeEnv([]string{"PATH=/bin", "PRIZMAL_SWITCH_KEY=pz-secret", "PRIZMAL_SWITCH_KEYS_EXTRA=kept", "HOME=/h"})
+	joined := strings.Join(got, "\n")
+	if strings.Contains(joined, "pz-secret") || strings.Contains(joined, "PRIZMAL_SWITCH_KEY=") {
+		t.Fatalf("the switch key reached the upgrade environment: %v", got)
+	}
+	for _, want := range []string{"PATH=/bin", "HOME=/h", "PRIZMAL_SWITCH_KEYS_EXTRA=kept", "HOMEBREW_NO_ENV_HINTS=1"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("upgrade environment lost %q: %v", want, got)
+		}
+	}
+}
+
+func TestUpgradeRunsWithoutTheSwitchKey(t *testing.T) {
+	dir := t.TempDir()
+	script := "#!/bin/sh\nenv > '" + filepath.Join(dir, "seen") + "'\n"
+	if runtime.GOOS == "windows" {
+		t.Skip("shell stubs")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "go"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("PRIZMAL_SWITCH_KEY", "pz-secret")
+	if err := Upgrade(Install{Method: GoInstall, Package: PackagePath}, "v0.2.0", new(strings.Builder), new(strings.Builder)); err != nil {
+		t.Fatal(err)
+	}
+	seen, _ := os.ReadFile(filepath.Join(dir, "seen"))
+	if strings.Contains(string(seen), "pz-secret") {
+		t.Fatal("the spawned go process saw the switch key")
+	}
+}

@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 )
 
 // RepoPath is the repository as GitHub's URLs spell it: ModulePath without its
@@ -194,11 +196,23 @@ func Upgrade(i Install, latest string, out, errOut io.Writer) error {
 	}
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, out, errOut
-	cmd.Env = append(os.Environ(), "HOMEBREW_NO_ENV_HINTS=1")
+	cmd.Env = upgradeEnv(os.Environ())
 	return cmd.Run()
 }
 
 func fileExists(p string) bool {
 	info, err := os.Stat(p)
 	return err == nil && !info.IsDir()
+}
+
+// upgradeEnv is the environment brew and go run in. They are third-party
+// builds, so the switch key stays out of it.
+func upgradeEnv(env []string) []string {
+	out := make([]string, 0, len(env)+1)
+	for _, kv := range env {
+		if !strings.HasPrefix(kv, envconfig.KeyEnvVar+"=") {
+			out = append(out, kv)
+		}
+	}
+	return append(out, "HOMEBREW_NO_ENV_HINTS=1")
 }

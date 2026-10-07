@@ -35,9 +35,11 @@ func TestDetect(t *testing.T) {
 		bi       *debug.BuildInfo
 		exe      string
 		want     Install
+		posix    bool // POSIX paths, so Windows cannot run the row
 	}{
 		{
 			name:     "release build in the Homebrew Caskroom",
+			posix:    true,
 			injected: "0.1.2",
 			bi:       release,
 			exe:      "/opt/homebrew/Caskroom/prizmal/0.1.2/prizmal",
@@ -46,6 +48,7 @@ func TestDetect(t *testing.T) {
 		},
 		{
 			name:     "release build in the Linuxbrew Caskroom",
+			posix:    true,
 			injected: "0.1.2",
 			bi:       release,
 			exe:      "/home/linuxbrew/.linuxbrew/Caskroom/prizmal/0.1.2/prizmal",
@@ -120,6 +123,13 @@ func TestDetect(t *testing.T) {
 				Exe: "/home/dev/src/prizmal-cli/prizmal"},
 		},
 		{
+			name:     "build from a clone with no tag history",
+			injected: "dev",
+			bi:       buildInfo(ModulePath, "v0.0.0-20261007180007-9e5bac6ad4b4", "", rev),
+			exe:      "/home/runner/work/prizmal-cli/prizmal",
+			want:     Install{Method: Unknown},
+		},
+		{
 			name:     "build from a clone with local changes",
 			injected: "dev",
 			bi:       buildInfo(ModulePath, "v0.1.2+dirty", "", rev),
@@ -157,6 +167,9 @@ func TestDetect(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.posix && runtime.GOOS == "windows" {
+				t.Skip("Homebrew paths are POSIX")
+			}
 			got := Detect(tc.injected, tc.bi, tc.exe)
 			if got != tc.want {
 				t.Fatalf("Detect = %+v\nwant     %+v", got, tc.want)

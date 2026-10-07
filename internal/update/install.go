@@ -137,9 +137,11 @@ func Detect(injected string, bi *debug.BuildInfo, exe string) Install {
 			return Install{}
 		}
 		return Install{Method: GoInstall, Version: v, Exe: e, Package: PackagePath}
-	case v != "" && v != "(devel)" && vcsRevision(bi) != "":
+	case v != "" && v != "(devel)" && !strings.HasPrefix(v, "v0.0.0-") && vcsRevision(bi) != "":
 		// A clone build: a pseudo-version and no checksum, because the
-		// module was not resolved from the proxy. Go 1.24+ stamps it.
+		// module was not resolved from the proxy. A v0.0.0 pseudo-version
+		// means the clone has no tag history (a shallow CI checkout), so it
+		// sorts below every release and says nothing about the code.
 		return Install{Method: Source, Version: v, Exe: exe}
 	}
 	return Install{}

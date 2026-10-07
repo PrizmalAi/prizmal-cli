@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -69,7 +70,7 @@ func TestOfferUpgradeSnoozesThenUpgradesThenRelaunches(t *testing.T) {
 	if got := r.log(); got != "pick,snooze,upgrade v0.2.0,relaunch" {
 		t.Fatalf("events = %s", got)
 	}
-	if r.relaunched.path != "/b/bin/prizmal" {
+	if r.relaunched.path != filepath.Join("/b", "bin", "prizmal") {
 		t.Errorf("relaunched %q, want the Homebrew link, because the Caskroom directory is gone", r.relaunched.path)
 	}
 	if strings.Join(r.relaunched.args, " ") != "--model smart claude" {
