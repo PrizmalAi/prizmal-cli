@@ -205,6 +205,12 @@ auth token`, so Pi gets a fresh device token whenever it needs one. The
 extension and its config take the credential from that command, so the launch
 doesn't write a key into either file. The directory is private to the session.
 
+Pi loads that extension with `--extension`, which adds to the extensions Pi
+would load anyway. Your own extensions, from `~/.pi/agent/extensions`, a
+project's `.pi/extensions`, or an installed Pi package, load on a device-login
+launch exactly as they do on any other. The launch adds nothing that turns
+discovery off.
+
 When the harness exits, the key goes with its process. A plain launch also
 removes a key that an older `prizmal` wrote into these files. To run a
 configured harness yourself, without `prizmal`, export the variable its config

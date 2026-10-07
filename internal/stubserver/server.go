@@ -13,6 +13,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"time"
 )
 
 // StubKey is the API key tests should pass via envconfig.SetAPIKey.
@@ -71,6 +73,8 @@ type serverConfig struct {
 	models         []map[string]any
 	deviceApproved bool
 	deviceOnly     bool
+	issuer         *DeviceTokenIssuer
+	toolLoop       *piToolLoop
 }
 
 // ServerOption configures a stub server.
@@ -87,6 +91,171 @@ func WithDeviceTokenOnly() ServerOption {
 		c.deviceApproved = true
 		c.deviceOnly = true
 	}
+}
+
+// WithShortLivedDeviceTokens makes the stub mint a fresh token on every device
+// refresh and accept only a token that has not expired. A token presented after
+// its life is refused with 401, so a session that reuses its first token stops
+// and only one that refreshes keeps running. issuer records what the stub
+// handed out and what the harness presented, so a test can assert a session
+// crossed an expiry. It approves the device as well.
+func WithShortLivedDeviceTokens(issuer *DeviceTokenIssuer) ServerOption {
+	return func(c *serverConfig) {
+		c.deviceApproved = true
+		c.issuer = issuer
+	}
+}
+
+// WithPiToolLoop makes the chat-completions route answer a bash tool call that
+// sleeps for sleep on the first turns requests, then answer with Reply. A real
+// Pi session runs bash between turns, so one launch produces several inference
+// requests spread over wall-clock time, which is what a test needs to cross a
+// short device-token expiry. It is Pi-specific because it names Pi's bash tool.
+func WithPiToolLoop(turns int, sleep time.Duration) ServerOption {
+	return func(c *serverConfig) {
+		c.toolLoop = &piToolLoop{turns: turns, sleep: sleep}
+	}
+}
+
+// DeviceTokenIssuer mints short-lived device tokens and records what the stub
+// handed out and what a harness presented. It is safe for concurrent use: an
+// httptest handler may serve several requests at once.
+type DeviceTokenIssuer struct {
+	ttl time.Duration
+
+	mu        sync.Mutex
+	minted    []issuedToken
+	presented []presentedToken
+}
+
+type issuedToken struct {
+	value  string
+	expiry time.Time
+}
+
+type presentedToken struct {
+	value string
+	at    time.Time
+}
+
+// NewDeviceTokenIssuer returns an issuer whose tokens live for ttl. A ttl
+// shorter than device.CacheValidMargin is deliberate in a test: the helper
+// reuses a cached token only while it still has that margin left, so a shorter
+// life forces a fresh refresh on every request and an expiry the test can
+// cross in seconds.
+func NewDeviceTokenIssuer(ttl time.Duration) *DeviceTokenIssuer {
+	return &DeviceTokenIssuer{ttl: ttl}
+}
+
+// Token mints a fresh token at now.
+func (i *DeviceTokenIssuer) Token(now time.Time) string {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	value := fmt.Sprintf("pz-d-dt-stub-%d", len(i.minted)+1)
+	i.minted = append(i.minted, issuedToken{value: value, expiry: now.Add(i.ttl)})
+	return value
+}
+
+// accept records a presented token and reports whether it is one the issuer
+// minted and has not expired. An empty or unknown token is refused, as is one
+// whose life has passed.
+func (i *DeviceTokenIssuer) accept(value string, now time.Time) bool {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	i.presented = append(i.presented, presentedToken{value: value, at: now})
+	for _, minted := range i.minted {
+		if minted.value == value {
+			return now.Before(minted.expiry)
+		}
+	}
+	return false
+}
+
+// Issued reports how many tokens the stub handed out.
+func (i *DeviceTokenIssuer) Issued() int {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return len(i.minted)
+}
+
+// AcceptedValues reports the distinct token values the harness presented that
+// the issuer accepted at the time. It is the count a test asserts to prove the
+// harness presented a token minted after an earlier one expired.
+func (i *DeviceTokenIssuer) AcceptedValues() []string {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	seen := make(map[string]bool)
+	var accepted []string
+	for _, p := range i.presented {
+		for _, m := range i.minted {
+			if m.value == p.value && p.at.Before(m.expiry) && !seen[p.value] {
+				seen[p.value] = true
+				accepted = append(accepted, p.value)
+			}
+		}
+	}
+	return accepted
+}
+
+// RejectedExpired reports how many requests presented a token that had already
+// expired, which the stub refused. A session that refreshes never produces one.
+func (i *DeviceTokenIssuer) RejectedExpired() int {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	count := 0
+	for _, p := range i.presented {
+		for _, m := range i.minted {
+			if m.value == p.value && !p.at.Before(m.expiry) {
+				count++
+			}
+		}
+	}
+	return count
+}
+
+// CrossedExpiry reports whether the session ran past the life of its first
+// token: an accepted request carried a token minted after the first token
+// expired. It is the assertion a test makes to prove a session outlived one
+// device token rather than merely refreshing while every token was still valid.
+func (i *DeviceTokenIssuer) CrossedExpiry() bool {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if len(i.minted) < 2 {
+		return false
+	}
+	firstExpiry := i.minted[0].expiry
+	for _, p := range i.presented {
+		if !p.at.After(firstExpiry) {
+			continue
+		}
+		for _, m := range i.minted {
+			if m.value == p.value && p.at.Before(m.expiry) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// piToolLoop is the state of WithPiToolLoop: how many tool-call turns remain,
+// and how long the bash call sleeps.
+type piToolLoop struct {
+	mu        sync.Mutex
+	turns     int
+	sleep     time.Duration
+	completed int
+}
+
+// next reports whether the current request gets a tool call, and how long its
+// bash call should sleep. It consumes a turn until the count is spent.
+func (l *piToolLoop) next() (bool, time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.completed >= l.turns {
+		return false, 0
+	}
+	l.completed++
+	return true, l.sleep
 }
 
 // WithModels serves exactly ids from /v1/models, each as text-only.
@@ -140,23 +309,23 @@ func NewServer(opts ...ServerOption) *httptest.Server {
 	for _, opt := range opts {
 		opt(&c)
 	}
-	return httptest.NewServer(handler(c.models, c.deviceApproved, c.deviceOnly))
+	return httptest.NewServer(handler(&c))
 }
 
 // handler serves the stub API. A nil models serves the default fixture.
-func handler(models []map[string]any, deviceApproved, deviceOnly bool) http.HandlerFunc {
+func handler(c *serverConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// POST /v1/cli/token is the device refresh. The real Switch serves it
 		// without a bearer credential, because the request carries its own
 		// ed25519 signature in the body and the Config API checks it, so it is
 		// answered before the auth check below.
 		if method, path := r.Method, r.URL.Path; method == http.MethodPost && path == "/v1/cli/token" {
-			handleCLIToken(w, deviceApproved)
+			handleCLIToken(w, c)
 			return
 		}
 
 		// Auth check: require either Authorization: Bearer or x-api-key.
-		if !hasAuth(r) || !hasAcceptedAuth(r, deviceOnly) {
+		if !hasAuth(r) || !hasAcceptedAuth(r, c) {
 			writeJSON(w, http.StatusUnauthorized, map[string]any{
 				"error": map[string]any{"message": "API key is required"},
 			})
@@ -168,10 +337,10 @@ func handler(models []map[string]any, deviceApproved, deviceOnly bool) http.Hand
 
 		switch {
 		case method == http.MethodGet && path == "/v1/models":
-			handleModels(w, models)
+			handleModels(w, c.models)
 
 		case method == http.MethodPost && path == "/v1/chat/completions":
-			handleChatCompletions(w, r)
+			handleChatCompletions(w, r, c.toolLoop)
 
 		case method == http.MethodPost && path == "/v1/responses":
 			handleResponses(w, r)
@@ -195,12 +364,21 @@ func handler(models []map[string]any, deviceApproved, deviceOnly bool) http.Hand
 
 // handleCLIToken answers the device refresh. While pending it returns 404, the
 // same "unknown device" the CLI polls through during enrollment. Approved
-// returns 200 with a fixed token, a 600-second expiry and a fixed reauth_by,
-// mirroring the shape the Switch forwards from the Config API.
-func handleCLIToken(w http.ResponseWriter, approved bool) {
-	if !approved {
+// returns 200 with a token: the fixed DeviceToken when the stub issues no
+// short-lived tokens, otherwise a fresh short-lived one. The 600-second expiry
+// and fixed reauth_by mirror the shape the Switch forwards from the Config API.
+func handleCLIToken(w http.ResponseWriter, c *serverConfig) {
+	if !c.deviceApproved {
 		writeJSON(w, http.StatusNotFound, map[string]any{
 			"error": map[string]any{"code": "NOT_FOUND", "message": "unknown device"},
+		})
+		return
+	}
+	if c.issuer != nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"device_token": c.issuer.Token(time.Now()),
+			"expires_in":   int(c.issuer.ttl / time.Second),
+			"reauth_by":    DeviceReauthBy,
 		})
 		return
 	}
@@ -221,12 +399,25 @@ func hasAuth(r *http.Request) bool {
 	return false
 }
 
+// bearerOf is the credential a request presents, from either header the stub
+// accepts.
+func bearerOf(r *http.Request) string {
+	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+		return strings.TrimPrefix(h, "Bearer ")
+	}
+	return r.Header.Get("x-api-key")
+}
+
 // hasAcceptedAuth reports whether a request carries a credential the stub
-// accepts. Without deviceOnly every well-formed credential passes. With it
-// only the device token POST /v1/cli/token handed out does, so a launch that
-// reaches the harness authenticated with the token a refresh minted.
-func hasAcceptedAuth(r *http.Request, deviceOnly bool) bool {
-	if !deviceOnly {
+// accepts. With no mode every well-formed credential passes. With deviceOnly
+// only the fixed device token does. With an issuer only a short-lived token
+// the issuer minted and that has not expired does, so a session that keeps
+// sending its first token stops once that token's life passes.
+func hasAcceptedAuth(r *http.Request, c *serverConfig) bool {
+	if c.issuer != nil {
+		return c.issuer.accept(bearerOf(r), time.Now())
+	}
+	if !c.deviceOnly {
 		return true
 	}
 	if h := r.Header.Get("Authorization"); h == "Bearer "+DeviceToken {
@@ -332,10 +523,23 @@ func handleModels(w http.ResponseWriter, models []map[string]any) {
 	})
 }
 
-func handleChatCompletions(w http.ResponseWriter, r *http.Request) {
+func handleChatCompletions(w http.ResponseWriter, r *http.Request, loop *piToolLoop) {
 	body := requestBody(r)
 	toolCall := wantsToolCall(body)
 	stream := wantsStream(body)
+
+	// A Pi tool loop answers a bash call that sleeps, so the session's next
+	// request lands after the sleep. A test uses it to spread a session's
+	// requests over more than one short device-token life.
+	toolName := "stub_tool"
+	toolArgs := "{}"
+	if loop != nil {
+		if again, sleep := loop.next(); again {
+			toolCall = true
+			toolName = "bash"
+			toolArgs = fmt.Sprintf(`{"command":%q}`, "sleep "+fmt.Sprintf("%g", sleep.Seconds()))
+		}
+	}
 
 	if stream {
 		flusher, ok := startSSE(w)
@@ -364,7 +568,7 @@ func handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 					"index":    0,
 					"id":       "call_stub",
 					"type":     "function",
-					"function": map[string]any{"name": "stub_tool", "arguments": "{}"},
+					"function": map[string]any{"name": toolName, "arguments": toolArgs},
 				}},
 			}, nil))
 		} else {
@@ -385,7 +589,7 @@ func handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			"tool_calls": []map[string]any{{
 				"id":       "call_stub",
 				"type":     "function",
-				"function": map[string]any{"name": "stub_tool", "arguments": "{}"},
+				"function": map[string]any{"name": toolName, "arguments": toolArgs},
 			}},
 		}
 	}
