@@ -94,7 +94,8 @@ func (l *piDeviceLaunch) clean() {
 // piDeviceModel is one model entry in the sidecar config.
 type piDeviceModel struct {
 	ID            string `json:"id"`
-	ContextWindow int    `json:"contextWindow,omitempty"`
+	ContextWindow int    `json:"contextWindow"`
+	MaxTokens     int    `json:"maxTokens"`
 	Reasoning     bool   `json:"reasoning,omitempty"`
 	Vision        bool   `json:"vision,omitempty"`
 }
@@ -113,6 +114,10 @@ type piDeviceConfig struct {
 // them, so a device-mode launch and a switch-key launch of the same model list
 // show the same rows. Pi reads models[0] as the model a bare launch selects,
 // so the launched model leads.
+//
+// Each row carries the window and the output budget, resolved the same way
+// createConfig resolves them for the models.json entry, so the two launches
+// size the same model the same way.
 func piDeviceConfigJSON(model string, models []LaunchModel) []byte {
 	rows := make([]piDeviceModel, 0, len(models))
 	seen := make(map[string]bool, len(models))
@@ -123,13 +128,18 @@ func piDeviceConfigJSON(model string, models []LaunchModel) []byte {
 		seen[m.Name] = true
 		rows = append(rows, piDeviceModel{
 			ID:            m.Name,
-			ContextWindow: m.ContextLength,
+			ContextWindow: piModelContextWindow(m),
+			MaxTokens:     piFallbackMaxOutputTokens,
 			Reasoning:     m.HasCapability("thinking"),
 			Vision:        m.HasCapability("vision"),
 		})
 	}
 	if len(rows) == 0 && model != "" {
-		rows = append(rows, piDeviceModel{ID: model})
+		rows = append(rows, piDeviceModel{
+			ID:            model,
+			ContextWindow: piFallbackContextWindow,
+			MaxTokens:     piFallbackMaxOutputTokens,
+		})
 	}
 
 	config := piDeviceConfig{

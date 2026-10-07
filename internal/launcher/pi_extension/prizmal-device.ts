@@ -34,7 +34,8 @@ type PrizmalLaunchConfig = {
 
 type PrizmalModel = {
   id: string;
-  contextWindow?: number;
+  contextWindow: number;
+  maxTokens: number;
   reasoning?: boolean;
   vision?: boolean;
 };
@@ -89,11 +90,10 @@ function toModel(model: PrizmalModel) {
     input: (model.vision ? ["text", "image"] : ["text"]) as ("text" | "image")[],
     reasoning: model.reasoning === true,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    // 128000 is pi's own default for a model that declares no window, which is
-    // what the switch-key provider entry in models.json gets when the Switch
-    // reports no context length. Both launches then size the same model the
-    // same way.
-    contextWindow: model.contextWindow ?? 128000,
-    maxTokens: 16384,
+    // The window and the output budget come from the launch's config, so a
+    // device launch and a switch-key launch size the same model the same way.
+    // The launch states them because the Switch's catalog carries no window.
+    contextWindow: model.contextWindow,
+    maxTokens: model.maxTokens,
   };
 }

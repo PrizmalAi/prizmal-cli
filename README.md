@@ -312,7 +312,9 @@ Pi reads its providers from `~/.pi/agent/models.json`. With a switch key, export
       "baseUrl": "https://api.prizmal.ai/v1",
       "api": "openai-completions",
       "apiKey": "$PRIZMAL_SWITCH_KEY",
-      "models": [{ "id": "your-model" }]
+      "models": [
+        { "id": "your-model", "contextWindow": 1000000, "maxTokens": 32768 }
+      ]
     }
   }
 }
@@ -326,6 +328,8 @@ pi --provider prizmal --model your-model
 
 The `"$PRIZMAL_SWITCH_KEY"` value is a reference, not the key, so this file doesn't contain your switch key.
 
+The `contextWindow` and `maxTokens` on each model matter. Pi budgets the session and compacts from the declared window, and it sends the declared output budget as the request's maximum. The Switch's catalog doesn't report a window, so a launch states one instead of leaving Pi's 128000 default, which would compact a session at a fraction of the 1M window the Switch serves. Set `HARNESS_CONTEXT_LENGTH` to override the window for a model whose real one differs.
+
 With a device login instead, there is no key to export. Pi reads a provider's `apiKey` fresh for each request when the value is a command preceded by `!`, so point it at the CLI's device-token helper:
 
 ```json
@@ -335,7 +339,9 @@ With a device login instead, there is no key to export. Pi reads a provider's `a
       "baseUrl": "https://api.prizmal.ai/v1",
       "api": "openai-completions",
       "apiKey": "!prizmal auth token",
-      "models": [{ "id": "your-model" }]
+      "models": [
+        { "id": "your-model", "contextWindow": 1000000, "maxTokens": 32768 }
+      ]
     }
   }
 }
@@ -345,6 +351,7 @@ With a device login instead, there is no key to export. Pi reads a provider's `a
 
 `prizmal pi` adds a few things these files leave out:
 
+- It declares each model's window and output budget, as the examples above do.
 - The extension's provider is the only prizmal provider a device launch loads. A switch-key launch uses your `models.json` entry instead.
 - It updates an older Pi that reads a provider's key only once, rather than for each request.
 - It installs Pi when the `pi` binary is missing.

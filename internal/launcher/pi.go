@@ -42,6 +42,38 @@ const piAPIKeyReference = "$" + envconfig.KeyEnvVar
 // makes a rename of either a compile error rather than a silent split.
 const piRestoredProviderID = piProviderID
 
+// piFallbackContextWindow is the window a launch declares for every model,
+// because GET /v1/models carries no context length (the Switch sends id,
+// input_modalities, tier and description), so nothing can learn the real one.
+// Every model the Switch serves has a 1M window today. Pi budgets the session
+// and compacts from this number, so pi's own default of 128000 would compact a
+// session at a fraction of what the Switch accepts. $HARNESS_CONTEXT_LENGTH
+// overrides it for an operator who knows better. The same reasoning and number
+// as codexFallbackContextWindow.
+const piFallbackContextWindow = 1_000_000
+
+// piFallbackMaxOutputTokens is the output budget a launch declares for every
+// model. Pi sends it as the request's max output tokens, capped by the room
+// left in the window, so pi's own default of 16384 caps a long answer well
+// below what the Switch's models produce. Every model the Switch routes to
+// answers with at least this much: the smallest output limit among them is
+// 32768, and the largest is 262144.
+const piFallbackMaxOutputTokens = 32768
+
+// piModelContextWindow is the window a launch declares for one model: a length
+// the model itself carries, else the window every model the Switch serves has,
+// with $HARNESS_CONTEXT_LENGTH winning over both. Both pi launch paths resolve
+// it through here, so a device launch and a switch-key launch agree.
+func piModelContextWindow(model LaunchModel) int {
+	if ctxLen := envconfig.ContextLength(); ctxLen > 0 {
+		return ctxLen
+	}
+	if model.ContextLength > 0 {
+		return model.ContextLength
+	}
+	return piFallbackContextWindow
+}
+
 // There is no pi default model. A launch resolves its model before it reaches
 // Pi — from --model, from the saved default, or from the picker — so Pi never
 // substitutes a name of its own. The reserved prizmal/default placeholder it
@@ -814,9 +846,15 @@ func createConfig(model LaunchModel) map[string]any {
 		cfg["reasoning"] = true
 	}
 
-	if model.ContextLength > 0 {
-		cfg["contextWindow"] = model.ContextLength
-	}
+	// A launch states the window rather than leaving it to pi's default. Every
+	// model the Switch serves has a 1M window, and GET /v1/models carries no
+	// context length, so nothing here can learn the real one. Pi budgets and
+	// compacts from the declared window, so pi's own 128000 default would
+	// compact a session at a fraction of what the Switch accepts. A window the
+	// model itself carries wins, and $HARNESS_CONTEXT_LENGTH, the operator's
+	// own statement, wins over both.
+	cfg["contextWindow"] = piModelContextWindow(model)
+	cfg["maxTokens"] = piFallbackMaxOutputTokens
 
 	return cfg
 }
