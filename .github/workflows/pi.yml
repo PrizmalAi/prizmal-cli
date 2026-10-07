@@ -42,3 +42,15 @@ jobs:
         env:
           PRIZMAL_HARNESS_LAUNCH: require
         run: go test -count=1 -v -run 'TestHarnessLaunchPi$' ./cmd/prizmal
+      - name: Launch pi from a device login
+        env:
+          PRIZMAL_HARNESS_LAUNCH: require
+        run: go test -count=1 -v -run 'TestHarnessLaunchPiFromDeviceLogin$' ./cmd/prizmal
+      - name: Run a pi session past a device-token expiry
+        env:
+          PRIZMAL_HARNESS_LAUNCH: require
+        run: go test -count=1 -v -run 'TestHarnessLaunchPiOutlivesOneDeviceToken$' ./cmd/prizmal
+      - name: Keep the user's own pi extensions on a device login
+        env:
+          PRIZMAL_HARNESS_LAUNCH: require
+        run: go test -count=1 -v -run 'TestHarnessLaunchPiKeepsTheUsersExtensions$' ./cmd/prizmal

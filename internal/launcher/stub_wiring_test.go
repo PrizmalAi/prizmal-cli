@@ -106,7 +106,7 @@ func TestStubServerPiWiring(t *testing.T) {
 	if apiKey != piAPIKeyReference {
 		t.Fatalf("apiKey = %q, want %q", apiKey, piAPIKeyReference)
 	}
-	if got := envValue(p.envVars(), envconfig.KeyEnvVar+"="); got != stubserver.StubKey {
+	if got := envValue(p.envVars(nil), envconfig.KeyEnvVar+"="); got != stubserver.StubKey {
 		t.Fatalf("%s = %q, want %q", envconfig.KeyEnvVar, got, stubserver.StubKey)
 	}
 }

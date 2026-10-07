@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"testing"
+	"time"
 )
 
 // postWithAuth sends a POST request with the stub auth header.
@@ -418,6 +419,218 @@ func TestCLITokenApprovedReturnsToken(t *testing.T) {
 	}
 }
 
+// TestDeviceTokenOnlyAcceptsOnlyTheDeviceToken pins the strict mode a device
+// launch test uses: the stub accepts the token its own refresh handed out and
+// refuses every other credential, so a harness that reaches a reply proves it
+// authenticated with a token the helper minted, not with the switch key.
+func TestDeviceTokenOnlyAcceptsOnlyTheDeviceToken(t *testing.T) {
+	srv := NewServer(WithDeviceTokenOnly())
+	defer srv.Close()
+
+	for _, tc := range []struct {
+		name       string
+		authorize  string
+		apiKey     string
+		wantStatus int
+	}{
+		{"the device token as a bearer", "Bearer " + DeviceToken, "", http.StatusOK},
+		{"the device token as x-api-key", "", DeviceToken, http.StatusOK},
+		{"another bearer", "Bearer stub-key", "", http.StatusUnauthorized},
+		{"another x-api-key", "", "stub-key", http.StatusUnauthorized},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodGet, srv.URL+"/v1/models", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.authorize != "" {
+				req.Header.Set("Authorization", tc.authorize)
+			}
+			if tc.apiKey != "" {
+				req.Header.Set("x-api-key", tc.apiKey)
+			}
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = resp.Body.Close() }()
+			if resp.StatusCode != tc.wantStatus {
+				t.Fatalf("status = %d, want %d", resp.StatusCode, tc.wantStatus)
+			}
+		})
+	}
+}
+
+// TestDeviceIssuerRefusesExpiredToken pins the short-lived-token stub: a token
+// is accepted while its life remains and refused with 401 after it passes, so a
+// session that keeps sending its first token stops once that token expires.
+func TestDeviceIssuerRefusesExpiredToken(t *testing.T) {
+	issuer := NewDeviceTokenIssuer(50 * time.Millisecond)
+	srv := NewServer(WithShortLivedDeviceTokens(issuer), WithModels("smart"))
+	defer srv.Close()
+
+	// Refresh mints the first token.
+	tok := refreshDeviceToken(t, srv.URL)
+	if !issuer.accept(tok, time.Now()) {
+		t.Fatal("a fresh token was refused")
+	}
+
+	// Wait out the life, then present the same token: the stub must refuse it.
+	time.Sleep(80 * time.Millisecond)
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/v1/models", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expired token returned %d, want 401", resp.StatusCode)
+	}
+	if issuer.RejectedExpired() == 0 {
+		t.Fatal("the issuer did not record the expired presentation")
+	}
+}
+
+// TestDeviceIssuerAcceptsARefreshedToken pins the other half: a token minted
+// after the first expired is accepted, which is what a refreshing session gets.
+func TestDeviceIssuerAcceptsARefreshedToken(t *testing.T) {
+	issuer := NewDeviceTokenIssuer(50 * time.Millisecond)
+	srv := NewServer(WithShortLivedDeviceTokens(issuer), WithModels("smart"))
+	defer srv.Close()
+
+	refreshDeviceToken(t, srv.URL)
+	time.Sleep(80 * time.Millisecond)
+	second := refreshDeviceToken(t, srv.URL)
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/v1/models", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+second)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("refreshed token returned %d, want 200", resp.StatusCode)
+	}
+	if got := issuer.Issued(); got != 2 {
+		t.Fatalf("Issued() = %d, want 2", got)
+	}
+}
+
+// refreshDeviceToken runs the device refresh against a stub and returns the
+// token it minted.
+func refreshDeviceToken(t *testing.T, baseURL string) string {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPost, baseURL+"/v1/cli/token", bytes.NewBufferString(`{"device_id":"dev_x","ts":"t","sig":"s"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("refresh returned %d, want 200", resp.StatusCode)
+	}
+	var body struct {
+		DeviceToken string `json:"device_token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	return body.DeviceToken
+}
+
+// TestIssuerCrossedExpiryDistinguishesARefreshWithinOneLife pins the assertion
+// the expiry test leans on: a session that refreshed while every token was
+// still valid has not crossed an expiry, and one whose accepted request landed
+// after the first token's life did.
+func TestIssuerCrossedExpiryDistinguishesARefreshWithinOneLife(t *testing.T) {
+	ttl := 100 * time.Millisecond
+
+	within := NewDeviceTokenIssuer(ttl)
+	start := time.Now()
+	tok := within.Token(start)
+	within.accept(tok, start.Add(10*time.Millisecond))
+	within.Token(start.Add(10 * time.Millisecond))
+	if within.CrossedExpiry() {
+		t.Fatal("CrossedExpiry = true for a refresh inside the first token's life")
+	}
+
+	across := NewDeviceTokenIssuer(ttl)
+	first := across.Token(start)
+	across.accept(first, start.Add(10*time.Millisecond))
+	// A second token minted after the first expired, presented while valid.
+	second := across.Token(start.Add(200 * time.Millisecond))
+	across.accept(second, start.Add(210*time.Millisecond))
+	if !across.CrossedExpiry() {
+		t.Fatal("CrossedExpiry = false for a request after the first token's life")
+	}
+}
+
+// TestNonStreamingToolCallReportsToolCallsFinishReason pins the non-streaming
+// chat-completions answer: a tool-call message has to carry finish_reason
+// "tool_calls", as the streamed answer does. A client that keys on
+// finish_reason treats "stop" as a finished turn and never runs the tool.
+func TestNonStreamingToolCallReportsToolCallsFinishReason(t *testing.T) {
+	srv := New()
+	defer srv.Close()
+
+	resp := postWithAuth(t, srv.URL+"/v1/chat/completions", `{"model":"prizmal/stub","messages":[{"role":"user","content":"use stub-tool"}]}`)
+	defer func() { _ = resp.Body.Close() }()
+	var body map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	choices, _ := body["choices"].([]any)
+	if len(choices) == 0 {
+		t.Fatalf("no choices in %v", body)
+	}
+	first, _ := choices[0].(map[string]any)
+	msg, _ := first["message"].(map[string]any)
+	if _, ok := msg["tool_calls"].([]any); !ok {
+		t.Fatalf("expected a tool_calls message, got %v", msg)
+	}
+	if got, _ := first["finish_reason"].(string); got != "tool_calls" {
+		t.Fatalf("finish_reason = %q, want tool_calls", got)
+	}
+}
+
+// TestAnthropicToolUseReportsToolUseStopReason is the Anthropic-side twin of
+// the chat-completions finish_reason test: a message whose content is a
+// tool_use block has to carry stop_reason "tool_use". "end_turn" tells a client
+// the turn is done, so it never runs the tool.
+func TestAnthropicToolUseReportsToolUseStopReason(t *testing.T) {
+	srv := New()
+	defer srv.Close()
+
+	resp := postWithAuth(t, srv.URL+"/v1/messages", `{"model":"prizmal/stub","max_tokens":8,"messages":[{"role":"user","content":"use stub-tool"}]}`)
+	defer func() { _ = resp.Body.Close() }()
+	var body map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	content, _ := body["content"].([]any)
+	if len(content) == 0 {
+		t.Fatalf("no content in %v", body)
+	}
+	block, _ := content[0].(map[string]any)
+	if blockType, _ := block["type"].(string); blockType != "tool_use" {
+		t.Fatalf("expected tool_use, got %q", blockType)
+	}
+	if got, _ := body["stop_reason"].(string); got != "tool_use" {
+		t.Fatalf("stop_reason = %q, want tool_use", got)
+	}
+}
+
 // A usage plan answers request n with its n-th value, in order, and repeats
 // the last value once the list runs out. The first request gets the first
 // value, never the last.
@@ -498,5 +711,40 @@ func TestUsagePlanRefusesARequestPastTheOverflowLimit(t *testing.T) {
 	_ = resp.Body.Close()
 	if resp.StatusCode != 200 {
 		t.Fatalf("a compaction request got %d, want 200", resp.StatusCode)
+	}
+}
+
+// TestIssuerTakesPrecedenceOverTheFixedDeviceToken pins the documented
+// combination: with an issuer set, the stub accepts only the issuer's
+// unexpired tokens, so the fixed DeviceToken that WithDeviceTokenOnly would
+// accept is refused, and the refresh endpoint never hands it out.
+func TestIssuerTakesPrecedenceOverTheFixedDeviceToken(t *testing.T) {
+	issuer := NewDeviceTokenIssuer(time.Minute)
+	srv := NewServer(WithDeviceTokenOnly(), WithShortLivedDeviceTokens(issuer), WithModels("smart"))
+	defer srv.Close()
+
+	status := func(token string) int {
+		req, err := http.NewRequest(http.MethodGet, srv.URL+"/v1/models", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		return resp.StatusCode
+	}
+
+	if got := status(DeviceToken); got != http.StatusUnauthorized {
+		t.Errorf("the fixed device token returned %d, want 401 while an issuer is set", got)
+	}
+	minted := refreshDeviceToken(t, srv.URL)
+	if minted == DeviceToken {
+		t.Errorf("the refresh handed out the fixed device token %q, want an issuer token", minted)
+	}
+	if got := status(minted); got != http.StatusOK {
+		t.Errorf("the issuer's token returned %d, want 200", got)
 	}
 }

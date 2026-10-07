@@ -573,7 +573,7 @@ func launch(name string, extraArgs []string, cfg *config.Config) error {
 	runner := spec.Runner
 
 	// A first-run browser sign-in can leave device mode on before any
-	// harness was named. For a runner with no refresh contract — Pi, Codex,
+	// harness was named. For a runner with no refresh contract — Codex,
 	// Cline, OpenCode — device login is ignored: the launch runs on the
 	// ordinary key sources, exactly as if the machine had never signed in
 	// with a device. Leaving device mode on would outrank the switch key the

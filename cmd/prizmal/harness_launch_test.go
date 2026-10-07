@@ -29,6 +29,10 @@ import (
 // A test skips when its harness is not on PATH. Each harness's workflow
 // installs it and sets PRIZMAL_HARNESS_LAUNCH=require, which turns the skip
 // into a failure.
+//
+// Each harness keeps its own launch tests in its own file, named after it
+// (claude_launch_test.go, codex_launch_test.go, and the rest). This file holds
+// what they share: the launch cases, the sandbox, and the runner.
 
 const (
 	harnessLaunchRequireEnv = "PRIZMAL_HARNESS_LAUNCH"
@@ -73,21 +77,6 @@ var harnessLaunchCases = map[string]harnessLaunchCase{
 	},
 }
 
-func TestHarnessLaunchClaude(t *testing.T)   { runHarnessLaunch(t, "claude", false) }
-func TestHarnessLaunchCodex(t *testing.T)    { runHarnessLaunch(t, "codex", false) }
-func TestHarnessLaunchCline(t *testing.T)    { runHarnessLaunch(t, "cline", false) }
-func TestHarnessLaunchOpencode(t *testing.T) { runHarnessLaunch(t, "opencode", false) }
-func TestHarnessLaunchPi(t *testing.T)       { runHarnessLaunch(t, "pi", false) }
-
-// Pi has no way to refresh a short-lived device token, so a machine signed in
-// with a device key must run it on the switch key the config already holds:
-// device login is ignored for the launch entirely. The enrolled key below
-// cannot refresh, so the stub's reply on stdout proves the launch never
-// touched device login, and the announce line names the key that ran.
-func TestHarnessLaunchPiRunsOnTheConfigKeyWithADeviceKeyEnrolled(t *testing.T) {
-	runHarnessLaunch(t, "pi", true)
-}
-
 // TestHarnessLaunchRegistryCompleteness checks that every integration in the
 // registry has a launch case, and that the case's workflow runs its test with
 // the harness required, so CI cannot pass by skipping it.
@@ -123,42 +112,74 @@ func TestHarnessLaunchRegistryCompleteness(t *testing.T) {
 	}
 }
 
-// runHarnessLaunch launches harness through a freshly built prizmal, passing
-// its case's arguments after the integration name, and asserts that the
-// stub's reply is on stdout. With a device key enrolled, it also asserts the
-// launch announced the config file as its key source.
-func runHarnessLaunch(t *testing.T, harness string, withDeviceKey bool) {
+// harnessLaunchKeyMode says what credential state a launch case sets up.
+type harnessLaunchKeyMode int
+
+const (
+	// harnessLaunchConfigKey enrolls no device: the launch runs on the switch
+	// key in the config file.
+	harnessLaunchConfigKey harnessLaunchKeyMode = iota
+	// harnessLaunchDeviceLogin enrols a device key and approves the stub's
+	// device refresh, so a harness that can refresh runs in device mode.
+	harnessLaunchDeviceLogin
+	// harnessLaunchIgnoredDevice enrols a device key whose refresh the stub
+	// refuses, so a launch that ignores device login is the only one that can
+	// reach the harness: one that tried device login would stop first.
+	harnessLaunchIgnoredDevice
+)
+
+// harnessLaunchOnPath returns the harness binary, or skips the test when it is
+// not installed. Under PRIZMAL_HARNESS_LAUNCH=require — which every harness
+// workflow sets — the absence is a failure, so CI cannot pass by skipping.
+func harnessLaunchOnPath(t *testing.T, harness string) string {
 	t.Helper()
-	harnessArgs := harnessLaunchCases[harness].args
-	if testing.Short() {
-		t.Skip("skipping harness launch in short mode")
-	}
-	harnessPath, err := exec.LookPath(harness)
+	path, err := exec.LookPath(harness)
 	if err != nil {
 		if os.Getenv(harnessLaunchRequireEnv) == "require" {
 			t.Fatalf("%s is not on PATH", harness)
 		}
 		t.Skipf("%s is not on PATH", harness)
 	}
+	return path
+}
 
-	// Codex keeps cloning plugins into HOME after it exits, so a t.TempDir
-	// cleanup would fail the test on a file created mid-removal.
-	root, err := os.MkdirTemp("", "prizmal-launch-")
-	if err != nil {
-		t.Fatal(err)
+// skipHarnessLaunchInShortMode skips a launch test under `go test -short`,
+// where a real harness would only slow the suite down.
+func skipHarnessLaunchInShortMode(t *testing.T) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("skipping harness launch in short mode")
 	}
-	t.Cleanup(func() { _ = os.RemoveAll(root) })
-	prizmalBin := filepath.Join(root, "prizmal")
-	if out, err := exec.Command("go", "build", "-o", prizmalBin, ".").CombinedOutput(); err != nil {
-		t.Fatalf("build prizmal: %v\n%s", err, out)
+}
+
+// runHarnessLaunch launches harness through a freshly built prizmal, passing
+// its case's arguments after the integration name, and asserts that the
+// stub's reply is on stdout. The key mode decides what credential the machine
+// starts with and which key source the launch must announce.
+func runHarnessLaunch(t *testing.T, harness string, mode harnessLaunchKeyMode) {
+	t.Helper()
+	// A harness with no launch case is a bug in the test, not a launch with no
+	// arguments, so fail on it before anything else runs.
+	launchCase, ok := harnessLaunchCases[harness]
+	if !ok {
+		t.Fatalf("harnessLaunchCases has no entry for %q", harness)
 	}
+	harnessArgs := launchCase.args
+	skipHarnessLaunchInShortMode(t)
+	harnessPath := harnessLaunchOnPath(t, harness)
 
 	srvOpts := []stubserver.ServerOption{stubserver.WithModels(harnessLaunchModel)}
-	if withDeviceKey {
-		// The device refresh must succeed, which is the state the launch
-		// has to ignore for a harness with no refresh contract: on an
-		// unapproving stub the launch would fall back to the config key on
-		// its own, and the test would pass without exercising the rule.
+	switch mode {
+	case harnessLaunchDeviceLogin:
+		// The stub accepts one credential: the device token its refresh just
+		// handed out. Every other key is refused, so the reply on stdout proves
+		// the harness authenticated with a token the helper minted, not with
+		// the switch key the config file already held.
+		srvOpts = append(srvOpts, stubserver.WithDeviceTokenOnly())
+	case harnessLaunchIgnoredDevice:
+		// Approve the device, so the launch has a working device credential in
+		// hand and still has to leave it unused: falling back because a refresh
+		// failed would prove nothing about the rule.
 		srvOpts = append(srvOpts, stubserver.WithDeviceApproval())
 	}
 	srv := stubserver.NewServer(srvOpts...)
@@ -166,8 +187,54 @@ func runHarnessLaunch(t *testing.T, harness string, withDeviceKey bool) {
 
 	// A fresh HOME gives the harness no config of its own, the state a
 	// first launch on a new machine starts from.
-	home := filepath.Join(root, "home")
-	project := filepath.Join(home, "project")
+	prizmalBin, home, project := harnessLaunchSandbox(t, srv.URL, mode != harnessLaunchConfigKey)
+
+	stdout, stderr, timedOut, runErr := runHarnessCommand(t, prizmalBin, home, project, harnessPath, harness, harnessArgs)
+
+	switch mode {
+	case harnessLaunchConfigKey:
+		// Nothing to assert about the source: no device key was enrolled, so
+		// the launch resolves the config file's key and nothing else.
+	case harnessLaunchDeviceLogin:
+		// The announce line names the credential in use. Device login is the
+		// source, which is the whole point of the harness running in device
+		// mode.
+		if !strings.Contains(stderr, "using api key from: device login") {
+			t.Errorf("launch did not announce device login:\n--- stderr ---\n%s", tail(stderr, 50))
+		}
+	case harnessLaunchIgnoredDevice:
+		// Device login must be ignored for a harness without a refresh
+		// contract, so the config file's key is the one in use.
+		if !strings.Contains(stderr, "using api key from: config file") {
+			t.Errorf("launch did not announce the config key:\n--- stderr ---\n%s", tail(stderr, 50))
+		}
+	}
+	if !strings.Contains(stdout, stubserver.Reply) {
+		t.Fatalf("%s did not print the stub's reply %q on stdout (run error: %v, timed out: %v)\n--- stdout ---\n%s\n--- stderr ---\n%s",
+			harness, stubserver.Reply, runErr, timedOut, tail(stdout, 50), tail(stderr, 50))
+	}
+}
+
+// harnessLaunchSandbox builds prizmal and lays out the launch's HOME: a config
+// file pointing at switchURL, and, when enrollDevice is set, an enrolled device
+// key. It returns the built prizmal binary, the HOME, and the project directory
+// to launch in.
+func harnessLaunchSandbox(t *testing.T, switchURL string, enrollDevice bool) (prizmalBin, home, project string) {
+	t.Helper()
+	// Codex keeps cloning plugins into HOME after it exits, so a t.TempDir
+	// cleanup would fail the test on a file created mid-removal.
+	root, err := os.MkdirTemp("", "prizmal-launch-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	prizmalBin = filepath.Join(root, "prizmal")
+	if out, err := exec.Command("go", "build", "-o", prizmalBin, ".").CombinedOutput(); err != nil {
+		t.Fatalf("build prizmal: %v\n%s", err, out)
+	}
+
+	home = filepath.Join(root, "home")
+	project = filepath.Join(home, "project")
 	if err := os.MkdirAll(filepath.Join(home, ".prizmal"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -176,20 +243,26 @@ func runHarnessLaunch(t *testing.T, harness string, withDeviceKey bool) {
 	}
 	writeJSONFile(t, filepath.Join(home, ".prizmal", "config.json"), map[string]any{
 		"version":  1,
-		"base_url": srv.URL,
+		"base_url": switchURL,
 		"api_key":  stubserver.StubKey,
 	})
-	if withDeviceKey {
-		// Bytes, not a valid key file: if the launch used device login, the
-		// refresh would fail before any harness ran, rather than quietly
-		// succeeding against the stub.
-		if err := os.WriteFile(filepath.Join(home, ".prizmal", "device.key"), make([]byte, 32), 0o600); err != nil {
-			t.Fatal(err)
-		}
+	if enrollDevice {
+		// A real key, so a device-mode launch can sign a refresh the approving
+		// stub accepts. harnessLaunchIgnoredDevice pairs it with an
+		// unapproving stub, where the refresh fails — the state a launch that
+		// ignores device login has to survive to reach the harness at all.
+		writeDeviceKey(t, home)
 	}
+	return prizmalBin, home, project
+}
 
+// runHarnessCommand runs prizmal's launch of harness and returns what it wrote
+// to stdout and stderr, the run error, and whether the context deadline was
+// reached (so a caller can tell a timeout from a plain failure).
+func runHarnessCommand(t *testing.T, prizmalBin, home, project, harnessPath, harness string, harnessArgs []string) (stdout, stderr string, timedOut bool, runErr error) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), harnessLaunchTimeout)
-	defer cancel()
+	t.Cleanup(cancel)
 	args := append([]string{"-y", "-m", harnessLaunchModel, harness, "--"}, harnessArgs...)
 	cmd := exec.CommandContext(ctx, prizmalBin, args...)
 	cmd.Dir = project
@@ -205,27 +278,15 @@ func runHarnessLaunch(t *testing.T, harness string, withDeviceKey bool) {
 		"DISABLE_AUTOUPDATER=1",
 	}
 	cmd.Env = append(cmd.Env, device.TestingEnv()...)
-	var stdout, stderr strings.Builder
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	var outBuf, errBuf strings.Builder
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
 	cmd.Stdin = nil
 	// A harness can leave child processes holding stdout after the timeout
 	// kills it. WaitDelay stops Wait from blocking on them.
 	cmd.WaitDelay = 10 * time.Second
-	runErr := cmd.Run()
-
-	if withDeviceKey {
-		// The announce line names the key the launch ran on. Device login
-		// must be ignored for a harness without a refresh contract, so the
-		// config file's key is the one in use.
-		if !strings.Contains(stderr.String(), "using api key from: config file") {
-			t.Errorf("launch did not announce the config key:\n--- stderr ---\n%s", tail(stderr.String(), 50))
-		}
-	}
-	if !strings.Contains(stdout.String(), stubserver.Reply) {
-		t.Fatalf("%s did not print the stub's reply %q on stdout (run error: %v, timed out: %v)\n--- stdout ---\n%s\n--- stderr ---\n%s",
-			harness, stubserver.Reply, runErr, ctx.Err() != nil, tail(stdout.String(), 50), tail(stderr.String(), 50))
-	}
+	runErr = cmd.Run()
+	return outBuf.String(), errBuf.String(), ctx.Err() != nil, runErr
 }
 
 // tail returns the last n lines of s.

@@ -67,7 +67,7 @@ Once your tenant approves a device, a launch uses it automatically. `prizmal cla
 
 A device token is a bearer credential that expires 10 minutes after issue, and the Switch binds it to one tenant. The private key never leaves the machine. The next refresh stops once a tenant manager revokes the device or disables the tenant, or sets the member inactive.
 
-Only Claude Code has a documented credential-refresh contract, so only it runs in device mode. Launching `codex`, `cline`, `opencode`, or `pi` on a machine signed in with a device key ignores device login and runs on the switch key the config already holds, which has no expiry and doesn't need a helper. With no switch key, the launch asks for one, as any unauthenticated launch does.
+Claude Code and Pi can refresh a device token during a session, so both run in device mode. Each does it through a mechanism its own docs describe, under [Supported integrations](#supported-integrations). Launching `codex`, `cline`, or `opencode` on a machine signed in with a device key ignores device login and runs on the switch key from the config file, which doesn't expire. With no switch key, prizmal prompts for one, as any unauthenticated launch does.
 
 ### Switch key
 
@@ -102,9 +102,9 @@ using api key from: config file (~/.prizmal/config.json)
 
 The announcement prints the source only, never the key's value, a prefix of it, its length, or a hash.
 
-An enrolled device key takes precedence over both the config file and `$PRIZMAL_SWITCH_KEY` on the launches device login serves — `claude`, `--list`, and a model pick — since it is the credential your tenant approved for this machine. A `codex`, `cline`, `opencode`, or `pi` launch ignores the device key and resolves its credential the ordinary way. `--api-key` and `--url` still win for one launch, so you can use a switch key on a device-signed machine.
+An enrolled device key takes precedence over both the config file and `$PRIZMAL_SWITCH_KEY` on the launches device login serves — `claude`, `pi`, `--list`, and a model pick — since it is the credential your tenant approved for this machine. A `codex`, `cline`, or `opencode` launch ignores the device key and resolves its credential the ordinary way. `--api-key` and `--url` still win for one launch, so you can use a switch key on a device-signed machine.
 
-`prizmal login` prints nothing on stdout. It signs in and exits. `prizmal auth token` is the internal `apiKeyHelper` command Claude Code runs: it prints one device token on stdout and nothing else, and you don't run it by hand.
+`prizmal login` prints nothing on stdout. It signs in and exits. `prizmal auth token` is the internal helper command Claude Code and Pi run for a device token: it prints one token on stdout and nothing else, and you don't run it by hand.
 
 `--list` skips the announcement. Its output is the answer, and the line only gets in the way.
 
@@ -120,15 +120,15 @@ A launch that already has its model continues after the warning, without the ext
 
 ## Supported integrations
 
-| Integration | Harness | Aliases | Key wiring |
+| Integration | Harness | Key wiring | Docs |
 |---|---|---|---|
-| `claude` | Claude Code | | `ANTHROPIC_AUTH_TOKEN` (`ANTHROPIC_API_KEY` is emptied) |
-| `codex` | OpenAI Codex CLI | | `OPENAI_API_KEY` + `model_providers.<profile>` TOML |
-| `opencode` | OpenCode | | `provider.prizmal.options.apiKey` |
-| `cline` | Cline | | `OPENAI_API_KEY`, which cline reads when `providers.openai-compatible.settings` has no `apiKey` |
-| `pi` | Pi coding agent | | `PRIZMAL_SWITCH_KEY`, which `"apiKey": "$PRIZMAL_SWITCH_KEY"` in `~/.pi/agent/models.json` refers to (pi 0.77.0 or later) |
+| `claude` | Claude Code | `ANTHROPIC_AUTH_TOKEN` (`ANTHROPIC_API_KEY` is emptied) | [docs/claude-code.md](docs/claude-code.md) |
+| `codex` | OpenAI Codex CLI | `OPENAI_API_KEY` + `model_providers.<profile>` TOML | [docs/codex.md](docs/codex.md) |
+| `opencode` | OpenCode | `provider.prizmal.options.apiKey` in the inline config | [docs/opencode.md](docs/opencode.md) |
+| `cline` | Cline | `OPENAI_API_KEY`, which Cline reads when `providers.openai-compatible.settings` has no `apiKey` | [docs/cline.md](docs/cline.md) |
+| `pi` | Pi coding agent | `PRIZMAL_SWITCH_KEY`, which `"apiKey": "$PRIZMAL_SWITCH_KEY"` in `~/.pi/agent/models.json` refers to (pi 0.77.0 or later); a device login instead loads an extension whose provider runs `prizmal auth token` | [docs/pi.md](docs/pi.md) |
 
-On a machine signed in with a device key, only `claude` runs in device mode. The others ignore device login and receive the switch key from the config file, the environment, or `--api-key`, resolved once as usual.
+Each doc covers how a launch configures that harness, what its device-login behavior is, how to undo the configuration with `--restore`, and how to run the harness against the Switch without the CLI.
 
 ## Commands
 
@@ -178,7 +178,7 @@ prizmal codex -- --sandbox workspace-write
 # Persist configuration only (no launch)
 prizmal --persist cline
 
-# Undo config changes made by a previous launch
+# Undo config changes made by a previous launch (see the harness's doc)
 prizmal --restore codex
 
 # See which models your switch key can route to. The Switch resolves the list
@@ -186,29 +186,9 @@ prizmal --restore codex
 # The four Claude tier aliases lead, because they route too even though the
 # Switch does not list them; the same four head the --pick menu.
 prizmal --list
-
-# Same for Pi: removes the prizmal provider (and any key an older prizmal
-# wrote into it) from ~/.pi/agent/models.json and puts back the default provider and model you
-# had before the first launch. Cline's --restore does the same for its
-# provider selection and mode pointers. On a machine prizmal never
-# configured, --restore reports that there is nothing to restore.
-prizmal --restore pi
 ```
 
-`prizmal` never writes your key to disk for any of the five harnesses. It sets
-the key on the launched process's environment, and the config files it writes
-refer to that variable:
-
-- Codex's generated profile sets `env_key = "OPENAI_API_KEY"`.
-- Pi's `models.json` sets `"apiKey": "$PRIZMAL_SWITCH_KEY"`, which pi 0.77.0
-  and later read from the environment. A launch updates an older pi first.
-- Cline's provider entry leaves out `apiKey`, and cline then reads
-  `OPENAI_API_KEY`.
-
-When the harness exits, the key goes with its process. A plain launch also
-removes a key that an older `prizmal` wrote into these files. To run a
-configured harness yourself, without `prizmal`, export the variable its config
-refers to.
+`prizmal` never writes your key to disk for any of the five harnesses. It sets the key on the launched process's environment, and the config files it writes refer to that variable. Each harness's doc lists the variable. When the harness exits, the key goes with its process, and a plain launch also removes a key that an older `prizmal` wrote into one of those files.
 
 Pass extra arguments for the harness after the integration name. prizmal's
 own flags come before the name (see the Usage block above) and every
@@ -230,84 +210,6 @@ backup counts as key-bearing when one object in it has an `apiKey` or
 the configured `--url` host. That rule matches a rotated key, and a key
 from another tenant, as well as the current one. A key for any other
 endpoint is yours, and the backup that has it stays.
-
-## Run Claude Code without the Prizmal CLI
-
-You can start Claude Code against the Prizmal Switch with environment variables alone, without installing the Prizmal CLI. Export your switch key as `PRIZMAL_SWITCH_KEY`, then run:
-
-```bash
-ANTHROPIC_BASE_URL=https://api.prizmal.ai \
-ANTHROPIC_AUTH_TOKEN="$PRIZMAL_SWITCH_KEY" \
-ANTHROPIC_API_KEY= \
-ENABLE_TOOL_SEARCH=true \
-ENABLE_CLAUDEAI_MCP_SERVERS=false \
-CLAUDE_CODE_ATTRIBUTION_HEADER=0 \
-DISABLE_ERROR_REPORTING=1 \
-DISABLE_FEEDBACK_COMMAND=1 \
-CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1 \
-claude
-```
-
-The first two variables connect Claude Code to the Switch. The others match what `prizmal claude` sets:
-
-| Variable | Purpose |
-|---|---|
-| `ANTHROPIC_BASE_URL=` | The Switch URL. Leave off `/v1`, because Claude Code adds it. |
-| `ANTHROPIC_AUTH_TOKEN=` | Your switch key, sent as `Authorization: Bearer`. |
-| `ANTHROPIC_API_KEY=` | Empty, so an Anthropic key exported in your shell stays out of Switch requests. Keep your switch key out of this variable too, because Claude Code asks for approval before the first turn when it finds a key there. |
-| `ENABLE_TOOL_SEARCH=true` | Claude Code turns tool search off for any host other than Anthropic's. Without it, each request sends the full tool list. |
-| `ENABLE_CLAUDEAI_MCP_SERVERS=false` | Hides the startup warning about claude.ai connectors, which need a claude.ai login that this launch doesn't use. |
-| `CLAUDE_CODE_ATTRIBUTION_HEADER=0`, `DISABLE_ERROR_REPORTING=1`, `DISABLE_FEEDBACK_COMMAND=1`, `CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1` | Turn off the attribution header, error reports to Anthropic, `/feedback`, and the feedback survey. |
-
-Claude Code flags work as usual, so `claude --resume <session-id>` goes after `claude` on the last line.
-
-### Choose a model
-
-Pass the model with `--model` and append `[1m]`, so Claude Code budgets the 1M-token window the Switch serves. Without the suffix, Claude Code compacts a session at 200k tokens. For the name, use one of your tenant's router configs, or a tier alias that routes to the config your tenant assigned to that tier: `claude-tier-opus`, `claude-tier-sonnet`, `claude-tier-haiku` or `claude-tier-fable`.
-
-```bash
-claude --model 'claude-tier-haiku[1m]'
-```
-
-Use the alias for the haiku tier, and avoid `--model haiku`. Claude Code reads `haiku` as Claude Haiku 4.5, and it turns auto mode off for every model released before Claude Opus 4.6, Haiku 4.5 among them.
-
-To get the tier rows in `/model` with the window and model profile `prizmal claude` gives them, save these settings as `prizmal-claude.json`:
-
-```json
-{
-  "modelPicker": {
-    "replaceBuiltInOptions": true,
-    "options": [
-      {"model": "claude-tier-opus[1m]", "behavesAs": "claude-opus-5", "description": "Opus tier"},
-      {"model": "claude-tier-sonnet[1m]", "behavesAs": "claude-sonnet-5", "description": "Sonnet tier"},
-      {"model": "claude-tier-haiku[1m]", "behavesAs": "claude-sonnet-5", "description": "Haiku tier"},
-      {"model": "claude-tier-fable[1m]", "behavesAs": "claude-fable-5-1", "description": "Fable tier"}
-    ]
-  }
-}
-```
-
-Then add `--settings prizmal-claude.json` to the command. A row's `behavesAs` sets the prompt profile and effort defaults Claude Code applies, and its `description` is the row's text. The haiku row behaves as Sonnet 5 so that auto mode stays on. The Switch routes each request by the row's own model name.
-
-### Auto-compaction
-
-A model name `prizmal claude` spells, with its `[1m]` suffix and your tenant's own names, is one Claude Code's model catalogue does not carry. For such a name Claude Code skips auto-compaction on its own: it waits for the endpoint to refuse the request, and a session stalls at the provider's limit. So the launch sets `CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000`, which tells Claude Code the window and turns its threshold check on. Claude Code then compacts a session at 967000 counted tokens, which is the window less its 20000-token output budget and a 13000-token margin.
-
-To reproduce this without the CLI, add the variable to the command:
-
-```bash
-CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000 claude --model 'claude-tier-haiku[1m]'
-```
-
-Set a smaller value to compact sooner. `/autocompact` does not change a window the variable sets.
-
-An HTTP 400 `invalid_request_error` whose message reads `prompt is too long: N tokens > M maximum` also makes Claude Code compact and retry, whatever the window's source. That is the second guard for a conversation that grows past the window between two checks.
-
-`prizmal claude` adds a few things this command leaves out:
-
-- The `/model` menu lists every model your switch key routes to. Without the CLI, it lists the rows in your settings file, or Claude Code's built-in list.
-- It removes model variables such as `ANTHROPIC_MODEL` that your shell exports, so they can't change the model a launch runs. It keeps a `CLAUDE_CODE_AUTO_COMPACT_WINDOW` you export when the value is a positive number under 1000000, and sets 1000000 otherwise.
-- It installs Claude Code when the `claude` binary is missing.
 
 ## Building
 
