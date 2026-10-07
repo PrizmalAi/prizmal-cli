@@ -196,6 +196,12 @@ func Upgrade(i Install, latest string, out, errOut io.Writer) error {
 	}
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, out, errOut
+	if i.Method == GoInstall {
+		// `go install pkg@version` ignores the current module, but the
+		// toolchain choice still reads its go.mod. A neutral directory keeps
+		// the result the same wherever prizmal was started.
+		cmd.Dir = os.TempDir()
+	}
 	cmd.Env = upgradeEnv(os.Environ())
 	return cmd.Run()
 }

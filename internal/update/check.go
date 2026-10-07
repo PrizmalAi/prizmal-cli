@@ -125,7 +125,13 @@ func (i Install) CanUpgrade() bool {
 
 // goBinDir is where `go install` writes: $GOBIN, else $GOPATH/bin.
 var goBinDir = func() (string, error) {
-	out, err := exec.Command("go", "env", "GOBIN", "GOPATH").Output()
+	// Run outside any module with the local toolchain: from a project whose
+	// go.mod names a newer toolchain, `go env` would download it and outlast
+	// the check's deadline.
+	cmd := exec.Command("go", "env", "GOBIN", "GOPATH")
+	cmd.Dir = os.TempDir()
+	cmd.Env = append(os.Environ(), "GOTOOLCHAIN=local")
+	out, err := cmd.Output()
 	if err != nil {
 		return "", err
 	}

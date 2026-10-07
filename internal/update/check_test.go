@@ -3,6 +3,7 @@ package update
 import (
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -386,4 +387,23 @@ func TestRunCheckNeverReachesARealHostFromATestingProcess(t *testing.T) {
 	}
 	t.Setenv(testURLEnv, "http://127.0.0.1:1")
 	_ = RunCheck(now, archInst) // given a host, it checks that host and nothing else
+}
+
+func TestGoBinDirIgnoresTheToolchainOfTheCurrentProject(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("no go toolchain")
+	}
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "go.mod"), []byte("module p\n\ngo 1.25.0\n\ntoolchain go9.9.9\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(project)
+	start := time.Now()
+	dir, err := goBinDir()
+	if err != nil || dir == "" {
+		t.Fatalf("goBinDir = %q, %v: a project's toolchain line must not break it", dir, err)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("took %s", d)
+	}
 }
