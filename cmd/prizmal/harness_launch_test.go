@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -30,6 +29,10 @@ import (
 // A test skips when its harness is not on PATH. Each harness's workflow
 // installs it and sets PRIZMAL_HARNESS_LAUNCH=require, which turns the skip
 // into a failure.
+//
+// Each harness keeps its own launch tests in its own file, named after it
+// (claude_launch_test.go, codex_launch_test.go, and the rest). This file holds
+// what they share: the launch cases, the sandbox, and the runner.
 
 const (
 	harnessLaunchRequireEnv = "PRIZMAL_HARNESS_LAUNCH"
@@ -72,33 +75,6 @@ var harnessLaunchCases = map[string]harnessLaunchCase{
 		test: "TestHarnessLaunchPi", workflow: "pi.yml",
 		args: []string{"--print", harnessLaunchPrompt},
 	},
-}
-
-func TestHarnessLaunchClaude(t *testing.T)   { runHarnessLaunch(t, "claude", harnessLaunchConfigKey) }
-func TestHarnessLaunchCodex(t *testing.T)    { runHarnessLaunch(t, "codex", harnessLaunchConfigKey) }
-func TestHarnessLaunchCline(t *testing.T)    { runHarnessLaunch(t, "cline", harnessLaunchConfigKey) }
-func TestHarnessLaunchOpencode(t *testing.T) { runHarnessLaunch(t, "opencode", harnessLaunchConfigKey) }
-func TestHarnessLaunchPi(t *testing.T)       { runHarnessLaunch(t, "pi", harnessLaunchConfigKey) }
-
-// Pi refreshes a device token through the extension its launch loads: the
-// provider there resolves its credential by running `prizmal auth token` for
-// every request. With a device key enrolled and an approving stub, the launch
-// runs in device mode, and the stub's reply on stdout proves Pi started and
-// authenticated from a token the helper minted, not from the config key.
-func TestHarnessLaunchPiFromDeviceLogin(t *testing.T) {
-	runHarnessLaunch(t, "pi", harnessLaunchDeviceLogin)
-}
-
-// A harness with no refresh contract must run on the switch key the config
-// already holds, even with a device key enrolled: device login is ignored for
-// the launch entirely. The enrolled key below cannot refresh, so the stub's
-// reply on stdout proves the launch never touched device login, and the
-// announce line names the key that ran.
-//
-// Pi is not in this set: it refreshes through its extension, so its
-// device-mode launch is TestHarnessLaunchPiFromDeviceLogin.
-func TestHarnessLaunchCodexIgnoresDeviceLogin(t *testing.T) {
-	runHarnessLaunch(t, "codex", harnessLaunchIgnoredDevice)
 }
 
 // TestHarnessLaunchRegistryCompleteness checks that every integration in the
@@ -152,6 +128,30 @@ const (
 	harnessLaunchIgnoredDevice
 )
 
+// harnessLaunchOnPath returns the harness binary, or skips the test when it is
+// not installed. Under PRIZMAL_HARNESS_LAUNCH=require — which every harness
+// workflow sets — the absence is a failure, so CI cannot pass by skipping.
+func harnessLaunchOnPath(t *testing.T, harness string) string {
+	t.Helper()
+	path, err := exec.LookPath(harness)
+	if err != nil {
+		if os.Getenv(harnessLaunchRequireEnv) == "require" {
+			t.Fatalf("%s is not on PATH", harness)
+		}
+		t.Skipf("%s is not on PATH", harness)
+	}
+	return path
+}
+
+// skipHarnessLaunchInShortMode skips a launch test under `go test -short`,
+// where a real harness would only slow the suite down.
+func skipHarnessLaunchInShortMode(t *testing.T) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("skipping harness launch in short mode")
+	}
+}
+
 // runHarnessLaunch launches harness through a freshly built prizmal, passing
 // its case's arguments after the integration name, and asserts that the
 // stub's reply is on stdout. The key mode decides what credential the machine
@@ -159,16 +159,8 @@ const (
 func runHarnessLaunch(t *testing.T, harness string, mode harnessLaunchKeyMode) {
 	t.Helper()
 	harnessArgs := harnessLaunchCases[harness].args
-	if testing.Short() {
-		t.Skip("skipping harness launch in short mode")
-	}
-	harnessPath, err := exec.LookPath(harness)
-	if err != nil {
-		if os.Getenv(harnessLaunchRequireEnv) == "require" {
-			t.Fatalf("%s is not on PATH", harness)
-		}
-		t.Skipf("%s is not on PATH", harness)
-	}
+	skipHarnessLaunchInShortMode(t)
+	harnessPath := harnessLaunchOnPath(t, harness)
 
 	srvOpts := []stubserver.ServerOption{stubserver.WithModels(harnessLaunchModel)}
 	switch mode {
@@ -298,130 +290,4 @@ func tail(s string, n int) string {
 		lines = lines[len(lines)-n:]
 	}
 	return strings.Join(lines, "\n")
-}
-
-// piDeviceTokenLife is how long the short-lived stub's device tokens last in
-// TestHarnessLaunchPiOutlivesOneDeviceToken. It is far shorter than
-// device.CacheValidMargin, so the helper cannot serve a cached token and must
-// refresh for each request, which is what lets a few seconds of session cross an
-// expiry.
-const piDeviceTokenLife = 2 * time.Second
-
-// piToolTurnSleep is how long each stub-issued bash call sleeps. Pi runs bash
-// between turns, so the session's requests are spread by at least this much,
-// which puts a second request after the first token's life.
-const piToolTurnSleep = 3 * time.Second
-
-// TestHarnessLaunchPiOutlivesOneDeviceToken runs a real Pi session across the
-// expiry of a device token. The stub mints a short-lived token on every
-// refresh, refuses any token whose life has passed, and answers the first two
-// turns with a bash call that sleeps. Pi makes a request per turn, so the
-// session spans more than one token life. The test passes only when Pi
-// presented a token minted after the first expired; it fails when Pi kept
-// sending the first token, because the stub refuses it with 401 and Pi stops.
-func TestHarnessLaunchPiOutlivesOneDeviceToken(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping harness launch in short mode")
-	}
-	harnessPath, err := exec.LookPath("pi")
-	if err != nil {
-		if os.Getenv(harnessLaunchRequireEnv) == "require" {
-			t.Fatal("pi is not on PATH")
-		}
-		t.Skip("pi is not on PATH")
-	}
-
-	issuer := stubserver.NewDeviceTokenIssuer(piDeviceTokenLife)
-	srv := stubserver.NewServer(
-		stubserver.WithModels(harnessLaunchModel),
-		stubserver.WithShortLivedDeviceTokens(issuer),
-		stubserver.WithPiToolLoop(2, piToolTurnSleep),
-	)
-	t.Cleanup(srv.Close)
-
-	prizmalBin, home, project := harnessLaunchSandbox(t, srv.URL, true)
-	harnessArgs := harnessLaunchCases["pi"].args
-	stdout, stderr, timedOut, runErr := runHarnessCommand(t, prizmalBin, home, project, harnessPath, "pi", harnessArgs)
-
-	if !strings.Contains(stdout, stubserver.Reply) {
-		t.Fatalf("pi did not finish the session (run error: %v, timed out: %v)\n--- stdout ---\n%s\n--- stderr ---\n%s",
-			runErr, timedOut, tail(stdout, 50), tail(stderr, 50))
-	}
-	if got := issuer.Issued(); got < 2 {
-		t.Fatalf("the stub minted %d device token(s); the session never crossed an expiry", got)
-	}
-	if accepted := issuer.AcceptedValues(); len(accepted) < 2 {
-		t.Fatalf("pi presented %d accepted device token(s) %v; it kept the first token instead of refreshing",
-			len(accepted), accepted)
-	}
-	if !issuer.CrossedExpiry() {
-		t.Fatalf("no accepted request arrived after the first token's life passed; the session never crossed an expiry")
-	}
-	if n := issuer.RejectedExpired(); n > 0 {
-		t.Fatalf("the stub refused %d expired token(s); pi sent a token past its life instead of refreshing", n)
-	}
-}
-
-// piUserExtensionFileName is the name of the user extension
-// TestHarnessLaunchPiKeepsTheUsersExtensions plants in Pi's agent directory.
-// The extension writes a marker file when its factory runs, so the test can
-// tell whether Pi loaded it.
-const piUserExtensionFileName = "prizmal-user-probe.ts"
-
-// TestHarnessLaunchPiKeepsTheUsersExtensions pins that a device-login launch
-// leaves the user's own extensions loaded. Pi's --extension adds to discovery
-// rather than replacing it, so an extension in the user's agent directory still
-// loads beside the one the launch adds. A user who has extensions of their own
-// must not lose them to a prizmal launch.
-func TestHarnessLaunchPiKeepsTheUsersExtensions(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping harness launch in short mode")
-	}
-	harnessPath, err := exec.LookPath("pi")
-	if err != nil {
-		if os.Getenv(harnessLaunchRequireEnv) == "require" {
-			t.Fatal("pi is not on PATH")
-		}
-		t.Skip("pi is not on PATH")
-	}
-
-	srv := stubserver.NewServer(
-		stubserver.WithModels(harnessLaunchModel),
-		stubserver.WithDeviceTokenOnly(),
-	)
-	t.Cleanup(srv.Close)
-
-	prizmalBin, home, project := harnessLaunchSandbox(t, srv.URL, true)
-
-	// A user extension in Pi's own agent directory, the place a person's global
-	// extensions load from. Its factory appends to a marker file beside it, so
-	// the test knows whether Pi loaded it.
-	logPath := filepath.Join(home, "user-extension.log")
-	userExtension := `import { appendFileSync } from "node:fs";
-export default function (pi) {
-  appendFileSync(` + strconv.Quote(logPath) + `, "user extension loaded\n");
-}
-`
-	agentExtensions := filepath.Join(home, ".pi", "agent", "extensions")
-	if err := os.MkdirAll(agentExtensions, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(agentExtensions, piUserExtensionFileName), []byte(userExtension), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	harnessArgs := harnessLaunchCases["pi"].args
-	stdout, stderr, timedOut, runErr := runHarnessCommand(t, prizmalBin, home, project, harnessPath, "pi", harnessArgs)
-
-	if !strings.Contains(stdout, stubserver.Reply) {
-		t.Fatalf("pi did not finish the session (run error: %v, timed out: %v)\n--- stdout ---\n%s\n--- stderr ---\n%s",
-			runErr, timedOut, tail(stdout, 50), tail(stderr, 50))
-	}
-	marker, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatalf("the user's extension did not run: %v\n--- stderr ---\n%s", err, tail(stderr, 30))
-	}
-	if !strings.Contains(string(marker), "user extension loaded") {
-		t.Fatalf("the user's extension ran but wrote nothing: %q", marker)
-	}
 }
