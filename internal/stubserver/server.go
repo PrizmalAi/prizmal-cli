@@ -196,17 +196,23 @@ func (p *UsagePlan) Bodies() []map[string]any {
 	return bodies
 }
 
-// nextUsage records the request body and answers the plan's next
-// input_tokens. The last value repeats once the list runs out, so a
-// conversation whose compaction request arrives crosses the threshold on the
-// turn the plan aims at and stays past it afterward.
+// nextUsage records the request body and answers the plan's next turn: the
+// message id, which counts the request up, and the usage. The last plan
+// value repeats once the list runs out, so a conversation whose compaction
+// request arrives crosses the threshold on the turn the plan aims at and
+// stays past it afterward.
+//
+// The id is per request, spelled with the request's count: deterministic,
+// and distinct between replies. A client that anchors on a reply's usage
+// groups the conversation by that id, and one shared id would read as one
+// long turn.
 //
 // A request whose messages carry the compaction instructions ("CRITICAL:
 // Respond with TEXT ONLY", tQt in the 2.1.x binaries) is answered with an
 // analysis and a summary instead of the plan's reply: the compaction needs a
 // summary it can parse, and the shape it asks for is the one it parses. The
 // summary's text is distinctive so a test can find the compaction's answer.
-func (p *UsagePlan) nextUsage(body map[string]any) map[string]any {
+func (p *UsagePlan) nextUsage(body map[string]any) (string, map[string]any) {
 	raw, _ := json.Marshal(body)
 	p.mu.Lock()
 	p.bodies = append(p.bodies, string(raw))
@@ -214,8 +220,8 @@ func (p *UsagePlan) nextUsage(body map[string]any) map[string]any {
 	p.received++
 	p.mu.Unlock()
 
-	if messageContainsStrings(raw, "CRITICAL: Respond with TEXT ONLY") {
-		return map[string]any{"input_tokens": 1, "output_tokens": 80, "summary": true}
+	if strings.Contains(string(raw), "CRITICAL: Respond with TEXT ONLY") {
+		return fmt.Sprintf("msg_stub_compact_%d", n), map[string]any{"input_tokens": 1, "output_tokens": 80, "summary": true}
 	}
 
 	tokens := 1
@@ -225,12 +231,7 @@ func (p *UsagePlan) nextUsage(body map[string]any) map[string]any {
 			tokens = p.inputTokens[n]
 		}
 	}
-	return map[string]any{"input_tokens": tokens, "output_tokens": 1}
-}
-
-// messageContainsStrings reports whether the message JSON carries sub.
-func messageContainsStrings(raw []byte, sub string) bool {
-	return strings.Contains(string(raw), sub)
+	return fmt.Sprintf("msg_stub_%d", n), map[string]any{"input_tokens": tokens, "output_tokens": 1}
 }
 
 // NewServer returns a running stub server built from options. Callers must
@@ -586,10 +587,14 @@ func handleMessages(w http.ResponseWriter, r *http.Request, plan *UsagePlan) {
 	// draws the funded-tenant screen.
 	w.Header().Set("anthropic-ratelimit-unified-status", "allowed")
 
+	// Each served reply carries its own message id. A client that anchors on
+	// a reply's usage (Claude Code's token counter) groups the conversation
+	// by the reply id, and two replies with one id read as one long turn.
+	id := "msg_stub"
 	usage := map[string]any{"input_tokens": 1, "output_tokens": 1}
 	replyText := Reply
 	if plan != nil {
-		usage = plan.nextUsage(body)
+		id, usage = plan.nextUsage(body)
 		if isSummary, _ := usage["summary"].(bool); isSummary {
 			usage = map[string]any{"input_tokens": 1, "output_tokens": 80}
 			replyText = SummaryReply
@@ -608,7 +613,7 @@ func handleMessages(w http.ResponseWriter, r *http.Request, plan *UsagePlan) {
 		writeSSEEvent(w, flusher, "message_start", map[string]any{
 			"type": "message_start",
 			"message": map[string]any{
-				"id":            "msg_stub",
+				"id":            id,
 				"type":          "message",
 				"role":          "assistant",
 				"model":         "prizmal/stub",
@@ -645,7 +650,7 @@ func handleMessages(w http.ResponseWriter, r *http.Request, plan *UsagePlan) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"id":          "msg_stub",
+		"id":          id,
 		"type":        "message",
 		"role":        "assistant",
 		"model":       "prizmal/stub",

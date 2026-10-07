@@ -21,10 +21,12 @@ import (
 // Code sends, not on its output: when the count crosses the compaction
 // threshold the launch stated, the client must summarize the conversation,
 // and its summary request's instructions begin "CRITICAL: Respond with TEXT
-// ONLY" (tQt in the 2.1.x binaries). The control arm, the parent commit's
-// prizmal, states no window, so the window's source stays "auto", Claude
-// Code's threshold check returns early while it is, and no summary request
-// may appear.
+// ONLY" (tQt in the 2.1.x binaries). The control arm is the same prizmal
+// binary with a `claude` shim ahead of the real one on PATH, which removes
+// the stated window from the --settings JSON before it starts Claude Code:
+// the launch without the safeguard, with no git history needed. The window's
+// source then stays "auto", Claude Code's threshold check returns early
+// while it is, and no summary request may appear.
 //
 // Claude Code checks the threshold at the start of each query — a user turn —
 // and counts the conversation from the previous assistant message's usage
@@ -33,15 +35,17 @@ import (
 // reports, and the third query must compact before its own model request.
 // --continue opens the same session as a new query.
 //
-// The two arms share everything but the stub's reported usage and the launch
-// binary. The with arm's report sits above its own blocked level, the point
-// where this conversation's reactive flow sends the summary request: the raw
-// window (1M) less its output budget (20000) less the blocking margin (3000),
-// plus the ~84k-token estimate the turn-3 prompt's filler contributes, so
-// 900000 reports a count of about 984060. The control arm's report keeps the
-// same shape's count under its own auto threshold, 967000: 840000 reports
-// about 924000. Both arms end every query in the stub's reply, so neither
-// silence nor sending is the end of the conversation.
+// The launch states 915000 (the 882000 trigger plus the output budget and
+// margin Claude Code subtracts), so the with arm's threshold check reads
+// exactly 882000: 915000 less the 20000 output budget, less the 13000
+// margin. The two arms share the plan, the prompts, the prizmal binary and
+// everything but the stated window: turn 2's reply reports 840000, and turn 3's query adds the
+// ~84k-token estimate its filler prompt contributes, so the count the
+// turn-3 check reads is about 924000. That is past the with arm's 882000
+// and under the control arm's own threshold, which its auto-source window
+// resolves to 967000, so the same conversation separates the arms and
+// neither silence nor sending is the end of it: both arms end every query
+// in the stub's reply.
 //
 // Claude Code is the version the terminal baselines pin
 // (testdata/terminal/claude/claude-code-version), so a release that changes
@@ -71,25 +75,32 @@ func compactSent(bodies []map[string]any) bool {
 type compactCase struct {
 	name string
 	// statedWindow runs the launch that states the window (the safeguard).
-	// false runs the control arm, the parent commit's prizmal.
+	// false runs the control arm: the same launch through the stripping shim.
 	statedWindow bool
 }
 
-// compactPlans returns the stub's per-request input_tokens for one arm. Turn
-// 1 answers 1; turn 2 onward answers the arm's anchored report, and the last
-// value repeats when the list runs out.
-func compactPlans(statedWindow bool) []int {
-	if statedWindow {
-		return []int{1, 900000, 900000, 900000, 900000, 900000}
-	}
+// compactPlans returns the stub's per-request input_tokens. Both arms share
+// the plan: turn 1 answers 1, turn 2 onward answers 840000, and the last
+// value repeats when the list runs out. Turn 2's check reads turn 1's anchor
+// (1, far under 882000, no compaction yet); turn 3's check reads turn 2's
+// anchor plus turn 3's own filler estimate, past 882000 for the with arm.
+func compactPlans() []int {
 	return []int{1, 840000, 840000, 840000, 840000, 840000}
 }
+
+// compactTriggerTokens is the counted-tokens level the launch states as its
+// trigger: 90% of the 1M model's effective window (980000 less the 20000
+// output budget). The with arm's compaction must fire past it, not before.
+const compactTriggerTokens = 882000
 
 func TestClaudeCompactRequestFollowsTheStatedWindow(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping Claude Code launches in short mode")
 	}
-	require := os.Getenv(harnessLaunchRequireEnv) == "require"
+	// Both workflows' require switches count: the claude-code workflow's
+	// terminal-baselines job sets the baselines one, and a launch job the
+	// harness one.
+	require := os.Getenv(harnessLaunchRequireEnv) == "require" || os.Getenv(baselineRequireEnv) == "require"
 	skipOrFail := func(t *testing.T, format string, args ...any) {
 		t.Helper()
 		if require {
@@ -108,24 +119,23 @@ func TestClaudeCompactRequestFollowsTheStatedWindow(t *testing.T) {
 	}
 
 	prizmalBin := buildPrizmal(t)
-	// The control binary is prizmal without this change: the parent commit's
-	// tree, archived and built in a temp dir. The same stub, prompts and
-	// Claude Code run against a launch that states no compaction window, so
-	// the arm's silence is the safeguard's absence, not a difference in the
-	// conversation.
-	prizmalBinBefore := buildPrizmalFromCommit(t, "HEAD^")
+	// The control arm runs this same binary through a shim that removes the
+	// stated window, so the arm's silence is the missing window and nothing
+	// else: the stub, prompts, prizmal and Claude Code are the with arm's.
+	// It needs no git ref, which a shallow CI checkout does not carry.
+	shimDir := buildStatedWindowShim(t)
 
 	for _, tc := range []compactCase{
 		{name: "with-the-stated-window", statedWindow: true},
 		{name: "control-no-stated-window"},
 	} {
-		prizmalUnderTest := prizmalBin
+		pathDirs := claudeDir
 		if !tc.statedWindow {
-			prizmalUnderTest = prizmalBinBefore
+			pathDirs = shimDir + string(filepath.ListSeparator) + claudeDir
 		}
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			plan := stubserver.NewUsagePlan(compactPlans(tc.statedWindow)...)
+			plan := stubserver.NewUsagePlan(compactPlans()...)
 			srv := stubserver.NewServer(
 				stubserver.WithModels("stub-model"),
 				stubserver.WithUsagePlan(plan),
@@ -157,16 +167,20 @@ func TestClaudeCompactRequestFollowsTheStatedWindow(t *testing.T) {
 			// flow.
 			seedClaudeState(t, home, project)
 
-			runPrint := func(t *testing.T, promptArgs ...string) (string, string) {
+			// runPrint runs one print-mode query. A prompt argument rides the
+			// command line; stdin carries a prompt too large for it, because
+			// Linux caps one argument at 128 KB.
+			runPrint := func(t *testing.T, stdin string, promptArgs ...string) (string, string) {
 				t.Helper()
 				ctx, cancel := context.WithTimeout(context.Background(), harnessLaunchTimeout)
 				defer cancel()
 				args := append([]string{"--yes", "-m", "stub-model", "claude", "--", "--print"}, promptArgs...)
-				cmd := exec.CommandContext(ctx, prizmalUnderTest, args...)
+				cmd := exec.CommandContext(ctx, prizmalBin, args...)
 				cmd.Dir = project
 				cmd.Env = []string{
 					"HOME=" + home,
-					"PATH=" + claudeDir + string(filepath.ListSeparator) + os.Getenv("PATH"),
+					"PATH=" + pathDirs + string(filepath.ListSeparator) + os.Getenv("PATH"),
+					shimRealEnv + "=" + claudePath,
 					"TMPDIR=" + os.TempDir(),
 					"LANG=C.UTF-8",
 					"TERM=dumb",
@@ -176,7 +190,9 @@ func TestClaudeCompactRequestFollowsTheStatedWindow(t *testing.T) {
 				var stdout, stderr strings.Builder
 				cmd.Stdout = &stdout
 				cmd.Stderr = &stderr
-				cmd.Stdin = nil
+				if stdin != "" {
+					cmd.Stdin = strings.NewReader(stdin)
+				}
 				// A harness can leave child processes holding stdout after the
 				// timeout kills it. WaitDelay stops Wait from blocking on them.
 				cmd.WaitDelay = 10 * time.Second
@@ -185,28 +201,57 @@ func TestClaudeCompactRequestFollowsTheStatedWindow(t *testing.T) {
 			}
 
 			// Turn 1: the plain prompt, whose reply carries a 1-token anchor.
-			_, stderr1 := runPrint(t, "Reply with a short greeting.")
-			// Turn 2: its reply carries the arm's anchored report.
-			_, stderr2 := runPrint(t, "--continue", "Reply again.")
-			// Turn 3: the threshold check reads turn 2's anchor. The filler
-			// makes the messages after the anchor cover most of the report,
-			// which keeps this conversation's sending path reachable: without
-			// it the whole report sits in the fixed prefix, and the reactive
-			// compaction bails on an empty summarize set before it sends
-			// anything.
-			stdout3, stderr3 := runPrint(t, "--continue", "Summarize this filler in one word: "+strings.Repeat("filler ", 48000))
+			_, stderr1 := runPrint(t, "", "Reply with a short greeting.")
+			// Turn 2: its reply carries the anchored report 840000. Its own
+			// threshold check reads turn 1's anchor, so no compaction fires
+			// yet: the assertion below holds the marker out of these first
+			// two requests.
+			_, stderr2 := runPrint(t, "", "--continue", "Reply again.")
+			// Turn 3: the threshold check reads turn 2's anchor plus this
+			// turn's filler estimate, past 882000. The filler also keeps the
+			// sending path reachable: without it the whole report sits in
+			// the fixed prefix, and the reactive compaction bails on an
+			// empty summarize set before it sends anything.
+			stdout3, stderr3 := runPrint(t, "Summarize this filler in one word: "+strings.Repeat("filler ", 48000), "--continue")
 
 			requests := plan.Requests()
 			if requests < 3 {
 				t.Fatalf("the conversation did not reach the third turn: %d requests\n--- turn1 stderr ---\n%s\n--- turn2 stderr ---\n%s\n--- turn3 stdout ---\n%s\n--- turn3 stderr ---\n%s", requests, tail(stderr1, 30), tail(stderr2, 30), tail(stdout3, 30), tail(stderr3, 30))
 			}
 
-			sent := compactSent(plan.Bodies())
+			bodies := plan.Bodies()
+			// The compaction must fire at the crossing, not before: the first
+			// two requests (turn 1's model call and turn 2's, whose reply
+			// reports 840000) must carry no compaction instructions, and the
+			// marker request must be the turn-3 one that follows.
+			markerIndex := -1
+			for i, body := range bodies {
+				if compactSent([]map[string]any{body}) {
+					markerIndex = i
+					break
+				}
+			}
+
+			// preTokens is the count Claude Code read when it compacted,
+			// recorded on the session transcript's compact_boundary row. The
+			// with arm's compaction must run only past the trigger.
+			preTokens := readCompactPreTokens(t, home)
+
 			switch {
-			case tc.statedWindow && !sent:
-				t.Fatalf("Claude Code never sent a compaction request with the window stated (%d requests):\n--- turn3 stdout ---\n%s\n--- turn3 stderr ---\n%s", requests, tail(stdout3, 40), tail(stderr3, 40))
-			case !tc.statedWindow && sent:
-				t.Fatalf("Claude Code sent a compaction request with no window stated (the control arm must stay silent): %d requests\n--- turn3 stdout ---\n%s\n--- turn3 stderr ---\n%s", requests, tail(stdout3, 40), tail(stderr3, 40))
+			case tc.statedWindow:
+				switch {
+				case markerIndex == -1:
+					t.Fatalf("Claude Code never sent a compaction request with the window stated (%d requests):\n--- turn3 stdout ---\n%s\n--- turn3 stderr ---\n%s", requests, tail(stdout3, 40), tail(stderr3, 40))
+				case markerIndex < 2:
+					t.Fatalf("Claude Code compacted before the count crossed %d (marker request %d of %d):\n--- turn3 stdout ---\n%s\n--- turn3 stderr ---\n%s", compactTriggerTokens, markerIndex, requests, tail(stdout3, 40), tail(stderr3, 40))
+				}
+				if preTokens < compactTriggerTokens {
+					t.Fatalf("the compaction ran at %d counted tokens, below the trigger %d:\n--- turn3 stdout ---\n%s\n--- turn3 stderr ---\n%s", preTokens, compactTriggerTokens, tail(stdout3, 40), tail(stderr3, 40))
+				}
+			case !tc.statedWindow:
+				if markerIndex != -1 {
+					t.Fatalf("Claude Code sent a compaction request with no window stated (the control arm must stay silent): marker at request %d of %d\n--- turn3 stdout ---\n%s\n--- turn3 stderr ---\n%s", markerIndex, requests, tail(stdout3, 40), tail(stderr3, 40))
+				}
 			}
 		})
 	}
@@ -222,58 +267,112 @@ func buildPrizmal(t *testing.T) string {
 	return bin
 }
 
-// buildPrizmalFromCommit builds prizmal from a commit's tree, extracted into
-// a temp dir, so the control arm runs the launch WITHOUT the safeguard and
-// nothing else about it differs from the tested change's parent. git archive
-// is read-only; the temp dir belongs to the test.
-func buildPrizmalFromCommit(t *testing.T, commit string) string {
+// shimRealEnv names the variable that tells the shim where the real Claude
+// Code is.
+const shimRealEnv = "PRIZMAL_COMPACT_SHIM_REAL"
+
+// statedWindowShimSource is a `claude` stand-in for the control arm. It
+// removes the two settings fields the launch states the compaction window in
+// (the top-level autoCompactWindow and the modelSettings block, which holds
+// nothing else) from the --settings argument, then replaces itself with the
+// real Claude Code. Only those two keys are touched: the top-level object's
+// other values pass through as raw JSON, so the modelOverrides key order
+// that Claude Code reads stays as the launch wrote it.
+const statedWindowShimSource = `package main
+
+import (
+	"encoding/json"
+	"os"
+	"syscall"
+)
+
+func main() {
+	real := os.Getenv("` + shimRealEnv + `")
+	args := os.Args[1:]
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] != "--settings" {
+			continue
+		}
+		var settings map[string]json.RawMessage
+		if json.Unmarshal([]byte(args[i+1]), &settings) != nil {
+			continue
+		}
+		delete(settings, "autoCompactWindow")
+		delete(settings, "modelSettings")
+		if out, err := json.Marshal(settings); err == nil {
+			args[i+1] = string(out)
+		}
+	}
+	if err := syscall.Exec(real, append([]string{real}, args...), os.Environ()); err != nil {
+		os.Stderr.WriteString("shim: " + err.Error() + "\n")
+		os.Exit(1)
+	}
+}
+`
+
+// buildStatedWindowShim builds the control arm's shim into a directory of its
+// own and returns the directory, ready to lead PATH. The binary is named
+// claude, because prizmal finds Claude Code by that name.
+func buildStatedWindowShim(t *testing.T) string {
 	t.Helper()
-	root := t.TempDir()
-	tree := filepath.Join(root, "tree")
-	if err := os.MkdirAll(tree, 0o755); err != nil {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "shim.go")
+	if err := os.WriteFile(src, []byte(statedWindowShimSource), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	archive := exec.Command("git", "archive", "--format=tar", commit)
-	archive.Dir = repoRoot(t)
-	out, err := archive.Output()
-	if err != nil {
-		t.Fatalf("git archive %s: %v\n%s", commit, err, out)
+	binDir := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	cmd := exec.Command("tar", "-x", "-C", tree)
-	cmd.Stdin = strings.NewReader(string(out))
-	if outb, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("extract %s: %v\n%s", commit, err, outb)
-	}
-	if _, err := os.Stat(filepath.Join(tree, "go.mod")); err != nil {
-		t.Fatalf("the extracted tree %s has no go.mod (archive %d bytes): %v", tree, len(out), err)
-	}
-	bin := filepath.Join(root, "prizmal")
-	build := exec.Command("go", "build", "-o", bin, "./cmd/prizmal")
-	build.Dir = tree
-	build.Env = append(os.Environ(), "GOWORK=off")
+	build := exec.Command("go", "build", "-o", filepath.Join(binDir, "claude"), src)
+	build.Dir = dir
+	build.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=")
 	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build prizmal from %s (dir %s): %v\n%s", commit, tree, err, out)
+		t.Fatalf("build the control arm's claude shim: %v\n%s", err, out)
 	}
-	return bin
+	return binDir
 }
 
-// repoRoot is the repository root above the test's package directory, found
-// by the go.mod marker, so a git command run from a test binary whose cwd is
-// cmd/prizmal covers the whole tree.
-func repoRoot(t *testing.T) string {
+// readCompactPreTokens reads the compacted conversation's preTokens from the
+// session transcript under HOME: the token count Claude Code acted on when
+// it compacted, recorded on the compact_boundary system row. A session that
+// never compacted has no row, and the zero return reads as "no record".
+func readCompactPreTokens(t *testing.T, home string) int {
 	t.Helper()
-	dir, err := os.Getwd()
+	projects := filepath.Join(home, ".claude", "projects")
+	rows, err := os.ReadDir(projects)
 	if err != nil {
-		t.Fatal(err)
+		return 0
 	}
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
+	count := 0
+	for _, row := range rows {
+		if !row.IsDir() {
+			continue
 		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatal("no go.mod above the test's directory")
+		matches, err := filepath.Glob(filepath.Join(projects, row.Name(), "*.jsonl"))
+		if err != nil {
+			continue
 		}
-		dir = parent
+		for _, match := range matches {
+			data, err := os.ReadFile(match)
+			if err != nil {
+				continue
+			}
+			for _, line := range strings.Split(string(data), "\n") {
+				var rec struct {
+					Subtype string `json:"subtype"`
+					Meta    struct {
+						PreTokens int `json:"preTokens"`
+					} `json:"compactMetadata"`
+				}
+				if err := json.Unmarshal([]byte(line), &rec); err != nil {
+					continue
+				}
+				if rec.Subtype == "compact_boundary" && rec.Meta.PreTokens > count {
+					count = rec.Meta.PreTokens
+				}
+			}
+		}
 	}
+	return count
 }
