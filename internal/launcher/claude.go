@@ -425,7 +425,7 @@ func claudeLaunchModelName(model string, rows []ModelRow) string {
 // its own when the window's source is "auto": the ids a launch spells, with
 // their [1m] suffix and their tenant's names, are not in its model catalogue,
 // and the threshold check returns early for an auto source. A settings value
-// turns the source into "settings" and the threshold into a fraction of the
+// turns the source into "settings" and compacts at the trigger share of the
 // window (claude_compact.go).
 //
 // The value is stated twice, once top-level and once per model under

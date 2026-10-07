@@ -287,23 +287,23 @@ Claude Code clamps the setting to the window it resolves for the model, so a rel
 
 ### Auto-compaction
 
-A model name `prizmal claude` spells, with its `[1m]` suffix and your tenant's own names, is one Claude Code's model catalogue does not carry. For such a name Claude Code skips auto-compaction on its own: it waits for the endpoint to refuse the request, and a session stalls at the provider's limit. So the launch states the compaction window in its settings: `autoCompactWindow: 900000`, keyed per model. Claude Code summarizes the conversation at 90% of the 1M window, 882000 tokens, and the request stays under the endpoint's limit.
+A model name `prizmal claude` spells, with its `[1m]` suffix and your tenant's own names, is one Claude Code's model catalogue does not carry. For such a name Claude Code skips auto-compaction on its own: it waits for the endpoint to refuse the request, and a session stalls at the provider's limit. So the launch states a compaction window whose size turns Claude Code's own threshold math into the right trigger. The stated value is the window in that math, and Claude Code first subtracts the model's 20000-token output budget from it. The trigger sits another 13000 under that. Stating `915000` compacts a 1M session at 882000 counted tokens, which is 90% of the 980000 the effective window holds. Each model gets its own key.
 
 To reproduce this without the CLI, add these fields to `prizmal-claude.json`:
 
 ```json
 {
-  "autoCompactWindow": 882000,
+  "autoCompactWindow": 915000,
   "modelSettings": {
-    "claude-tier-opus": {"autoCompactWindow": 882000},
-    "claude-tier-sonnet": {"autoCompactWindow": 882000},
-    "claude-tier-haiku": {"autoCompactWindow": 882000},
-    "claude-tier-fable": {"autoCompactWindow": 882000}
+    "claude-tier-opus": {"autoCompactWindow": 915000},
+    "claude-tier-sonnet": {"autoCompactWindow": 915000},
+    "claude-tier-haiku": {"autoCompactWindow": 915000},
+    "claude-tier-fable": {"autoCompactWindow": 915000}
   }
 }
 ```
 
-The top-level value states the threshold for the models the settings launch names (Claude Code 2.1.283 reads only it), and the `modelSettings` entries move the value with a `/model` switch (releases from 2.1.292 on read them first). Claude Code clamps the setting to the window it resolves for the model, so a release that knows a smaller real window for one of the names keeps that smaller window.
+Any other named trigger turns into the same stated value by the same subtraction: trigger plus 33000. Claude Code reads the percentage behind none of this from the settings. The `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` environment variable is where the percentage itself can come from. The top-level value gives the models the settings launch their trigger (Claude Code 2.1.283 reads only it), and the `modelSettings` entries move the value with a `/model` switch (releases from 2.1.292 on read them first). Claude Code clamps the setting to the window it resolves for the model, so a release that knows a smaller real window for one of the names keeps that smaller window.
 
 `CLAUDE_CODE_AUTO_COMPACT_WINDOW` sets the same thing for a whole process. Claude Code reads it ahead of the settings, so an export in your shell would silently override the launch's value. `prizmal claude` removes that variable from the environment it hands the harness.
 

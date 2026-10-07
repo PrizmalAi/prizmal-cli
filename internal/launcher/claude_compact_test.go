@@ -15,18 +15,39 @@ import (
 // launched session waits for the endpoint's overflow error, which the Switch
 // does not serve in the shape Claude Code recognizes. The setting values and
 // their key spellings here are the contract with that resolver.
+//
+// The threshold math the resolver feeds, read from the same binaries
+// (iV/N7): threshold = min(floor(W·p/100), W−13000) where W = the resolved
+// window minus min(maxOutputTokens, 20000). The stated value therefore has
+// to add the two subtractions back on top of the trigger share, which
+// TestClaudeCompactModelSettingsValue asserts step by step.
 
-// The launch states 90% of the 1M window: 882000 tokens, the value the
-// prizmal Compact contract fixes for a 1M-context model.
+// The compaction CONTRACT: the trigger is 90% of a 1M model's effective
+// window, 980000 less its 20000-token output budget, so 882000 counted
+// tokens. Claude Code's settings window feeds that math through its own
+// formula — the settings value becomes the resolved window, the effective
+// window subtracts the output budget, and the threshold subtracts a 13000
+// margin — so the stated setting must add those two back: 882000 + 20000 +
+// 13000 = 915000. Asserting the derivation pins the contract, not a magic
+// number: if a release changes one of the three subtractions, this test
+// fails first and the constant's comment says which reading to re-verify.
 func TestClaudeCompactModelSettingsValue(t *testing.T) {
-	if got := claudeCompactModelSettings(); got != 900000 {
-		t.Fatalf("claudeCompactModelSettings() = %d, want 900000", got)
+	effective := claudeCompactWindow - claudeCompactOutputTokensBudget
+	trigger := effective / 100 * claudeCompactFraction
+	if trigger != 882000 {
+		t.Fatalf("trigger = %d, want 882000 (90%% of the %d effective window)", trigger, effective)
 	}
-	if claudeCompactFraction != 90 {
-		t.Fatalf("claudeCompactFraction = %d, want the documented 90", claudeCompactFraction)
+	if claudeCompactMargin != 13000 {
+		t.Fatalf("claudeCompactMargin = %d, want Claude Code's 13000", claudeCompactMargin)
 	}
-	if claudeCompactWindow != 1_000_000 {
-		t.Fatalf("claudeCompactWindow = %d, want the Switch window 1000000", claudeCompactWindow)
+
+	stated := claudeCompactModelSettings()
+	if want := trigger + claudeCompactOutputTokensBudget + claudeCompactMargin; stated != want {
+		t.Fatalf("claudeCompactModelSettings() = %d, want %d = %d trigger + %d output budget + %d margin",
+			stated, want, trigger, claudeCompactOutputTokensBudget, claudeCompactMargin)
+	}
+	if stated != 915000 {
+		t.Fatalf("claudeCompactModelSettings() = %d, want 915000", stated)
 	}
 }
 
@@ -146,8 +167,8 @@ func TestClaudeSettingsJSONWinsOverAnInheritedCompactWindowVar(t *testing.T) {
 	if err != nil {
 		t.Fatalf("claudeSettingsJSON: %v", err)
 	}
-	if !strings.Contains(settings, `"autoCompactWindow":900000`) {
-		t.Errorf("settings = %s, want the launch's 900000 with an inherited env override in place", settings)
+	if !strings.Contains(settings, `"autoCompactWindow":915000`) {
+		t.Errorf("settings = %s, want the launch's 915000 with an inherited env override in place", settings)
 	}
 	if strings.Contains(settings, "200000") {
 		t.Errorf("settings = %s, want no trace of the inherited %q", settings, "200000")
