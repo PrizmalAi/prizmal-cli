@@ -575,3 +575,31 @@ func TestIssuerCrossedExpiryDistinguishesARefreshWithinOneLife(t *testing.T) {
 		t.Fatal("CrossedExpiry = false for a request after the first token's life")
 	}
 }
+
+// TestNonStreamingToolCallReportsToolCallsFinishReason pins the non-streaming
+// chat-completions answer: a tool-call message has to carry finish_reason
+// "tool_calls", as the streamed answer does. A client that keys on
+// finish_reason treats "stop" as a finished turn and never runs the tool.
+func TestNonStreamingToolCallReportsToolCallsFinishReason(t *testing.T) {
+	srv := New()
+	defer srv.Close()
+
+	resp := postWithAuth(t, srv.URL+"/v1/chat/completions", `{"model":"prizmal/stub","messages":[{"role":"user","content":"use stub-tool"}]}`)
+	defer func() { _ = resp.Body.Close() }()
+	var body map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	choices, _ := body["choices"].([]any)
+	if len(choices) == 0 {
+		t.Fatalf("no choices in %v", body)
+	}
+	first, _ := choices[0].(map[string]any)
+	msg, _ := first["message"].(map[string]any)
+	if _, ok := msg["tool_calls"].([]any); !ok {
+		t.Fatalf("expected a tool_calls message, got %v", msg)
+	}
+	if got, _ := first["finish_reason"].(string); got != "tool_calls" {
+		t.Fatalf("finish_reason = %q, want tool_calls", got)
+	}
+}

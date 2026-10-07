@@ -583,7 +583,9 @@ func handleChatCompletions(w http.ResponseWriter, r *http.Request, loop *piToolL
 	}
 
 	message := map[string]any{"role": "assistant", "content": Reply}
+	finish := "stop"
 	if toolCall {
+		finish = "tool_calls"
 		message = map[string]any{
 			"role": "assistant",
 			"tool_calls": []map[string]any{{
@@ -598,7 +600,7 @@ func handleChatCompletions(w http.ResponseWriter, r *http.Request, loop *piToolL
 		"id":      "chatcmpl_stub",
 		"object":  "chat.completion",
 		"model":   "prizmal/stub",
-		"choices": []map[string]any{{"index": 0, "message": message, "finish_reason": "stop"}},
+		"choices": []map[string]any{{"index": 0, "message": message, "finish_reason": finish}},
 		"usage":   map[string]any{"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
 	})
 }
