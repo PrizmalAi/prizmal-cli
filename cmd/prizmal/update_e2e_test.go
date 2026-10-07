@@ -63,6 +63,14 @@ func newUpdateRig(t *testing.T, latestStatus int, latestTag string) *updateRig {
 	if err := os.WriteFile(filepath.Join(binDir, "claude"), []byte(stand), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// A go-install check asks `go env` where go install writes. The real one
+	// writes telemetry under HOME and can still be at it when the test removes
+	// the directory, so the rig answers for it: no GOBIN, a GOPATH that holds
+	// no prizmal.
+	goStub := "#!/bin/sh\nprintf '\\n%s\\n' '" + filepath.Join(r.home, "gopath") + "'\n"
+	if err := os.WriteFile(filepath.Join(binDir, "go"), []byte(goStub), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	r.writeConfig(map[string]any{})
 	return r
 }
