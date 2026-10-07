@@ -139,7 +139,10 @@ func plainConfirmPrompt(prompt string, options ConfirmOptions) (bool, error) {
 	if !defaultNo {
 		suffix = "(Y/n)"
 	}
-	fmt.Fprintf(confirmOut, "%s %s ", prompt, suffix)
+	// Explicit discard, like the other best-effort writes to a terminal: a
+	// prompt that cannot be written still reads an answer, and the gate's own
+	// decision is what the caller acts on.
+	_, _ = fmt.Fprintf(confirmOut, "%s %s ", prompt, suffix)
 	line, err := confirmReader.ReadString('\n')
 	if err != nil && line == "" {
 		return false, err
