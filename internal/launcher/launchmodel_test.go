@@ -41,7 +41,7 @@ func TestLaunchModelCarriesOnlyCatalogFacts(t *testing.T) {
 // fallback and $HARNESS_CONTEXT_LENGTH is the only way to change it — the env
 // var used to sit behind a guard (a cloud-model test and a safetensors-format
 // test) that no catalog entry could ever fail.
-func TestCodexEntryContextWindowFallsBackTo128k(t *testing.T) {
+func TestCodexEntryContextWindowFallsBackToTheDeclaredWindow(t *testing.T) {
 	entry := buildCodexModelEntry(LaunchModel{Name: "no-window-model"})
 
 	if got := entry["context_window"]; got != codexFallbackContextWindow {
