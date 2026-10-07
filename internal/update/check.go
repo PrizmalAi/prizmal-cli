@@ -179,8 +179,9 @@ func check(now time.Time, inst Install, state stateStore, latest func() (string,
 		fresh := cached{Current: inst.Version, Checked: now.Unix()}
 		tag, err := latest()
 		if err != nil || !ValidTag(tag) {
-			// Retry in an hour, not tomorrow and not on every launch.
-			fresh.Checked = now.Add(retryInterval - checkInterval).Unix()
+			// Back-date the record so the daily interval runs out in an
+			// hour: due is Checked+checkInterval, which is now+retryInterval.
+			fresh.Checked = now.Add(-(checkInterval - retryInterval)).Unix()
 		} else {
 			fresh.Latest = tag
 		}

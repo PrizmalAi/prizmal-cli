@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -132,17 +133,24 @@ type semver struct {
 	pre                 string
 }
 
+var semverPattern = regexp.MustCompile(`^([0-9]+)\.([0-9]+)\.([0-9]+)(?:-([0-9A-Za-z.-]+))?$`)
+
 func parseSemver(v string) (semver, error) {
 	v = strings.TrimPrefix(v, "v")
-	v, _, _ = strings.Cut(v, "+")
-	core, pre, _ := strings.Cut(v, "-")
-	var s semver
-	var rest string
-	if n, err := fmt.Sscanf(core+"|", "%d.%d.%d%s", &s.major, &s.minor, &s.patch, &rest); n < 3 || rest != "|" {
-		_ = err
+	v, _, _ = strings.Cut(v, "+") // build metadata does not order versions
+	m := semverPattern.FindStringSubmatch(v)
+	if m == nil {
 		return semver{}, fmt.Errorf("%w: %q", ErrNotSemver, v)
 	}
-	s.pre = pre
+	var s semver
+	for i, dst := range []*int{&s.major, &s.minor, &s.patch} {
+		n, err := strconv.Atoi(m[i+1])
+		if err != nil {
+			return semver{}, fmt.Errorf("%w: %q", ErrNotSemver, v)
+		}
+		*dst = n
+	}
+	s.pre = m[4]
 	return s, nil
 }
 

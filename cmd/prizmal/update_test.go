@@ -227,3 +227,15 @@ func TestUpdateAdvicePerInstall(t *testing.T) {
 		t.Errorf("archive = %q", got)
 	}
 }
+
+func TestAMenuThatFailsToReadContinuesInBothMenus(t *testing.T) {
+	for name, o := range map[string]update.Outcome{"offer": brewOutcome, "warn": archiveOutcome} {
+		r := &recorder{pickErr: errors.New("read /dev/stdin: input/output error")}
+		if err := r.ui(true).handle(o); err != nil {
+			t.Errorf("%s: a menu read error ended the launch: %v", name, err)
+		}
+		if got := r.log(); got != "pick,snooze" {
+			t.Errorf("%s: events = %s, want pick,snooze", name, got)
+		}
+	}
+}

@@ -95,9 +95,12 @@ func (ui updateUI) handle(o update.Outcome) error {
 		{Label: "Continue", Value: choiceContinue, Description: "Run " + have},
 		{Label: "Exit", Value: choiceExit},
 	})
-	if err != nil || choice == choiceExit {
+	switch {
+	case errors.Is(err, launcher.ErrCancelled), err == nil && choice == choiceExit:
 		return launcher.ErrCancelled
 	}
+	// Any other menu failure continues on the current version, as the offer
+	// above does.
 	ui.snooze(o)
 	return nil
 }
