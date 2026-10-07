@@ -33,15 +33,45 @@ func claudeCompactModelSettings() int {
 
 // claudeCompactKey is the settings key Claude Code resolves a model's window
 // under: the canonical name, lowercased, with the [1m] budget suffix
-// stripped. Claude Code canonicalizes the spelling the same way, so the
-// suffix it carries in the settings model field and the --model flag, a
-// /model switch to a bare spelling, a dated spelling, and a tier-suffixed
-// one all resolve to the same key.
+// stripped. Claude Code canonicalizes the spelling the same way (It strips
+// the suffix case-insensitively), so the suffix it carries in the settings
+// model field and the --model flag, a /model switch to a bare spelling, a
+// dated spelling, and a tier-suffixed one all resolve to the same key.
 //
 // Evidence: Claude Code's settings aggregation (E$t in 2.1.292) keys the
 // byModel map by its canonical function (Aq), which strips a trailing [1m]
 // case-insensitively and lowercases; its resolver (wE) reads
 // byModel[e.settingsKey] before the top-level default.
 func claudeCompactKey(model string) string {
-	return strings.ToLower(strings.TrimSuffix(model, oneMillionSuffix))
+	bare := model
+	for {
+		stripped := strings.TrimSuffix(strings.ToLower(bare), oneMillionSuffix)
+		if stripped == bare {
+			break
+		}
+		bare = stripped
+	}
+	return bare
+}
+
+// claudeCompactModelSettingsBlock builds the settings JSON's modelSettings
+// object with the window stated under every key a session of this launch can
+// resolve to: the model that runs, and every picker row the launch offers.
+// Each entry carries autoCompactWindow; the two fields Claude Code otherwise
+// reads there (effortLevel, maxEffortLevel) stay unset, because an entry that
+// names no effort keeps the launch's own.
+//
+// The modelSettings schema accepts extra per-model keys on every release the
+// baselines pin: 2.1.292 reads autoCompactWindow out of it, and 2.1.283
+// keeps the whole per-model object as .passthrough() data.
+func claudeCompactModelSettingsBlock(model string, rows []ModelRow) map[string]any {
+	entry := func() map[string]any { return map[string]any{"autoCompactWindow": claudeCompactModelSettings()} }
+	block := map[string]any{claudeCompactKey(claudeModelName(model)): entry()}
+	for _, row := range rows {
+		key := claudeCompactKey(claudeRowModelName(row))
+		if _, ok := block[key]; !ok {
+			block[key] = entry()
+		}
+	}
+	return block
 }

@@ -268,6 +268,11 @@ func (c *Claude) envVars() []string {
 // operator's shell for Anthropic itself must not ride along and re-route a
 // launch the operator did not aim at Anthropic.
 //
+// CLAUDE_CODE_AUTO_COMPACT_WINDOW is in the list with them: Claude Code reads
+// it ahead of the settings JSON the launch states its compaction window in,
+// so an export would silently move the threshold from the launch's value to
+// the shell's (compaction_contract in claude_compact.go).
+//
 // ANTHROPIC_DEFAULT_OPUS_MODEL and CLAUDE_CODE_SUBAGENT_MODEL are in this list
 // and are also the two variables the CLI sets for real, from claudeChildEnv
 // below. A stale shell export must not give the child a model the operator
@@ -284,6 +289,7 @@ var claudeInheritedModelVars = []string{
 	"ANTHROPIC_MODEL",
 	"ANTHROPIC_SMALL_FAST_MODEL",
 	"CLAUDE_CODE_SUBAGENT_MODEL",
+	"CLAUDE_CODE_AUTO_COMPACT_WINDOW",
 	"ANTHROPIC_AUTH_TOKEN",
 }
 
@@ -410,10 +416,21 @@ func claudeLaunchModelName(model string, rows []ModelRow) string {
 }
 
 // claudeSettingsJSON builds the inline --settings JSON for a launch: the model
-// to run, the tier remaps, and the picker rows.
+// to run, the tier remaps, the picker rows, and the auto-compact window.
 //
 // It is one argument on the command line, so it is scoped to the launched
 // process and persists nowhere. Nothing is written to ~/.claude.
+//
+// The auto-compact window is stated per model (claude_compact.go) because
+// Claude Code compacts nothing on its own when the window's source is "auto":
+// the ids a launch spells, with their [1m] suffix and their tenant's names,
+// are not in its model catalogue, and the threshold check returns early for
+// an auto source. A settings value turns the source into "settings" and the
+// threshold into a fraction of the window. Per model, keyed by Claude Code's
+// canonical spelling, the window follows a /model switch the way the model
+// does; an environment variable would pin one value over every row, and an
+// operator's inherited CLAUDE_CODE_AUTO_COMPACT_WINDOW would outrank the
+// settings, so the child env is not the channel.
 func claudeSettingsJSON(model string, rows []ModelRow) (string, error) {
 	if model == "" {
 		return "", nil
@@ -426,6 +443,7 @@ func claudeSettingsJSON(model string, rows []ModelRow) (string, error) {
 	if len(rows) > 0 {
 		settings["modelPicker"] = claudeModelPicker(rows)
 	}
+	settings["modelSettings"] = claudeCompactModelSettingsBlock(model, rows)
 
 	data, err := json.Marshal(settings)
 	if err != nil {

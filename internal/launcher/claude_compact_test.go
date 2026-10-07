@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-
-	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 )
 
 // Claude Code 2.1.292's window resolver (wE) reads the inline settings JSON
