@@ -42,3 +42,7 @@ jobs:
         env:
           PRIZMAL_HARNESS_LAUNCH: require
         run: go test -count=1 -v -run 'TestHarnessLaunchPi$' ./cmd/prizmal
+      - name: Launch pi from a device login
+        env:
+          PRIZMAL_HARNESS_LAUNCH: require
+        run: go test -count=1 -v -run 'TestHarnessLaunchPiFromDeviceLogin$' ./cmd/prizmal

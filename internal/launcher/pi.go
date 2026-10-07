@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
@@ -48,7 +49,15 @@ const piRestoredProviderID = piProviderID
 
 func (p *Pi) String() string { return "Pi" }
 
-func (p *Pi) Run(model string, _ []LaunchModel, args []string) error {
+// SupportsDeviceMode reports that Pi can run from an enrolled device: the
+// launch loads an extension whose provider resolves its credential by running
+// this binary's device-token helper, so a device token that expires mid-session
+// is replaced rather than sent again. A launch updates a Pi too old to load
+// that extension before it gets to this point, so what this reports is what a
+// launch of the installed Pi does.
+func (p *Pi) SupportsDeviceMode() bool { return true }
+
+func (p *Pi) Run(model string, models []LaunchModel, args []string) error {
 	fmt.Fprintf(os.Stderr, "\n%sPreparing Pi...%s\n", ansiGray, ansiReset)
 	if err := ensureNpmInstalled(); err != nil {
 		return err
@@ -60,24 +69,68 @@ func (p *Pi) Run(model string, _ []LaunchModel, args []string) error {
 		return err
 	}
 
+	// A device-mode launch hands Pi an extension whose provider runs `prizmal
+	// auth token` for each credential it needs, so a session that outlives one
+	// device token keeps working. The launch directory holds that extension and
+	// its config for the life of the child process and goes when it exits.
+	extension, err := piDeviceLaunchFor(model, models)
+	if err != nil {
+		return err
+	}
+	defer extension.clean()
+
 	fmt.Fprintf(os.Stderr, "\n%sLaunching Pi...%s\n\n", ansiGray, ansiReset)
 
 	// A launch always arrives with a model: main resolves one from --model,
 	// the saved default, or the picker before it dispatches. Pi injects no
 	// name of its own, so an empty model here would select the provider's
 	// own default rather than a model the operator chose.
-	cmd := exec.Command(bin, piLaunchArgs(model, args)...)
-	cmd.Env = append(os.Environ(), p.envVars()...)
+	cmd := exec.Command(bin, piLaunchArgs(model, extension, args)...)
+	cmd.Env = append(os.Environ(), p.envVars(extension)...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
 
-// envVars carries the key to pi on the child environment, under the name
-// piAPIKeyReference points at.
-func (p *Pi) envVars() []string {
-	return []string{envconfig.KeyEnvVar + "=" + envconfig.APIKey()}
+// piDeviceLaunchFor writes the device extension and its config for a launch.
+// It returns nil when the process is not in device mode, which is every
+// switch-key launch: those select the provider entry Edit wrote and take the
+// key from the environment as before.
+func piDeviceLaunchFor(model string, models []LaunchModel) (*piDeviceLaunch, error) {
+	if !envconfig.DeviceMode() {
+		return nil, nil
+	}
+	extension, err := writePiDeviceExtension(model, models)
+	if err != nil {
+		return nil, err
+	}
+	return extension, nil
+}
+
+// envVars is the environment Pi is launched with, before the inherited
+// variables are merged in.
+//
+// A switch-key launch carries the key under the name piAPIKeyReference points
+// at. A device-mode launch carries no key: the extension it loads runs
+// `prizmal auth token` whenever Pi needs the credential, so the variables name
+// the command that prints a fresh device token and the config that command's
+// provider was built from. Nothing here holds key material, and nothing the
+// Switch would take as a fixed credential reaches the child.
+//
+// The command is a separate prizmal process, and it resolves the Switch host
+// from scratch: --url, then $PRIZMAL_SWITCH_URL, then the config file, then
+// production. A launch aimed at a non-default host by --url would otherwise
+// let that process fall back to production and mint a token the launch's own
+// Switch cannot use, so the launch's resolved URL is pinned for the child.
+func (p *Pi) envVars(extension *piDeviceLaunch) []string {
+	if extension == nil {
+		return []string{envconfig.KeyEnvVar + "=" + envconfig.APIKey()}
+	}
+	return ensureHelperBaseURL([]string{
+		piCredentialCommandEnv + "=" + piCredentialCommand(),
+		piDeviceConfigEnv + "=" + extension.configPath,
+	}, envconfig.BaseURL())
 }
 
 func ensureNpmInstalled() error {
@@ -87,20 +140,43 @@ func ensureNpmInstalled() error {
 	return nil
 }
 
-// piLaunchArgs assembles the pi command line: the prizmal provider
-// selection first, then the user's passthrough args. When the user's args
-// already select a provider — --provider (pi spells it long-form only;
-// -p is --print), --provider=…, or a provider-qualified --model like
-// openai/gpt-5-mini — nothing is injected, because pi resolves a
+// piLaunchArgs assembles the pi command line: the device extension when there
+// is one, the prizmal provider selection, then the user's passthrough args.
+//
+// A device-mode launch loads its extension by path, so the provider that
+// command names is registered by the extension and resolves its own credential
+// per request. A switch-key launch loads nothing and relies on the provider
+// entry Edit wrote.
+//
+// When the user's args already select a provider — --provider (pi spells it
+// long-form only; -p is --print), --provider=…, or a provider-qualified --model
+// like openai/gpt-5-mini — nothing is injected, because pi resolves a
 // provider-qualified model against the --provider flag rather than its own
 // prefix, and a duplicate flag would override the user's choice. Only
 // pi's own option section is scanned: after pi's `--` separator every
 // token is a file or message text, not a flag.
-func piLaunchArgs(model string, extra []string) []string {
-	if userSelectsProvider(extra) {
-		return extra
+func piLaunchArgs(model string, extension *piDeviceLaunch, extra []string) []string {
+	var args []string
+	if extension != nil {
+		args = append(args, "--extension", extension.extensionPath)
 	}
-	return append([]string{"--provider", piProviderID, "--model", model}, extra...)
+	if userSelectsProvider(extra) {
+		return append(args, extra...)
+	}
+	args = append(args, "--provider", piProviderID, "--model", model)
+	return append(args, extra...)
+}
+
+// piCredentialCommand is the command the device extension runs for each
+// credential: the quoted path of the running prizmal binary followed by its
+// device-token helper. The path is quoted because pi runs the string through a
+// shell, and an install path with a space would otherwise split into two words.
+func piCredentialCommand() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return strconv.Quote(exe) + " auth token"
 }
 
 // userSelectsProvider reports whether the user's passthrough args already

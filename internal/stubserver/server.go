@@ -70,10 +70,24 @@ type Entry struct {
 type serverConfig struct {
 	models         []map[string]any
 	deviceApproved bool
+	deviceOnly     bool
 }
 
 // ServerOption configures a stub server.
 type ServerOption func(*serverConfig)
+
+// WithDeviceTokenOnly makes the stub accept one credential: the device token
+// its own POST /v1/cli/token hands out. Every other bearer and every x-api-key
+// is refused with 401, so a launch that reaches the harness authenticated with
+// the token a refresh minted, rather than with the switch key the config
+// already held. It approves the device, so it stands alone as well as beside
+// WithDeviceApproval.
+func WithDeviceTokenOnly() ServerOption {
+	return func(c *serverConfig) {
+		c.deviceApproved = true
+		c.deviceOnly = true
+	}
+}
 
 // WithModels serves exactly ids from /v1/models, each as text-only.
 func WithModels(ids ...string) ServerOption {
@@ -126,11 +140,11 @@ func NewServer(opts ...ServerOption) *httptest.Server {
 	for _, opt := range opts {
 		opt(&c)
 	}
-	return httptest.NewServer(handler(c.models, c.deviceApproved))
+	return httptest.NewServer(handler(c.models, c.deviceApproved, c.deviceOnly))
 }
 
 // handler serves the stub API. A nil models serves the default fixture.
-func handler(models []map[string]any, deviceApproved bool) http.HandlerFunc {
+func handler(models []map[string]any, deviceApproved, deviceOnly bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// POST /v1/cli/token is the device refresh. The real Switch serves it
 		// without a bearer credential, because the request carries its own
@@ -142,7 +156,7 @@ func handler(models []map[string]any, deviceApproved bool) http.HandlerFunc {
 		}
 
 		// Auth check: require either Authorization: Bearer or x-api-key.
-		if !hasAuth(r) {
+		if !hasAuth(r) || !hasAcceptedAuth(r, deviceOnly) {
 			writeJSON(w, http.StatusUnauthorized, map[string]any{
 				"error": map[string]any{"message": "API key is required"},
 			})
@@ -205,6 +219,20 @@ func hasAuth(r *http.Request) bool {
 		return true
 	}
 	return false
+}
+
+// hasAcceptedAuth reports whether a request carries a credential the stub
+// accepts. Without deviceOnly every well-formed credential passes. With it
+// only the device token POST /v1/cli/token handed out does, so a launch that
+// reaches the harness authenticated with the token a refresh minted.
+func hasAcceptedAuth(r *http.Request, deviceOnly bool) bool {
+	if !deviceOnly {
+		return true
+	}
+	if h := r.Header.Get("Authorization"); h == "Bearer "+DeviceToken {
+		return true
+	}
+	return r.Header.Get("x-api-key") == DeviceToken
 }
 
 // requestBody reads and JSON-decodes the request body into a map.

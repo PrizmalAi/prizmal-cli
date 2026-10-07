@@ -417,3 +417,45 @@ func TestCLITokenApprovedReturnsToken(t *testing.T) {
 		t.Errorf("reauth_by = %q, want %q", body.ReauthBy, DeviceReauthBy)
 	}
 }
+
+// TestDeviceTokenOnlyAcceptsOnlyTheDeviceToken pins the strict mode a device
+// launch test uses: the stub accepts the token its own refresh handed out and
+// refuses every other credential, so a harness that reaches a reply proves it
+// authenticated with a token the helper minted, not with the switch key.
+func TestDeviceTokenOnlyAcceptsOnlyTheDeviceToken(t *testing.T) {
+	srv := NewServer(WithDeviceTokenOnly())
+	defer srv.Close()
+
+	for _, tc := range []struct {
+		name       string
+		authorize  string
+		apiKey     string
+		wantStatus int
+	}{
+		{"the device token as a bearer", "Bearer " + DeviceToken, "", http.StatusOK},
+		{"the device token as x-api-key", "", DeviceToken, http.StatusOK},
+		{"another bearer", "Bearer stub-key", "", http.StatusUnauthorized},
+		{"another x-api-key", "", "stub-key", http.StatusUnauthorized},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodGet, srv.URL+"/v1/models", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.authorize != "" {
+				req.Header.Set("Authorization", tc.authorize)
+			}
+			if tc.apiKey != "" {
+				req.Header.Set("x-api-key", tc.apiKey)
+			}
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = resp.Body.Close() }()
+			if resp.StatusCode != tc.wantStatus {
+				t.Fatalf("status = %d, want %d", resp.StatusCode, tc.wantStatus)
+			}
+		})
+	}
+}

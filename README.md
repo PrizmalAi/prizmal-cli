@@ -61,7 +61,7 @@ Once your tenant approves a device, a launch uses it automatically. `prizmal cla
 
 A device token is a bearer credential that expires 10 minutes after issue, and the Switch binds it to one tenant. The private key never leaves the machine. The next refresh stops once a tenant manager revokes the device or disables the tenant, or sets the member inactive.
 
-Only Claude Code has a documented credential-refresh contract, so only it runs in device mode. Launching `codex`, `cline`, `opencode`, or `pi` on a machine signed in with a device key ignores device login and runs on the switch key the config already holds, which has no expiry and doesn't need a helper. With no switch key, the launch asks for one, as any unauthenticated launch does.
+Claude Code and Pi can refresh a device token during a session, so both run in device mode. Claude Code does it through its `apiKeyHelper`; Pi, through an extension the launch loads, whose provider resolves its credential by running `prizmal auth token` for each request. Launching `codex`, `cline`, or `opencode` on a machine signed in with a device key ignores device login and runs on the switch key from the config file, which doesn't expire. With no switch key, prizmal prompts for one, as any unauthenticated launch does.
 
 ### Switch key
 
@@ -96,9 +96,9 @@ using api key from: config file (~/.prizmal/config.json)
 
 The announcement prints the source only, never the key's value, a prefix of it, its length, or a hash.
 
-An enrolled device key takes precedence over both the config file and `$PRIZMAL_SWITCH_KEY` on the launches device login serves — `claude`, `--list`, and a model pick — since it is the credential your tenant approved for this machine. A `codex`, `cline`, `opencode`, or `pi` launch ignores the device key and resolves its credential the ordinary way. `--api-key` and `--url` still win for one launch, so you can use a switch key on a device-signed machine.
+An enrolled device key takes precedence over both the config file and `$PRIZMAL_SWITCH_KEY` on the launches device login serves — `claude`, `pi`, `--list`, and a model pick — since it is the credential your tenant approved for this machine. A `codex`, `cline`, or `opencode` launch ignores the device key and resolves its credential the ordinary way. `--api-key` and `--url` still win for one launch, so you can use a switch key on a device-signed machine.
 
-`prizmal login` prints nothing on stdout. It signs in and exits. `prizmal auth token` is the internal `apiKeyHelper` command Claude Code runs: it prints one device token on stdout and nothing else, and you don't run it by hand.
+`prizmal login` prints nothing on stdout. It signs in and exits. `prizmal auth token` is the internal helper command Claude Code and Pi run for a device token: it prints one token on stdout and nothing else, and you don't run it by hand.
 
 `--list` skips the announcement. Its output is the answer, and the line only gets in the way.
 
@@ -120,10 +120,9 @@ A launch that already has its model continues after the warning, without the ext
 | `codex` | OpenAI Codex CLI | | `OPENAI_API_KEY` + `model_providers.<profile>` TOML |
 | `opencode` | OpenCode | | `provider.prizmal.options.apiKey` |
 | `cline` | Cline | | `OPENAI_API_KEY`, which cline reads when `providers.openai-compatible.settings` has no `apiKey` |
-| `pi` | Pi coding agent | | `PRIZMAL_SWITCH_KEY`, which `"apiKey": "$PRIZMAL_SWITCH_KEY"` in `~/.pi/agent/models.json` refers to (pi 0.77.0 or later) |
+| `pi` | Pi coding agent | | `PRIZMAL_SWITCH_KEY`, which `"apiKey": "$PRIZMAL_SWITCH_KEY"` in `~/.pi/agent/models.json` refers to (pi 0.77.0 or later); a device login instead loads an extension whose provider runs `prizmal auth token` |
 
-On a machine signed in with a device key, only `claude` runs in device mode. The others ignore device login and receive the switch key from the config file, the environment, or `--api-key`, resolved once as usual.
-
+On a machine signed in with a device key, `claude` and `pi` run in device mode. Every other harness ignores device login and receives the switch key from the config file, the environment, or `--api-key`, resolved once as usual.
 ## Commands
 
 | Command | What it does |
@@ -198,6 +197,13 @@ refer to that variable:
   and later read from the environment. A launch updates an older pi first.
 - Cline's provider entry leaves out `apiKey`, and cline then reads
   `OPENAI_API_KEY`.
+
+A device-login launch of Pi writes a small Pi extension into a temporary
+directory for the session and removes it when Pi exits. The extension
+registers the Switch as a provider whose credential is the command `prizmal
+auth token`, so Pi gets a fresh device token whenever it needs one. The
+extension and its config take the credential from that command, so the launch
+doesn't write a key into either file. The directory is private to the session.
 
 When the harness exits, the key goes with its process. A plain launch also
 removes a key that an older `prizmal` wrote into these files. To run a
@@ -288,6 +294,54 @@ Then add `--settings prizmal-claude.json` to the command. A row's `behavesAs` se
 - The `/model` menu lists every model your switch key routes to. Without the CLI, it lists the rows in your settings file, or Claude Code's built-in list.
 - It removes model variables such as `ANTHROPIC_MODEL` that your shell exports, so they can't change the model a launch runs.
 - It installs Claude Code when the `claude` binary is missing.
+
+## Run Pi without the Prizmal CLI
+
+Pi reads its providers from `~/.pi/agent/models.json`. With a switch key, export it as `PRIZMAL_SWITCH_KEY` and add the prizmal provider to that file:
+
+```json
+{
+  "providers": {
+    "prizmal": {
+      "baseUrl": "https://api.prizmal.ai/v1",
+      "api": "openai-completions",
+      "apiKey": "$PRIZMAL_SWITCH_KEY",
+      "models": [{ "id": "your-model" }]
+    }
+  }
+}
+```
+
+Then launch Pi on that provider:
+
+```bash
+pi --provider prizmal --model your-model
+```
+
+The `"$PRIZMAL_SWITCH_KEY"` value is a reference, not the key, so this file doesn't contain your switch key.
+
+With a device login instead, there is no key to export. Pi reads a provider's `apiKey` fresh for each request when the value is a command preceded by `!`, so point it at the CLI's device-token helper:
+
+```json
+{
+  "providers": {
+    "prizmal": {
+      "baseUrl": "https://api.prizmal.ai/v1",
+      "api": "openai-completions",
+      "apiKey": "!prizmal auth token",
+      "models": [{ "id": "your-model" }]
+    }
+  }
+}
+```
+
+`prizmal pi` does this for the session without touching your config: it writes an extension into a temporary directory and hands Pi its path with `--extension`. The directory goes when Pi exits. The extension registers the same provider with that command as its `apiKey`. The command path is the running `prizmal` binary, quoted, so Pi finds it whether or not `prizmal` is on your `PATH`.
+
+`prizmal pi` adds a few things these files leave out:
+
+- The extension's provider is the only prizmal provider a device launch loads. A switch-key launch uses your `models.json` entry instead.
+- It updates an older Pi that reads a provider's key only once, rather than for each request.
+- It installs Pi when the `pi` binary is missing.
 
 ## Building
 

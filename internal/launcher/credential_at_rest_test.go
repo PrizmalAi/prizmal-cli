@@ -88,7 +88,7 @@ func TestEnvChannelLaunchersLeaveNoKeyOnDisk(t *testing.T) {
 			// rides the child environment.
 			name: "pi",
 			configure: func(t *testing.T) error {
-				(&Pi{}).envVars()
+				(&Pi{}).envVars(nil)
 				return (&Pi{}).Edit(models)
 			},
 		},
@@ -132,7 +132,7 @@ func TestEnvVarsCarryAPIKey(t *testing.T) {
 		varName string
 	}{
 		{"codex", (&Codex{}).envVars, "OPENAI_API_KEY"},
-		{"pi", (&Pi{}).envVars, "PRIZMAL_SWITCH_KEY"},
+		{"pi", func() []string { return (&Pi{}).envVars(nil) }, "PRIZMAL_SWITCH_KEY"},
 		{"cline", (&Cline{}).envVars, "OPENAI_API_KEY"},
 	}
 	for _, tc := range tests {

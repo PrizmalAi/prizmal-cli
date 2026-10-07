@@ -181,8 +181,8 @@ func resetDeviceModeState(t *testing.T) {
 }
 
 // deviceLoginApplies is keyed on the harness the launch names, so its
-// decisions are the registry's, not a hand-written list. TestOnlyClaudeSupportsDeviceMode
-// pins the same split on the launcher side.
+// decisions are the registry's, not a hand-written list.
+// TestDeviceModeSupport pins the same split on the launcher side.
 func TestDeviceLoginAppliesByHarness(t *testing.T) {
 	resetDeviceModeState(t)
 	for _, tc := range []struct {
@@ -194,7 +194,7 @@ func TestDeviceLoginAppliesByHarness(t *testing.T) {
 		{"a --list has no harness behind it", true, []string{"pi"}, true},
 		{"a bare --pick has no harness behind it", false, nil, true},
 		{"claude refreshes its own token", false, []string{"claude"}, true},
-		{"pi receives the key once", false, []string{"pi"}, false},
+		{"pi refreshes through its credential command", false, []string{"pi"}, true},
 		{"codex receives the key once", false, []string{"codex"}, false},
 		{"cline receives the key once", false, []string{"cline"}, false},
 		{"opencode receives the key once", false, []string{"opencode"}, false},
@@ -207,7 +207,7 @@ func TestDeviceLoginAppliesByHarness(t *testing.T) {
 		})
 	}
 	for _, spec := range launcher.ListAllIntegrationSpecs() {
-		want := spec.Name == "claude"
+		want := spec.Name == "claude" || spec.Name == "pi"
 		if got := deviceLoginApplies(false, []string{spec.Name}); got != want {
 			t.Errorf("deviceLoginApplies for %q = %v, want %v", spec.Name, got, want)
 		}
