@@ -1,0 +1,9 @@
+prizmal v0.2.0 is available. You have v0.1.2.
+Update available
+▸ Upgrade now  go install github.com/PrizmalAi/prizmal-cli/cmd/prizmal@v0.2.0
+  Not now      Continue with v0.1.2
+
+go: downloading github.com/PrizmalAi/prizmal-cli v0.2.0
+Upgraded prizmal to v0.2.0. Restarting.
+using api key from: config file (~/.prizmal/config.json)
+[prizmal exited 0]

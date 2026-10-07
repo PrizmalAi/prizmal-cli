@@ -1,0 +1,6 @@
+prizmal v0.2.0 is available. You have v0.1.2.
+Update available
+▸ Upgrade now  go install github.com/PrizmalAi/prizmal-cli/cmd/prizmal@v0.2.0
+  Not now      Continue with v0.1.2
+
+  ↑/k up • ↓/j down • / filter • esc quit without saving

@@ -1,0 +1,4 @@
+prizmal v0.2.0 is available. You have v0.1.2.
+Upgrade with: brew upgrade --cask prizmal
+using api key from: config file (~/.prizmal/config.json)
+[prizmal exited 0]

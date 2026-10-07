@@ -95,7 +95,7 @@ working directory and a session id, so the comparison replaces each with a
 placeholder.
 
 `TestTerminalBaselinesPrizmal` covers the screens prizmal draws for its own
-commands: the first-run prompt and the device-login flow, under
+commands: the first-run prompt, the device-login flow and the update check, under
 `cmd/prizmal/testdata/terminal/prizmal`. It needs tmux but no harness, and the
 Claude Code workflow runs it beside the Claude cases.
 

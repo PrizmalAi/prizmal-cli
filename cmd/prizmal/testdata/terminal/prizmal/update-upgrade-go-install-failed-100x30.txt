@@ -1,0 +1,9 @@
+prizmal v0.2.0 is available. You have v0.1.2.
+Update available
+▸ Upgrade now  go install github.com/PrizmalAi/prizmal-cli/cmd/prizmal@v0.2.0
+  Not now      Continue with v0.1.2
+
+go: github.com/PrizmalAi/prizmal-cli@v0.2.0: reading proxy: 404 Not Found
+Upgrade failed: exit status 1. Continuing with v0.1.2.
+using api key from: config file (~/.prizmal/config.json)
+[prizmal exited 0]
