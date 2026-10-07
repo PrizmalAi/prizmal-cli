@@ -16,45 +16,50 @@ import (
 )
 
 // The compaction end-to-end test runs the real Claude Code through a real
-// prizmal binary against the stub switch, whose answers report a usage the
-// test aims at the compaction threshold. It asserts on the requests Claude
-// Code sends, not on its output: when the count crosses the compaction
-// threshold the launch stated, the client must summarize the conversation,
-// and its summary request's instructions begin "CRITICAL: Respond with TEXT
-// ONLY" (tQt in the 2.1.x binaries). The control arm is the same prizmal
-// binary with a `claude` shim ahead of the real one on PATH, which removes
-// the stated window from the --settings JSON before it starts Claude Code:
-// the launch without the safeguard, with no git history needed. The window's
-// source then stays "auto", Claude Code's threshold check returns early
-// while it is, and no summary request may appear.
+// prizmal binary against the stub switch. It asserts on the requests Claude
+// Code sends, not on its output. A compaction request is the one whose
+// instructions begin "CRITICAL: Respond with TEXT ONLY" (tQt in the 2.1.x
+// binaries).
 //
-// Claude Code checks the threshold at the start of each query — a user turn —
+// Claude Code checks its threshold at the start of each query, a user turn,
 // and counts the conversation from the previous assistant message's usage
-// (tm, dCt in the 2.1.x binaries), so the test runs three print-mode queries
-// against one session: the second query's reply carries the usage the plan
-// reports, and the third query must compact before its own model request.
-// --continue opens the same session as a new query.
+// (tm, dCt in the 2.1.x binaries). So each arm runs three print-mode queries
+// against one session, with --continue opening the same session as a new
+// query: the second query's reply carries the usage the arm's plan reports,
+// and the third query adds the ~84k-token estimate of its filler prompt.
 //
-// The launch states 915000 (the 882000 trigger plus the output budget and
-// margin Claude Code subtracts), so the with arm's threshold check reads
-// exactly 882000: 915000 less the 20000 output budget, less the 13000
-// margin. The two arms share the plan, the prompts, the prizmal binary and
-// everything but the stated window: turn 2's reply reports 840000, and turn 3's query adds the
-// ~84k-token estimate its filler prompt contributes, so the count the
-// turn-3 check reads is about 924000. That is past the with arm's 882000
-// and under the control arm's own threshold, which its auto-source window
-// resolves to 967000, so the same conversation separates the arms and
-// neither silence nor sending is the end of it: both arms end every query
-// in the stub's reply.
+// The launch states a 1M window in CLAUDE_CODE_AUTO_COMPACT_WINDOW. Claude
+// Code's threshold for it is 967000 counted tokens: the window less the 20000
+// output budget, less a 13000 margin. Four arms:
+//
+//   - proactive: the launch as it is. The count Claude Code reads at turn 3
+//     is about 984000, past 967000, and it compacts before any error.
+//   - proactive-control: the same launch through a `claude` shim that removes
+//     the variable before it starts Claude Code. The window's source stays
+//     "auto", the threshold check returns early, and no compaction request
+//     appears at the same count. This is the bug the variable fixes.
+//   - recognized-error: the shim again, and a count of about 924000, under
+//     the threshold, so only the endpoint can start a compaction. The stub
+//     refuses the turn-3 request the way a provider refuses a prompt past its
+//     window, "prompt is too long: N tokens > M maximum". Claude Code must
+//     compact then, and the retried turn must end in the stub's reply.
+//   - unrecognized-error: the same refusal in a text Claude Code does not
+//     recognize. Nothing compacts and the session fails, which is why the
+//     Switch's refusal has to carry the recognized shape.
 //
 // Claude Code is the version the terminal baselines pin
 // (testdata/terminal/claude/claude-code-version), so a release that changes
-// the resolver fails here when the pin moves.
+// the resolver or the error matcher fails here when the pin moves.
 
 // compactMarker is the first line of every compaction request's instructions,
 // whatever reply shape the request asks for: the analysis+summary shape, the
 // summary-only shape, and the recent-portions shape all begin with it.
 const compactMarker = "CRITICAL: Respond with TEXT ONLY"
+
+// compactProactiveTokens is the count at which Claude Code compacts a session
+// whose window the launch states as 1M: 1000000 less the 20000-token output
+// budget, less the 13000 margin.
+const compactProactiveTokens = 967000
 
 // compactSent reports whether any request Claude Code sent carried the
 // compaction instructions.
@@ -74,26 +79,37 @@ func compactSent(bodies []map[string]any) bool {
 // compactCase is one arm of the compaction test.
 type compactCase struct {
 	name string
-	// statedWindow runs the launch that states the window (the safeguard).
-	// false runs the control arm: the same launch through the stripping shim.
-	statedWindow bool
+	// dropWindowVar runs the launch through the shim that removes
+	// CLAUDE_CODE_AUTO_COMPACT_WINDOW, the launch without the safeguard.
+	dropWindowVar bool
+	// plan is the stub's per-request input_tokens. Turn 1 answers plan[0],
+	// turn 2 plan[1], and turn 3's request plan[2]; the last value repeats.
+	plan []int
+	// refusal, when set, is the message of the 400 the stub answers a request
+	// with whose planned count passes the 1M window.
+	refusal string
+	// check asserts on what the arm saw.
+	check func(t *testing.T, r compactResult)
 }
 
-// compactPlans returns the stub's per-request input_tokens. Both arms share
-// the plan: turn 1 answers 1, turn 2 onward answers 840000, and the last
-// value repeats when the list runs out. Turn 2's check reads turn 1's anchor
-// (1, far under 882000, no compaction yet); turn 3's check reads turn 2's
-// anchor plus turn 3's own filler estimate, past 882000 for the with arm.
-func compactPlans() []int {
-	return []int{1, 840000, 840000, 840000, 840000, 840000}
+// compactResult is what one arm's conversation produced.
+type compactResult struct {
+	requests int
+	// markerIndex is the index of the first compaction request, or -1.
+	markerIndex int
+	// preTokens is the count Claude Code recorded when it compacted, or 0.
+	preTokens int
+	// stdout3 and stderr3 are the third query's output.
+	stdout3, stderr3 string
 }
 
-// compactTriggerTokens is the counted-tokens level the launch states as its
-// trigger: 90% of the 1M model's effective window (980000 less the 20000
-// output budget). The with arm's compaction must fire past it, not before.
-const compactTriggerTokens = 882000
+// fail stops the arm with the third query's output attached.
+func (r compactResult) fail(t *testing.T, format string, args ...any) {
+	t.Helper()
+	t.Fatalf(format+"\n--- turn3 stdout ---\n%s\n--- turn3 stderr ---\n%s", append(args, tail(r.stdout3, 40), tail(r.stderr3, 40))...)
+}
 
-func TestClaudeCompactRequestFollowsTheStatedWindow(t *testing.T) {
+func TestClaudeCompactsOnTheStatedWindowAndOnARecognizedRefusal(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping Claude Code launches in short mode")
 	}
@@ -119,23 +135,83 @@ func TestClaudeCompactRequestFollowsTheStatedWindow(t *testing.T) {
 	}
 
 	prizmalBin := buildPrizmal(t)
-	// The control arm runs this same binary through a shim that removes the
-	// stated window, so the arm's silence is the missing window and nothing
-	// else: the stub, prompts, prizmal and Claude Code are the with arm's.
-	// It needs no git ref, which a shallow CI checkout does not carry.
-	shimDir := buildStatedWindowShim(t)
+	// The control arms run this same binary through a shim that removes the
+	// window variable, so what they show is the missing variable and nothing
+	// else: the stub, prompts, prizmal and Claude Code are the others'. It
+	// needs no git ref, which a shallow CI checkout does not carry.
+	shimDir := buildWindowVarShim(t)
 
-	for _, tc := range []compactCase{
-		{name: "with-the-stated-window", statedWindow: true},
-		{name: "control-no-stated-window"},
-	} {
+	cases := []compactCase{
+		{
+			name: "proactive",
+			plan: []int{1, 900000},
+			check: func(t *testing.T, r compactResult) {
+				switch {
+				case r.markerIndex == -1:
+					r.fail(t, "Claude Code never sent a compaction request with the window stated (%d requests)", r.requests)
+				case r.markerIndex < 2:
+					r.fail(t, "Claude Code compacted before the count crossed %d (marker request %d of %d)", compactProactiveTokens, r.markerIndex, r.requests)
+				case r.preTokens < compactProactiveTokens:
+					r.fail(t, "the compaction ran at %d counted tokens, below the threshold %d", r.preTokens, compactProactiveTokens)
+				}
+			},
+		},
+		{
+			name:          "proactive-control",
+			dropWindowVar: true,
+			plan:          []int{1, 900000},
+			check: func(t *testing.T, r compactResult) {
+				if r.markerIndex != -1 {
+					r.fail(t, "Claude Code sent a compaction request with no window stated (the control arm must stay silent): marker at request %d of %d", r.markerIndex, r.requests)
+				}
+			},
+		},
+		{
+			name:          "recognized-error",
+			dropWindowVar: true,
+			plan:          []int{1, 840000, 1012345, 1},
+			refusal:       "prompt is too long: {tokens} tokens > {limit} maximum",
+			check: func(t *testing.T, r compactResult) {
+				// Request 2 is the turn-3 request the stub refused, so the
+				// compaction request must come after it, and at a count under
+				// the proactive threshold: the refusal started it.
+				switch {
+				case r.markerIndex < 3:
+					r.fail(t, "Claude Code did not compact after the recognized refusal (marker request %d of %d)", r.markerIndex, r.requests)
+				case r.preTokens >= compactProactiveTokens:
+					r.fail(t, "the compaction ran at %d counted tokens, past the proactive threshold, so the refusal did not start it", r.preTokens)
+				case !strings.Contains(r.stdout3, stubserver.Reply):
+					r.fail(t, "the retried turn did not end in the stub's reply")
+				}
+			},
+		},
+		{
+			name:          "unrecognized-error",
+			dropWindowVar: true,
+			plan:          []int{1, 840000, 1012345},
+			refusal:       "Provider returned error",
+			check: func(t *testing.T, r compactResult) {
+				switch {
+				case r.markerIndex != -1:
+					r.fail(t, "Claude Code compacted after a refusal it should not recognize (marker request %d of %d)", r.markerIndex, r.requests)
+				case strings.Contains(r.stdout3, stubserver.Reply):
+					r.fail(t, "the turn ended in the stub's reply, but the stub refused every request past the window")
+				}
+			},
+		},
+	}
+
+	for _, tc := range cases {
 		pathDirs := claudeDir
-		if !tc.statedWindow {
+		if tc.dropWindowVar {
 			pathDirs = shimDir + string(filepath.ListSeparator) + claudeDir
 		}
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			plan := stubserver.NewUsagePlan(compactPlans()...)
+			plan := stubserver.NewUsagePlan(tc.plan...)
+			if tc.refusal != "" {
+				plan.OverflowAbove(1_000_000, tc.refusal)
+			}
 			srv := stubserver.NewServer(
 				stubserver.WithModels("stub-model"),
 				stubserver.WithUsagePlan(plan),
@@ -200,18 +276,17 @@ func TestClaudeCompactRequestFollowsTheStatedWindow(t *testing.T) {
 				return stdout.String(), stderr.String()
 			}
 
-			// Turn 1: the plain prompt, whose reply carries a 1-token anchor.
+			// Turn 1: the plain prompt, whose reply carries the first anchor.
 			_, stderr1 := runPrint(t, "", "Reply with a short greeting.")
-			// Turn 2: its reply carries the anchored report 840000. Its own
-			// threshold check reads turn 1's anchor, so no compaction fires
-			// yet: the assertion below holds the marker out of these first
-			// two requests.
+			// Turn 2: its reply carries the second report. Its own threshold
+			// check reads turn 1's anchor, far under any threshold, so nothing
+			// compacts yet.
 			_, stderr2 := runPrint(t, "", "--continue", "Reply again.")
 			// Turn 3: the threshold check reads turn 2's anchor plus this
-			// turn's filler estimate, past 882000. The filler also keeps the
-			// sending path reachable: without it the whole report sits in
-			// the fixed prefix, and the reactive compaction bails on an
-			// empty summarize set before it sends anything.
+			// turn's filler estimate. The filler also keeps the sending path
+			// reachable: without it the whole report sits in the fixed
+			// prefix, and the reactive compaction bails on an empty summarize
+			// set before it sends anything.
 			stdout3, stderr3 := runPrint(t, "Summarize this filler in one word: "+strings.Repeat("filler ", 48000), "--continue")
 
 			requests := plan.Requests()
@@ -219,40 +294,22 @@ func TestClaudeCompactRequestFollowsTheStatedWindow(t *testing.T) {
 				t.Fatalf("the conversation did not reach the third turn: %d requests\n--- turn1 stderr ---\n%s\n--- turn2 stderr ---\n%s\n--- turn3 stdout ---\n%s\n--- turn3 stderr ---\n%s", requests, tail(stderr1, 30), tail(stderr2, 30), tail(stdout3, 30), tail(stderr3, 30))
 			}
 
-			bodies := plan.Bodies()
-			// The compaction must fire at the crossing, not before: the first
-			// two requests (turn 1's model call and turn 2's, whose reply
-			// reports 840000) must carry no compaction instructions, and the
-			// marker request must be the turn-3 one that follows.
 			markerIndex := -1
-			for i, body := range bodies {
+			for i, body := range plan.Bodies() {
 				if compactSent([]map[string]any{body}) {
 					markerIndex = i
 					break
 				}
 			}
-
-			// preTokens is the count Claude Code read when it compacted,
-			// recorded on the session transcript's compact_boundary row. The
-			// with arm's compaction must run only past the trigger.
-			preTokens := readCompactPreTokens(t, home)
-
-			switch {
-			case tc.statedWindow:
-				switch {
-				case markerIndex == -1:
-					t.Fatalf("Claude Code never sent a compaction request with the window stated (%d requests):\n--- turn3 stdout ---\n%s\n--- turn3 stderr ---\n%s", requests, tail(stdout3, 40), tail(stderr3, 40))
-				case markerIndex < 2:
-					t.Fatalf("Claude Code compacted before the count crossed %d (marker request %d of %d):\n--- turn3 stdout ---\n%s\n--- turn3 stderr ---\n%s", compactTriggerTokens, markerIndex, requests, tail(stdout3, 40), tail(stderr3, 40))
-				}
-				if preTokens < compactTriggerTokens {
-					t.Fatalf("the compaction ran at %d counted tokens, below the trigger %d:\n--- turn3 stdout ---\n%s\n--- turn3 stderr ---\n%s", preTokens, compactTriggerTokens, tail(stdout3, 40), tail(stderr3, 40))
-				}
-			case !tc.statedWindow:
-				if markerIndex != -1 {
-					t.Fatalf("Claude Code sent a compaction request with no window stated (the control arm must stay silent): marker at request %d of %d\n--- turn3 stdout ---\n%s\n--- turn3 stderr ---\n%s", markerIndex, requests, tail(stdout3, 40), tail(stderr3, 40))
-				}
-			}
+			tc.check(t, compactResult{
+				requests:    requests,
+				markerIndex: markerIndex,
+				// preTokens is the count Claude Code read when it compacted,
+				// recorded on the session transcript's compact_boundary row.
+				preTokens: readCompactPreTokens(t, home),
+				stdout3:   stdout3,
+				stderr3:   stderr3,
+			})
 		})
 	}
 }
@@ -271,53 +328,44 @@ func buildPrizmal(t *testing.T) string {
 // Code is.
 const shimRealEnv = "PRIZMAL_COMPACT_SHIM_REAL"
 
-// statedWindowShimSource is a `claude` stand-in for the control arm. It
-// removes the two settings fields the launch states the compaction window in
-// (the top-level autoCompactWindow and the modelSettings block, which holds
-// nothing else) from the --settings argument, then replaces itself with the
-// real Claude Code. Only those two keys are touched: the top-level object's
-// other values pass through as raw JSON, so the modelOverrides key order
-// that Claude Code reads stays as the launch wrote it.
-const statedWindowShimSource = `package main
+// windowVarShimSource is a `claude` stand-in for the control arms. It removes
+// CLAUDE_CODE_AUTO_COMPACT_WINDOW from the environment, then replaces itself
+// with the real Claude Code, which sees the launch exactly as prizmal made it
+// less the one variable.
+const windowVarShimSource = `package main
 
 import (
-	"encoding/json"
 	"os"
+	"strings"
 	"syscall"
 )
 
 func main() {
 	real := os.Getenv("` + shimRealEnv + `")
-	args := os.Args[1:]
-	for i := 0; i+1 < len(args); i++ {
-		if args[i] != "--settings" {
-			continue
-		}
-		var settings map[string]json.RawMessage
-		if json.Unmarshal([]byte(args[i+1]), &settings) != nil {
-			continue
-		}
-		delete(settings, "autoCompactWindow")
-		delete(settings, "modelSettings")
-		if out, err := json.Marshal(settings); err == nil {
-			args[i+1] = string(out)
+	var env []string
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "` + windowEnvName + `=") {
+			env = append(env, kv)
 		}
 	}
-	if err := syscall.Exec(real, append([]string{real}, args...), os.Environ()); err != nil {
+	if err := syscall.Exec(real, append([]string{real}, os.Args[1:]...), env); err != nil {
 		os.Stderr.WriteString("shim: " + err.Error() + "\n")
 		os.Exit(1)
 	}
 }
 `
 
-// buildStatedWindowShim builds the control arm's shim into a directory of its
+// windowEnvName is the variable the launch states the window in.
+const windowEnvName = "CLAUDE_CODE_AUTO_COMPACT_WINDOW"
+
+// buildWindowVarShim builds the control arms' shim into a directory of its
 // own and returns the directory, ready to lead PATH. The binary is named
 // claude, because prizmal finds Claude Code by that name.
-func buildStatedWindowShim(t *testing.T) string {
+func buildWindowVarShim(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	src := filepath.Join(dir, "shim.go")
-	if err := os.WriteFile(src, []byte(statedWindowShimSource), 0o644); err != nil {
+	if err := os.WriteFile(src, []byte(windowVarShimSource), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	binDir := filepath.Join(dir, "bin")
@@ -328,7 +376,7 @@ func buildStatedWindowShim(t *testing.T) string {
 	build.Dir = dir
 	build.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=")
 	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build the control arm's claude shim: %v\n%s", err, out)
+		t.Fatalf("build the control arms' claude shim: %v\n%s", err, out)
 	}
 	return binDir
 }

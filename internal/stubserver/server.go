@@ -146,11 +146,29 @@ type UsagePlan struct {
 	mu       sync.Mutex
 	bodies   []string
 	received int
+	// overflowLimit, when above zero, makes the stub refuse a request whose
+	// planned usage passes it, with a 400 carrying overflowMessage.
+	overflowLimit   int
+	overflowMessage string
 }
 
 // NewUsagePlan builds a plan whose input_tokens follow values turn by turn.
 func NewUsagePlan(inputTokens ...int) *UsagePlan {
 	return &UsagePlan{inputTokens: inputTokens}
+}
+
+// OverflowAbove makes the stub refuse, with HTTP 400 invalid_request_error, a
+// request whose planned input_tokens passes limit, the way an endpoint refuses
+// a prompt past its window. In message, {tokens} stands for the planned count
+// and {limit} for limit, so a test can spell the refusal the way a provider
+// does or in a shape no client recognizes. A compaction request is never
+// refused: the stub answers it with the summary. It returns the plan.
+func (p *UsagePlan) OverflowAbove(limit int, message string) *UsagePlan {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.overflowLimit = limit
+	p.overflowMessage = message
+	return p
 }
 
 // WithUsagePlan installs the plan on the stub's /v1/messages route.
@@ -230,6 +248,13 @@ func (p *UsagePlan) nextUsage(body map[string]any) (string, map[string]any) {
 		if n < len(p.inputTokens) {
 			tokens = p.inputTokens[n]
 		}
+	}
+	if p.overflowLimit > 0 && tokens > p.overflowLimit {
+		message := strings.NewReplacer(
+			"{tokens}", fmt.Sprint(tokens),
+			"{limit}", fmt.Sprint(p.overflowLimit),
+		).Replace(p.overflowMessage)
+		return "", map[string]any{"overflow": message}
 	}
 	return fmt.Sprintf("msg_stub_%d", n), map[string]any{"input_tokens": tokens, "output_tokens": 1}
 }
@@ -595,6 +620,13 @@ func handleMessages(w http.ResponseWriter, r *http.Request, plan *UsagePlan) {
 	replyText := Reply
 	if plan != nil {
 		id, usage = plan.nextUsage(body)
+		if message, ok := usage["overflow"].(string); ok {
+			writeJSON(w, http.StatusBadRequest, map[string]any{
+				"type":  "error",
+				"error": map[string]any{"type": "invalid_request_error", "message": message},
+			})
+			return
+		}
 		if isSummary, _ := usage["summary"].(bool); isSummary {
 			usage = map[string]any{"input_tokens": 1, "output_tokens": 80}
 			replyText = SummaryReply

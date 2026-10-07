@@ -467,3 +467,36 @@ func TestUsagePlanAnswersACompactionRequestWithTheSummary(t *testing.T) {
 		t.Fatalf("the request after a compaction request reported %v input tokens, want the plan's second value 6", next["input_tokens"])
 	}
 }
+
+// A request whose planned count passes the overflow limit gets a 400
+// invalid_request_error with the message spelled from the template. A request
+// at or under the limit, and a compaction request, are answered as usual.
+func TestUsagePlanRefusesARequestPastTheOverflowLimit(t *testing.T) {
+	plan := NewUsagePlan(10, 2000, 10).OverflowAbove(1000, "prompt is too long: {tokens} tokens > {limit} maximum")
+	srv := NewServer(WithUsagePlan(plan))
+	defer srv.Close()
+
+	statuses := []int{}
+	var refusal map[string]any
+	for range 3 {
+		resp := postWithAuth(t, srv.URL+"/v1/messages", `{"model":"m","messages":[{"role":"user","content":"hi"}]}`)
+		statuses = append(statuses, resp.StatusCode)
+		if resp.StatusCode == http.StatusBadRequest {
+			_ = json.NewDecoder(resp.Body).Decode(&refusal)
+		}
+		_ = resp.Body.Close()
+	}
+	if statuses[0] != 200 || statuses[1] != 400 || statuses[2] != 200 {
+		t.Fatalf("statuses = %v, want [200 400 200]", statuses)
+	}
+	errObj, _ := refusal["error"].(map[string]any)
+	if errObj["type"] != "invalid_request_error" || errObj["message"] != "prompt is too long: 2000 tokens > 1000 maximum" {
+		t.Fatalf("refusal = %v", refusal)
+	}
+
+	resp := postWithAuth(t, srv.URL+"/v1/messages", `{"model":"m","messages":[{"role":"user","content":"CRITICAL: Respond with TEXT ONLY."}]}`)
+	_ = resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("a compaction request got %d, want 200", resp.StatusCode)
+	}
+}

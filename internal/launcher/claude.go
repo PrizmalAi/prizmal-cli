@@ -268,10 +268,9 @@ func (c *Claude) envVars() []string {
 // operator's shell for Anthropic itself must not ride along and re-route a
 // launch the operator did not aim at Anthropic.
 //
-// CLAUDE_CODE_AUTO_COMPACT_WINDOW is in the list with them: Claude Code reads
-// it ahead of the settings JSON the launch states its compaction window in,
-// so an export would silently move the threshold from the launch's value to
-// the shell's (compaction_contract in claude_compact.go).
+// CLAUDE_CODE_AUTO_COMPACT_WINDOW is in the list too, and the CLI also sets it
+// for real, from claudeCompactWindowValue: the child sees the launch's window,
+// or a lower one the operator exported, never an inherited value as it came.
 //
 // ANTHROPIC_DEFAULT_OPUS_MODEL and CLAUDE_CODE_SUBAGENT_MODEL are in this list
 // and are also the two variables the CLI sets for real, from claudeChildEnv
@@ -289,7 +288,7 @@ var claudeInheritedModelVars = []string{
 	"ANTHROPIC_MODEL",
 	"ANTHROPIC_SMALL_FAST_MODEL",
 	"CLAUDE_CODE_SUBAGENT_MODEL",
-	"CLAUDE_CODE_AUTO_COMPACT_WINDOW",
+	claudeCompactWindowEnv,
 	"ANTHROPIC_AUTH_TOKEN",
 }
 
@@ -326,6 +325,9 @@ func claudeChildEnv(model string, rows []ModelRow) []string {
 		env = append(env, kv)
 	}
 	env = append(env, fixed...)
+	// The compaction window: without it Claude Code never compacts these
+	// launches (claude_compact.go says why).
+	env = append(env, claudeCompactWindowEnv+"="+claudeCompactWindowValue(os.Getenv(claudeCompactWindowEnv)))
 	// Claude Code builds the /model picker's Default row from the Opus tier,
 	// and ANTHROPIC_DEFAULT_OPUS_MODEL is the first place it reads that tier
 	// from. The settings JSON has no field for the row's text. Unset, the row
@@ -416,28 +418,10 @@ func claudeLaunchModelName(model string, rows []ModelRow) string {
 }
 
 // claudeSettingsJSON builds the inline --settings JSON for a launch: the model
-// to run, the tier remaps, the picker rows, and the auto-compact window.
+// to run, the tier remaps, and the picker rows.
 //
 // It is one argument on the command line, so it is scoped to the launched
 // process and persists nowhere. Nothing is written to ~/.claude.
-//
-// The auto-compact window is stated because Claude Code compacts nothing on
-// its own when the window's source is "auto": the ids a launch spells, with
-// their [1m] suffix and their tenant's names, are not in its model catalogue,
-// and the threshold check returns early for an auto source. A settings value
-// turns the source into "settings" and compacts at the trigger share of the
-// window (claude_compact.go).
-//
-// The value is stated twice, once top-level and once per model under
-// modelSettings, because the two releases the baselines pin read different
-// halves: 2.1.283 reads only the top-level setting (its per-model schema
-// keeps unknown keys but nothing reads them), and 2.1.292 aggregates
-// modelSettings.<canonical>.autoCompactWindow into a byModel map it consults
-// before the top-level default. Per model, keyed by Claude Code's canonical
-// spelling, the window follows a /model switch the way the model does; an
-// environment variable would pin one value over every row, and an operator's
-// inherited CLAUDE_CODE_AUTO_COMPACT_WINDOW would outrank the settings, so
-// the child env is not the channel.
 func claudeSettingsJSON(model string, rows []ModelRow) (string, error) {
 	if model == "" {
 		return "", nil
@@ -450,8 +434,6 @@ func claudeSettingsJSON(model string, rows []ModelRow) (string, error) {
 	if len(rows) > 0 {
 		settings["modelPicker"] = claudeModelPicker(rows)
 	}
-	settings["autoCompactWindow"] = claudeCompactModelSettings()
-	settings["modelSettings"] = claudeCompactModelSettingsBlock(model, rows)
 
 	data, err := json.Marshal(settings)
 	if err != nil {
