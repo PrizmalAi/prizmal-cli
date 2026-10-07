@@ -113,6 +113,10 @@ func TestNoHypotheticalSeams(t *testing.T) {
 		reflect.TypeOf((*Restorer)(nil)).Elem(),
 		reflect.TypeOf((*RestoreMesager)(nil)).Elem(),
 		reflect.TypeOf((*Installed)(nil)).Elem(),
+		// DeviceModeRunner is part of the protocol: cmd/prizmal's device login
+		// asks a runner whether it can refresh its own credential, so its
+		// method has two readers and a declared interface.
+		reflect.TypeOf((*DeviceModeRunner)(nil)).Elem(),
 	} {
 		for i := range iface.NumMethod() {
 			protocol[iface.Method(i).Name] = true
