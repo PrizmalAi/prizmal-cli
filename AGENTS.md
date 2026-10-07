@@ -26,22 +26,25 @@ persisted edit, it stays until `--restore` removes it.
 
 If a harness has no env-var or inline-config mechanism, write the config
 file with the backup + `--restore` pattern and document the limitation in
-the README's integration table. The edit is a real configuration change: it
-persists, and the user removes it with `--restore`, never by re-running or
-exiting `prizmal`.
+that harness's doc. The edit is a real configuration change: it persists,
+and the user removes it with `--restore`, never by re-running or exiting
+`prizmal`.
 
 ## Design principle: the CLI is optional
 
 A person can use the Switch from each harness without installing `prizmal`.
-The README documents, for each harness, the environment variables, settings
-and model spellings that reproduce what a `prizmal` launch configures. The
-interactive parts are the exception: the model picker, the sign-in menu and
-the harness install prompt have no manual equivalent.
+Each harness has a doc under `docs/`, named after it (`docs/claude-code.md`,
+`docs/codex.md`, `docs/cline.md`, `docs/opencode.md`, `docs/pi.md`). The doc
+records the environment variables, settings and model spellings that
+reproduce what a `prizmal` launch configures, and the README's integration
+table links to it. The interactive parts are the exception: the model
+picker, the sign-in menu and the harness install prompt have no manual
+equivalent.
 
 When a change alters what a launch configures, such as an environment
 variable, a settings field or a model name's spelling, the same pull request
-updates the harness's manual instructions in the README. When the manual
-setup cannot match the launch, the README says what the launch adds.
+updates the harness's doc under `docs/`. When the manual setup cannot match
+the launch, the doc says what the launch adds.
 
 ## No ticket references in committed files
 
