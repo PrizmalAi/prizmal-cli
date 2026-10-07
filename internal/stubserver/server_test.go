@@ -713,3 +713,38 @@ func TestUsagePlanRefusesARequestPastTheOverflowLimit(t *testing.T) {
 		t.Fatalf("a compaction request got %d, want 200", resp.StatusCode)
 	}
 }
+
+// TestIssuerTakesPrecedenceOverTheFixedDeviceToken pins the documented
+// combination: with an issuer set, the stub accepts only the issuer's
+// unexpired tokens, so the fixed DeviceToken that WithDeviceTokenOnly would
+// accept is refused, and the refresh endpoint never hands it out.
+func TestIssuerTakesPrecedenceOverTheFixedDeviceToken(t *testing.T) {
+	issuer := NewDeviceTokenIssuer(time.Minute)
+	srv := NewServer(WithDeviceTokenOnly(), WithShortLivedDeviceTokens(issuer), WithModels("smart"))
+	defer srv.Close()
+
+	status := func(token string) int {
+		req, err := http.NewRequest(http.MethodGet, srv.URL+"/v1/models", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		return resp.StatusCode
+	}
+
+	if got := status(DeviceToken); got != http.StatusUnauthorized {
+		t.Errorf("the fixed device token returned %d, want 401 while an issuer is set", got)
+	}
+	minted := refreshDeviceToken(t, srv.URL)
+	if minted == DeviceToken {
+		t.Errorf("the refresh handed out the fixed device token %q, want an issuer token", minted)
+	}
+	if got := status(minted); got != http.StatusOK {
+		t.Errorf("the issuer's token returned %d, want 200", got)
+	}
+}

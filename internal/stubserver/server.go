@@ -107,6 +107,10 @@ func WithDeviceTokenOnly() ServerOption {
 // and only one that refreshes keeps running. issuer records what the stub
 // handed out and what the harness presented, so a test can assert a session
 // crossed an expiry. It approves the device as well.
+//
+// An issuer takes precedence over WithDeviceTokenOnly: the refresh endpoint
+// hands out the issuer's tokens and never the fixed DeviceToken, and the stub
+// accepts only the issuer's unexpired tokens, so the fixed one is refused.
 func WithShortLivedDeviceTokens(issuer *DeviceTokenIssuer) ServerOption {
 	return func(c *serverConfig) {
 		c.deviceApproved = true

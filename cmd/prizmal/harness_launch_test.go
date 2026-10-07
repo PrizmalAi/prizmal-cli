@@ -158,7 +158,13 @@ func skipHarnessLaunchInShortMode(t *testing.T) {
 // starts with and which key source the launch must announce.
 func runHarnessLaunch(t *testing.T, harness string, mode harnessLaunchKeyMode) {
 	t.Helper()
-	harnessArgs := harnessLaunchCases[harness].args
+	// A harness with no launch case is a bug in the test, not a launch with no
+	// arguments, so fail on it before anything else runs.
+	launchCase, ok := harnessLaunchCases[harness]
+	if !ok {
+		t.Fatalf("harnessLaunchCases has no entry for %q", harness)
+	}
+	harnessArgs := launchCase.args
 	skipHarnessLaunchInShortMode(t)
 	harnessPath := harnessLaunchOnPath(t, harness)
 
