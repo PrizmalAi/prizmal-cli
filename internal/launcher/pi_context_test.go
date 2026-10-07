@@ -46,14 +46,14 @@ func TestPiModelConfigHonoursTheOperatorStatedWindow(t *testing.T) {
 	}
 }
 
-// pi's own default output budget is 16384, far below what the Switch's models
-// answer with, so a long answer is cut short. The launch declares a budget
-// matching the models the Switch routes to.
-func TestPiModelConfigDeclaresAHighOutputBudget(t *testing.T) {
+// pi's own default output budget is 16384, which cuts a long answer short. The
+// launch asks for the most any route allows, the whole window, and leaves the
+// Switch to cap the request to the limit of the route that serves it.
+func TestPiModelConfigDeclaresTheLargestOutputBudget(t *testing.T) {
 	cfg := createConfig(LaunchModel{Name: "smart"})
 
-	if got := piModelSetting(t, cfg, "maxTokens"); got != piFallbackMaxOutputTokens {
-		t.Fatalf("maxTokens = %d, want %d", got, piFallbackMaxOutputTokens)
+	if got := piModelSetting(t, cfg, "maxTokens"); got != 1_000_000 {
+		t.Fatalf("maxTokens = %d, want 1000000: ask for the most a route allows and let the Switch cap it", got)
 	}
 }
 
@@ -78,7 +78,7 @@ func TestPiDeviceConfigCarriesWindowAndOutputBudget(t *testing.T) {
 	if got := config.Models[0].ContextWindow; got != 1_000_000 {
 		t.Errorf("contextWindow = %d, want 1000000", got)
 	}
-	if got := config.Models[0].MaxTokens; got != piFallbackMaxOutputTokens {
-		t.Errorf("maxTokens = %d, want %d", got, piFallbackMaxOutputTokens)
+	if got := config.Models[0].MaxTokens; got != 1_000_000 {
+		t.Errorf("maxTokens = %d, want 1000000", got)
 	}
 }

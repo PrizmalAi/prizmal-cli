@@ -53,12 +53,12 @@ const piRestoredProviderID = piProviderID
 const piFallbackContextWindow = 1_000_000
 
 // piFallbackMaxOutputTokens is the output budget a launch declares for every
-// model. Pi sends it as the request's max output tokens, capped by the room
-// left in the window, so pi's own default of 16384 caps a long answer well
-// below what the Switch's models produce. Every model the Switch routes to
-// answers with at least this much: the smallest output limit among them is
-// 32768, and the largest is 262144.
-const piFallbackMaxOutputTokens = 32768
+// model: the whole window, the largest output any route can take. Pi sends it
+// as the request's max output tokens, capped by the room left in the window,
+// so pi's own default of 16384 would cut a long answer short. The Switch caps a
+// request to the limit of the route that serves it, so a high value here asks
+// for the most the route allows and never exceeds it.
+const piFallbackMaxOutputTokens = piFallbackContextWindow
 
 // piModelContextWindow is the window a launch declares for one model: a length
 // the model itself carries, else the window every model the Switch serves has,
