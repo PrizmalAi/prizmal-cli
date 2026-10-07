@@ -52,6 +52,10 @@ type Config struct {
 	// model sends this one. Only a pick writes it, so passing --model changes
 	// one launch without changing what a bare launch does.
 	DefaultModel string `json:"default_model,omitempty"`
+	// CheckUpdates turns the version check off when false. It is a pointer
+	// so an absent field reads as the on default and a saved false is
+	// preserved exactly. The check only reads it; nothing else writes it.
+	CheckUpdates *bool `json:"check_updates,omitempty"`
 }
 
 // apiKeyKind discriminates the three accepted api_key forms plus an

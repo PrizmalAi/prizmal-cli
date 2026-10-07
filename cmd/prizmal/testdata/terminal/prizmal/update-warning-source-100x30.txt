@@ -1,0 +1,7 @@
+prizmal v0.2.0 is available. You have v0.1.2.
+Pull the latest source and rebuild.
+Update available
+▸ Continue  Run v0.1.2
+  Exit
+
+  ↑/k up • ↓/j down • / filter • esc quit without saving

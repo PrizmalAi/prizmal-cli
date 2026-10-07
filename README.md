@@ -45,6 +45,12 @@ go build ./cmd/prizmal
 
 On first run, `prizmal` offers two ways to sign in: approve this machine in your browser, or paste an API key (see [Credentials](#credentials)).
 
+## Updates
+
+Before a launch, `prizmal` checks once a day for a newer release. In a terminal, a menu offers to upgrade through the tool that installed it, Homebrew or `go install`. From a script, or with `--yes`, `prizmal` prints a warning and continues. A copy built from source or unpacked from an archive prints a warning, then a menu to continue or exit.
+
+To turn the check off, set `"check_updates": false` in `~/.prizmal/config.json`, or export `PRIZMAL_NO_UPDATE_CHECK=1`.
+
 ## Credentials
 
 A `prizmal` launch can use one of two credentials. You paste a **switch key** in, or this machine enrolls a **device key** once in your browser. The switch key is simplest, since it doesn't expire, while the device key means you don't type a secret on this machine and keeps a long Claude Code session working without a restart.

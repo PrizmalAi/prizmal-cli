@@ -98,6 +98,15 @@ Examples:
 		Args:          cobra.ArbitraryArgs,
 		Version:       resolveVersion(version),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// A launch checks for a newer release first. --list, --pick alone,
+			// --restore and --persist answer a question, and the device
+			// subcommands feed another program, so none of them ask.
+			if len(args) > 0 && !listFlag && !restore && !persistOnly {
+				if err := checkForUpdate(); err != nil {
+					return err
+				}
+			}
+
 			envconfig.SetBaseURL(url)
 			envconfig.SetAPIKey(apiKey)
 

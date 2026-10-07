@@ -1,0 +1,2 @@
+using api key from: config file (~/.prizmal/config.json)
+[prizmal exited 0]

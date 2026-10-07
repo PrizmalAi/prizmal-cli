@@ -1,0 +1,4 @@
+prizmal v0.2.0 is available. You have v0.1.2.
+Download it from https://github.com/PrizmalAi/prizmal-cli/releases/latest
+using api key from: config file (~/.prizmal/config.json)
+[prizmal exited 0]
