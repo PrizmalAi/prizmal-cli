@@ -736,7 +736,9 @@ func handleMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	content := []map[string]any{{"type": "text", "text": Reply}}
+	stopReason := "end_turn"
 	if toolCall {
+		stopReason = "tool_use"
 		content = []map[string]any{{"type": "tool_use", "id": "toolu_stub", "name": "stub_tool", "input": map[string]any{}}}
 	}
 
@@ -746,7 +748,7 @@ func handleMessages(w http.ResponseWriter, r *http.Request) {
 		"role":        "assistant",
 		"model":       "prizmal/stub",
 		"content":     content,
-		"stop_reason": "end_turn",
+		"stop_reason": stopReason,
 		"usage":       map[string]any{"input_tokens": 1, "output_tokens": 1},
 	})
 }

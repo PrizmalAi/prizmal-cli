@@ -603,3 +603,30 @@ func TestNonStreamingToolCallReportsToolCallsFinishReason(t *testing.T) {
 		t.Fatalf("finish_reason = %q, want tool_calls", got)
 	}
 }
+
+// TestAnthropicToolUseReportsToolUseStopReason is the Anthropic-side twin of
+// the chat-completions finish_reason test: a message whose content is a
+// tool_use block has to carry stop_reason "tool_use". "end_turn" tells a client
+// the turn is done, so it never runs the tool.
+func TestAnthropicToolUseReportsToolUseStopReason(t *testing.T) {
+	srv := New()
+	defer srv.Close()
+
+	resp := postWithAuth(t, srv.URL+"/v1/messages", `{"model":"prizmal/stub","max_tokens":8,"messages":[{"role":"user","content":"use stub-tool"}]}`)
+	defer func() { _ = resp.Body.Close() }()
+	var body map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	content, _ := body["content"].([]any)
+	if len(content) == 0 {
+		t.Fatalf("no content in %v", body)
+	}
+	block, _ := content[0].(map[string]any)
+	if blockType, _ := block["type"].(string); blockType != "tool_use" {
+		t.Fatalf("expected tool_use, got %q", blockType)
+	}
+	if got, _ := body["stop_reason"].(string); got != "tool_use" {
+		t.Fatalf("stop_reason = %q, want tool_use", got)
+	}
+}
