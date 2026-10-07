@@ -15,23 +15,33 @@ import (
 	"github.com/PrizmalAi/prizmal-cli/internal/stubserver"
 )
 
-// The compaction end-to-end tests run the real Claude Code through a real
+// The compaction end-to-end test runs the real Claude Code through a real
 // prizmal binary against the stub switch, whose answers report a usage the
-// test aims at the compaction threshold. They assert on the requests Claude
+// test aims at the compaction threshold. It asserts on the requests Claude
 // Code sends, not on its output: when the count crosses the compaction
-// threshold the launch stated, the client must summarize the conversation —
-// its summary request's instructions begin "CRITICAL: Respond with TEXT ONLY"
-// (tQt in the 2.1.x binaries) — before that turn's model request goes out.
-// The control arm, a launch without the window stated, must send no summary
-// request at all, because the window's source stays "auto" and Claude Code's
-// threshold check returns early while it is.
+// threshold the launch stated, the client must summarize the conversation,
+// and its summary request's instructions begin "CRITICAL: Respond with TEXT
+// ONLY" (tQt in the 2.1.x binaries). The control arm, the parent commit's
+// prizmal, states no window, so the window's source stays "auto", Claude
+// Code's threshold check returns early while it is, and no summary request
+// may appear.
 //
 // Claude Code checks the threshold at the start of each query — a user turn —
-// and anchors the count on the previous assistant message's usage (tm, dCt in
-// the 2.1.x binaries), so the test runs two print-mode queries against one
-// session: the first sets the anchor by reporting a usage past the threshold,
-// and the second must compact before its request. --continue opens the same
-// session as a new query.
+// and counts the conversation from the previous assistant message's usage
+// (tm, dCt in the 2.1.x binaries), so the test runs three print-mode queries
+// against one session: the second query's reply carries the usage the plan
+// reports, and the third query must compact before its own model request.
+// --continue opens the same session as a new query.
+//
+// The two arms share everything but the stub's reported usage and the launch
+// binary. The with arm's report sits above its own blocked level, the point
+// where this conversation's reactive flow sends the summary request: the raw
+// window (1M) less its output budget (20000) less the blocking margin (3000),
+// plus the ~84k-token estimate the turn-3 prompt's filler contributes, so
+// 900000 reports a count of about 984060. The control arm's report keeps the
+// same shape's count under its own auto threshold, 967000: 840000 reports
+// about 924000. Both arms end every query in the stub's reply, so neither
+// silence nor sending is the end of the conversation.
 //
 // Claude Code is the version the terminal baselines pin
 // (testdata/terminal/claude/claude-code-version), so a release that changes
@@ -61,8 +71,18 @@ func compactSent(bodies []map[string]any) bool {
 type compactCase struct {
 	name string
 	// statedWindow runs the launch that states the window (the safeguard).
-	// false runs the control arm, where prizmal states none.
+	// false runs the control arm, the parent commit's prizmal.
 	statedWindow bool
+}
+
+// compactPlans returns the stub's per-request input_tokens for one arm. Turn
+// 1 answers 1; turn 2 onward answers the arm's anchored report, and the last
+// value repeats when the list runs out.
+func compactPlans(statedWindow bool) []int {
+	if statedWindow {
+		return []int{1, 900000, 900000, 900000, 900000, 900000}
+	}
+	return []int{1, 840000, 840000, 840000, 840000, 840000}
 }
 
 func TestClaudeCompactRequestFollowsTheStatedWindow(t *testing.T) {
@@ -87,7 +107,7 @@ func TestClaudeCompactRequestFollowsTheStatedWindow(t *testing.T) {
 		skipOrFail(t, "%s", reason)
 	}
 
-	prizmalBin := buildPrizmal(t, "HEAD")
+	prizmalBin := buildPrizmal(t)
 	// The control binary is prizmal without this change: the parent commit's
 	// tree, archived and built in a temp dir. The same stub, prompts and
 	// Claude Code run against a launch that states no compaction window, so
@@ -105,25 +125,15 @@ func TestClaudeCompactRequestFollowsTheStatedWindow(t *testing.T) {
 		}
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			// The turn-2 reply reports 900000 used. The turn-3 query's
-			// threshold check reads that anchor against the launch's 882000
-			// threshold, and the turn-2 assistant is still in the summarize
-			// set — with only two turns the fixed prefix is everything and
-			// the reactive compaction bails with an empty set — so the
-			// summary request goes out before turn 3's model request. The
-			// control arm's own threshold, derived from its 1M window for the
-			// unknown model (967000), is beyond anything three turns of this
-			// shape carry, so its silence is the plan's doing, not the end of
-			// the conversation: every query ends in the stub's reply.
-			plan := stubserver.NewUsagePlan(1, 900000, 900000, 900000, 900000, 900000)
+			plan := stubserver.NewUsagePlan(compactPlans(tc.statedWindow)...)
 			srv := stubserver.NewServer(
 				stubserver.WithModels("stub-model"),
 				stubserver.WithUsagePlan(plan),
 			)
 			t.Cleanup(srv.Close)
 
-			// One HOME and one project across both queries, so --continue
-			// opens the first query's session.
+			// One HOME and one project across all three queries, so
+			// --continue opens the previous query's session.
 			root, err := os.MkdirTemp("", "prizmal-compact-")
 			if err != nil {
 				t.Fatal(err)
@@ -147,11 +157,11 @@ func TestClaudeCompactRequestFollowsTheStatedWindow(t *testing.T) {
 			// flow.
 			seedClaudeState(t, home, project)
 
-			runPrint := func(t *testing.T, extraArgs ...string) (string, string) {
+			runPrint := func(t *testing.T, promptArgs ...string) (string, string) {
 				t.Helper()
 				ctx, cancel := context.WithTimeout(context.Background(), harnessLaunchTimeout)
 				defer cancel()
-				args := append([]string{"--yes", "-m", "stub-model", "claude", "--", "--print"}, extraArgs...)
+				args := append([]string{"--yes", "-m", "stub-model", "claude", "--", "--print"}, promptArgs...)
 				cmd := exec.CommandContext(ctx, prizmalUnderTest, args...)
 				cmd.Dir = project
 				cmd.Env = []string{
@@ -176,19 +186,15 @@ func TestClaudeCompactRequestFollowsTheStatedWindow(t *testing.T) {
 
 			// Turn 1: the plain prompt, whose reply carries a 1-token anchor.
 			_, stderr1 := runPrint(t, "Reply with a short greeting.")
-			// Turn 2: its reply carries the 900000 anchor. --continue opens
-			// the previous session as a new query. The prompt carries a large
-			// filler so the conversation's own estimate covers most of the
-			// reported usage: the compaction's fixed-prefix check (the usage
-			// beyond what the messages themselves explain) must stay under
-			// the threshold, or the reactive compaction bails with an empty
-			// summarize set, which is the state of a lie a small conversation
-			// cannot survive.
-			_, stderr2 := runPrint(t, "--continue", "Summarize this filler in one word: "+strings.Repeat("filler ", 48000))
-			// Turn 3: the threshold check reads the 900000 anchor from turn 2
-			// against the stated threshold. This is the turn that must
-			// compact.
-			stdout3, stderr3 := runPrint(t, "--continue", "go on")
+			// Turn 2: its reply carries the arm's anchored report.
+			_, stderr2 := runPrint(t, "--continue", "Reply again.")
+			// Turn 3: the threshold check reads turn 2's anchor. The filler
+			// makes the messages after the anchor cover most of the report,
+			// which keeps this conversation's sending path reachable: without
+			// it the whole report sits in the fixed prefix, and the reactive
+			// compaction bails on an empty summarize set before it sends
+			// anything.
+			stdout3, stderr3 := runPrint(t, "--continue", "Summarize this filler in one word: "+strings.Repeat("filler ", 48000))
 
 			requests := plan.Requests()
 			if requests < 3 {
@@ -207,7 +213,7 @@ func TestClaudeCompactRequestFollowsTheStatedWindow(t *testing.T) {
 }
 
 // buildPrizmal builds the working tree's prizmal binary.
-func buildPrizmal(t *testing.T, _ string) string {
+func buildPrizmal(t *testing.T) string {
 	t.Helper()
 	bin := filepath.Join(t.TempDir(), "prizmal")
 	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
@@ -218,8 +224,8 @@ func buildPrizmal(t *testing.T, _ string) string {
 
 // buildPrizmalFromCommit builds prizmal from a commit's tree, extracted into
 // a temp dir, so the control arm runs the launch WITHOUT the safeguard and
-// everything else the working tree carries is exactly the tested change's
-// parent. git archive is read-only; the temp dir belongs to the test.
+// nothing else about it differs from the tested change's parent. git archive
+// is read-only; the temp dir belongs to the test.
 func buildPrizmalFromCommit(t *testing.T, commit string) string {
 	t.Helper()
 	root := t.TempDir()

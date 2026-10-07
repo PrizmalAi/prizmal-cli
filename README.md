@@ -283,10 +283,34 @@ To get the tier rows in `/model` with the window and model profile `prizmal clau
 
 Then add `--settings prizmal-claude.json` to the command. A row's `behavesAs` sets the prompt profile and effort defaults Claude Code applies, and its `description` is the row's text. The haiku row behaves as Sonnet 5 so that auto mode stays on. The Switch routes each request by the row's own model name.
 
+Claude Code clamps the setting to the window it resolves for the model, so a release that knows a smaller real window for one of the names keeps that smaller window.
+
+### Auto-compaction
+
+A model name `prizmal claude` spells, with its `[1m]` suffix and your tenant's own names, is one Claude Code's model catalogue does not carry. For such a name Claude Code skips auto-compaction on its own: it waits for the endpoint to refuse the request, and a session stalls at the provider's limit. So the launch states the compaction window in its settings: `autoCompactWindow: 900000`, keyed per model. Claude Code summarizes the conversation at 90% of the 1M window, 882000 tokens, and the request stays under the endpoint's limit.
+
+To reproduce this without the CLI, add these fields to `prizmal-claude.json`:
+
+```json
+{
+  "autoCompactWindow": 882000,
+  "modelSettings": {
+    "claude-tier-opus": {"autoCompactWindow": 882000},
+    "claude-tier-sonnet": {"autoCompactWindow": 882000},
+    "claude-tier-haiku": {"autoCompactWindow": 882000},
+    "claude-tier-fable": {"autoCompactWindow": 882000}
+  }
+}
+```
+
+The top-level value states the threshold for the models the settings launch names (Claude Code 2.1.283 reads only it), and the `modelSettings` entries move the value with a `/model` switch (releases from 2.1.292 on read them first). Claude Code clamps the setting to the window it resolves for the model, so a release that knows a smaller real window for one of the names keeps that smaller window.
+
+`CLAUDE_CODE_AUTO_COMPACT_WINDOW` sets the same thing for a whole process. Claude Code reads it ahead of the settings, so an export in your shell would silently override the launch's value. `prizmal claude` removes that variable from the environment it hands the harness.
+
 `prizmal claude` adds a few things this command leaves out:
 
 - The `/model` menu lists every model your switch key routes to. Without the CLI, it lists the rows in your settings file, or Claude Code's built-in list.
-- It removes model variables such as `ANTHROPIC_MODEL` that your shell exports, so they can't change the model a launch runs.
+- It removes model variables such as `ANTHROPIC_MODEL` and `CLAUDE_CODE_AUTO_COMPACT_WINDOW` that your shell exports, so they can't change the model a launch runs or the threshold it compacts at.
 - It installs Claude Code when the `claude` binary is missing.
 
 ## Building
