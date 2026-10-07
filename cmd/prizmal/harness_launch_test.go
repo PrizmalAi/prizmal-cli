@@ -191,7 +191,7 @@ func runHarnessLaunch(t *testing.T, harness string, mode harnessLaunchKeyMode) {
 	// first launch on a new machine starts from.
 	prizmalBin, home, project := harnessLaunchSandbox(t, srv.URL, mode != harnessLaunchConfigKey)
 
-	stdout, stderr, runErr, ctx := runHarnessCommand(t, prizmalBin, home, project, harnessPath, harness, harnessArgs)
+	stdout, stderr, timedOut, runErr := runHarnessCommand(t, prizmalBin, home, project, harnessPath, harness, harnessArgs)
 
 	switch mode {
 	case harnessLaunchConfigKey:
@@ -213,7 +213,7 @@ func runHarnessLaunch(t *testing.T, harness string, mode harnessLaunchKeyMode) {
 	}
 	if !strings.Contains(stdout, stubserver.Reply) {
 		t.Fatalf("%s did not print the stub's reply %q on stdout (run error: %v, timed out: %v)\n--- stdout ---\n%s\n--- stderr ---\n%s",
-			harness, stubserver.Reply, runErr, ctx.Err() != nil, tail(stdout, 50), tail(stderr, 50))
+			harness, stubserver.Reply, runErr, timedOut, tail(stdout, 50), tail(stderr, 50))
 	}
 }
 
@@ -259,9 +259,9 @@ func harnessLaunchSandbox(t *testing.T, switchURL string, enrollDevice bool) (pr
 }
 
 // runHarnessCommand runs prizmal's launch of harness and returns what it wrote
-// to stdout and stderr, the run error, and the context (so a caller can tell a
-// timeout from a plain failure).
-func runHarnessCommand(t *testing.T, prizmalBin, home, project, harnessPath, harness string, harnessArgs []string) (string, string, error, context.Context) {
+// to stdout and stderr, the run error, and whether the context deadline was
+// reached (so a caller can tell a timeout from a plain failure).
+func runHarnessCommand(t *testing.T, prizmalBin, home, project, harnessPath, harness string, harnessArgs []string) (stdout, stderr string, timedOut bool, runErr error) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), harnessLaunchTimeout)
 	t.Cleanup(cancel)
@@ -280,15 +280,15 @@ func runHarnessCommand(t *testing.T, prizmalBin, home, project, harnessPath, har
 		"DISABLE_AUTOUPDATER=1",
 	}
 	cmd.Env = append(cmd.Env, device.TestingEnv()...)
-	var stdout, stderr strings.Builder
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	var outBuf, errBuf strings.Builder
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
 	cmd.Stdin = nil
 	// A harness can leave child processes holding stdout after the timeout
 	// kills it. WaitDelay stops Wait from blocking on them.
 	cmd.WaitDelay = 10 * time.Second
-	runErr := cmd.Run()
-	return stdout.String(), stderr.String(), runErr, ctx
+	runErr = cmd.Run()
+	return outBuf.String(), errBuf.String(), ctx.Err() != nil, runErr
 }
 
 // tail returns the last n lines of s.
@@ -341,11 +341,11 @@ func TestHarnessLaunchPiOutlivesOneDeviceToken(t *testing.T) {
 
 	prizmalBin, home, project := harnessLaunchSandbox(t, srv.URL, true)
 	harnessArgs := harnessLaunchCases["pi"].args
-	stdout, stderr, runErr, ctx := runHarnessCommand(t, prizmalBin, home, project, harnessPath, "pi", harnessArgs)
+	stdout, stderr, timedOut, runErr := runHarnessCommand(t, prizmalBin, home, project, harnessPath, "pi", harnessArgs)
 
 	if !strings.Contains(stdout, stubserver.Reply) {
 		t.Fatalf("pi did not finish the session (run error: %v, timed out: %v)\n--- stdout ---\n%s\n--- stderr ---\n%s",
-			runErr, ctx.Err() != nil, tail(stdout, 50), tail(stderr, 50))
+			runErr, timedOut, tail(stdout, 50), tail(stderr, 50))
 	}
 	if got := issuer.Issued(); got < 2 {
 		t.Fatalf("the stub minted %d device token(s); the session never crossed an expiry", got)
@@ -411,11 +411,11 @@ export default function (pi) {
 	}
 
 	harnessArgs := harnessLaunchCases["pi"].args
-	stdout, stderr, runErr, ctx := runHarnessCommand(t, prizmalBin, home, project, harnessPath, "pi", harnessArgs)
+	stdout, stderr, timedOut, runErr := runHarnessCommand(t, prizmalBin, home, project, harnessPath, "pi", harnessArgs)
 
 	if !strings.Contains(stdout, stubserver.Reply) {
 		t.Fatalf("pi did not finish the session (run error: %v, timed out: %v)\n--- stdout ---\n%s\n--- stderr ---\n%s",
-			runErr, ctx.Err() != nil, tail(stdout, 50), tail(stderr, 50))
+			runErr, timedOut, tail(stdout, 50), tail(stderr, 50))
 	}
 	marker, err := os.ReadFile(logPath)
 	if err != nil {
