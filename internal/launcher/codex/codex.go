@@ -712,6 +712,11 @@ func buildCodexModelEntry(launchModel launch.LaunchModel) map[string]any {
 		// Codex edits files through shell commands. The Switch translates the
 		// tool for routes that have no freeform tools.
 		"apply_patch_tool_type": codexApplyPatchToolType,
+		// Codex defers its less-used tools behind a tool_search tool for an
+		// entry that sets this, so a request carries a short tool list. It is
+		// the Codex counterpart of the ENABLE_TOOL_SEARCH a Claude Code launch
+		// sets.
+		"supports_search_tool": true,
 	}
 }
 
