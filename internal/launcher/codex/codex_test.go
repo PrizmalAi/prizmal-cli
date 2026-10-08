@@ -411,3 +411,20 @@ func TestCodexEntryDeclaresTheFreeformApplyPatchTool(t *testing.T) {
 		t.Fatalf("apply_patch_tool_type = %v, want freeform", got)
 	}
 }
+
+// A launch with no switch key, as against a loopback Switch, still gives Codex
+// a non-empty key: Codex fails on an empty one before it sends a request.
+func TestCodexEnvCarriesAPlaceholderKeyWhenThereIsNone(t *testing.T) {
+	envconfig.SetDeviceMode(false)
+	t.Cleanup(func() { envconfig.SetAPIKey("") })
+
+	envconfig.SetAPIKey("")
+	if got := internaltest.EnvValue((&Codex{}).envVars(), "OPENAI_API_KEY="); got != codexPlaceholderKey {
+		t.Fatalf("OPENAI_API_KEY with no key = %q, want the placeholder %q", got, codexPlaceholderKey)
+	}
+
+	envconfig.SetAPIKey("sk-real")
+	if got := internaltest.EnvValue((&Codex{}).envVars(), "OPENAI_API_KEY="); got != "sk-real" {
+		t.Fatalf("OPENAI_API_KEY with a key = %q, want the key", got)
+	}
+}

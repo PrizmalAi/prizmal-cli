@@ -233,7 +233,7 @@ func registerFlags(flags *pflag.FlagSet) {
 	// claiming it here would turn `prizmal claude -p "prompt"` into a picker
 	// prompt instead of the print run they meant. Long form only.
 	flags.BoolVar(&pickFlag, "pick", false, "choose a model from this switch key's tenant, and save it as the default")
-	flags.StringVar(&subagentModel, "subagent-model", "", "model for subagents, which default to the session model")
+	flags.StringVar(&subagentModel, "subagent-model", "", "model for subagents, which default to the session model (Claude Code and Codex)")
 	flags.StringVarP(&url, "url", "u", "", "provider base URL (or $"+envconfig.EnvVar+")")
 	flags.StringVarP(&apiKey, "api-key", "k", "", "provider API key (or $"+envconfig.KeyEnvVar+")")
 	flags.BoolVarP(&yes, "yes", "y", false, "auto-approve confirmation prompts")
@@ -614,6 +614,15 @@ func launch(name string, extraArgs []string, cfg *config.Config) error {
 	// launch, --persist and --restore alike, and says what it removed.
 	for _, path := range fileutil.SweepBackups() {
 		fmt.Fprintf(os.Stderr, "Removed a backup that held a Switch key: %s\n", path)
+	}
+
+	// --subagent-model has a meaning for Claude Code and Codex only. A harness
+	// without a subagent setting would ignore it and run a model the operator
+	// did not mean, so refuse it.
+	if subagentModel != "" && !restore {
+		if sub, ok := runner.(launcher.SubagentModelRunner); !ok || !sub.TakesSubagentModel() {
+			return fmt.Errorf("--subagent-model is not supported for %s: it applies to Claude Code and Codex", spec.Name)
+		}
 	}
 
 	// Restore mode: undo configuration changes and exit. It never resolves a

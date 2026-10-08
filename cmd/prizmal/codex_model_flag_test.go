@@ -108,3 +108,21 @@ func TestMockHarnessOldCodexStopsBeforeSignIn(t *testing.T) {
 		t.Errorf("the launch got to the sign-in before it checked Codex: %q", stderr)
 	}
 }
+
+// --subagent-model has a setting to land in for Claude Code and Codex only. For
+// the other harnesses the CLI refuses the flag instead of ignoring it.
+func TestMockHarnessSubagentModelIsRefusedWhereItHasNoEffect(t *testing.T) {
+	prizmalBin := buildPrizmalForMock(t)
+	mockBin := buildMockBinary(t)
+	for _, harness := range []string{"pi", "cline", "opencode"} {
+		t.Run(harness, func(t *testing.T) {
+			exp := harnessExpectation{name: harness, binaryNames: []string{harness}}
+			home, expDir, _ := setupMockEnv(t, func() string { return mockBin }, exp)
+
+			code, _, stderr := runPrizmalLaunch(t, prizmalBin, home, expDir, harness, []string{"--yes", "--subagent-model", "prizmal-flash"}, nil)
+			if code == 0 || !strings.Contains(stderr, "--subagent-model is not supported for "+harness) {
+				t.Fatalf("exit %d, stderr %q, want the flag refused for %s", code, stderr, harness)
+			}
+		})
+	}
+}

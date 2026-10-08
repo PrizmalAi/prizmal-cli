@@ -183,8 +183,21 @@ func (c *Codex) envVars() []string {
 	if envconfig.DeviceMode() {
 		return nil
 	}
-	return []string{"OPENAI_API_KEY=" + envconfig.APIKey()}
+	key := envconfig.APIKey()
+	if key == "" {
+		// A loopback Switch needs no credential, but Codex fails on an empty
+		// key before it sends a request. The Switch ignores this value.
+		key = codexPlaceholderKey
+	}
+	return []string{"OPENAI_API_KEY=" + key}
 }
+
+// codexPlaceholderKey stands in for the switch key on a launch that has none.
+const codexPlaceholderKey = "prizmal-no-key"
+
+// TakesSubagentModel reports that Codex gives subagents the model
+// --subagent-model names.
+func (c *Codex) TakesSubagentModel() bool { return true }
 
 // executablePath finds the running binary. It is a variable so a test can make
 // the lookup fail.

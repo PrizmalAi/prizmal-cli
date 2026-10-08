@@ -222,6 +222,13 @@ type OwningModelFlag interface {
 	OwnsModelFlag() bool
 }
 
+// SubagentModelRunner is a runner that gives subagents the model --subagent-model
+// names. Claude Code and Codex do. The other harnesses have no such setting, so
+// the CLI refuses the flag for them rather than ignoring it.
+type SubagentModelRunner interface {
+	TakesSubagentModel() bool
+}
+
 // DeviceModeRunner is a runner that can refresh its own credential from an
 // enrolled device key. Claude Code does it through its apiKeyHelper, and Pi
 // through an extension its launch loads whose provider runs `prizmal auth
