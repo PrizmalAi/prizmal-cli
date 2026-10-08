@@ -125,6 +125,14 @@ var prizmalBaselineCases = []baselineCase{
 		env:            []string{"PRIZMAL_APP_URL=" + nonRoutableAppURL},
 		steps:          []baselineStep{{waitFor: "This device is approved"}},
 	},
+	// Codex missing from PATH with npm present: the launch offers to install
+	// it, as it does for the other npm-installed harnesses.
+	{
+		name: "codex-install-prompt-100x30", cols: 100, rows: 30,
+		args:     []string{"--model", "smart", "codex"},
+		standIns: []string{"npm"},
+		steps:    []baselineStep{{waitFor: "Install with npm?"}},
+	},
 	// `auth token` with no device key is the only screen it draws: its success
 	// path prints the token to stdout and nothing else.
 	{
