@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -61,6 +62,11 @@ const (
 	codexRootModelKey            = "model"
 	codexRootModelProviderKey    = "model_provider"
 	codexRootModelCatalogJSONKey = "model_catalog_json"
+
+	// codexAgentsSubagentModelKey is the setting Codex reads for the model a
+	// spawned subagent runs when the spawn call names none. Codex checks it
+	// against the models its catalog lists.
+	codexAgentsSubagentModelKey = "agents.default_subagent_model"
 )
 
 func (c *Codex) args(model, modelCatalogPath string, extra []string) ([]string, error) {
@@ -215,7 +221,7 @@ func codexChildEnv() []string {
 
 // codexHygieneOverrides are the -c settings that keep a launch quiet: Codex
 // analytics and the feedback upload are off, and --subagent-model, when given,
-// becomes the model Codex uses for /review. They travel on the command line, so
+// becomes the model Codex uses for /review and for spawned subagents. They travel on the command line, so
 // nothing is written to disk.
 func codexHygieneOverrides() []string {
 	overrides := []string{
@@ -223,7 +229,10 @@ func codexHygieneOverrides() []string {
 		"feedback.enabled=false",
 	}
 	if sub := launch.SelectedSubagentModel(); sub != "" {
-		overrides = append(overrides, fmt.Sprintf("review_model=%q", sub))
+		overrides = append(overrides,
+			fmt.Sprintf("review_model=%q", sub),
+			fmt.Sprintf("%s=%q", codexAgentsSubagentModelKey, sub),
+		)
 	}
 	return overrides
 }
@@ -547,6 +556,10 @@ func codexCatalogModels(modelName string, models []launch.LaunchModel) []launch.
 		entry := codexCatalogModel(modelName, models)
 		entry.FoldedInto = ""
 		out = append(out, entry)
+	}
+	// Codex rejects a subagent model its catalog doesn't list.
+	if sub := launch.SelectedSubagentModel(); sub != "" && !slices.ContainsFunc(out, func(m launch.LaunchModel) bool { return launch.LaunchModelMatches(m.Name, sub) }) {
+		out = append(out, codexCatalogModel(sub, models))
 	}
 	return out
 }

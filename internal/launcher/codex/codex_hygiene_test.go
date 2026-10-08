@@ -156,3 +156,51 @@ func skipWithoutShell(t *testing.T) {
 		t.Skip("shell-script stand-ins do not run on Windows")
 	}
 }
+
+// Codex spawns subagents on agents.default_subagent_model, a setting apart
+// from review_model, so --subagent-model sets both.
+func TestCodexArgsMapSubagentModelToAgentsDefault(t *testing.T) {
+	launch.SetSubagentModel("prizmal-core")
+	t.Cleanup(func() { launch.SetSubagentModel("") })
+	args, err := (&Codex{}).args("prizmal-flash", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !codexHasOverride(args, `agents.default_subagent_model="prizmal-core"`) {
+		t.Fatalf("args lack agents.default_subagent_model: %v", args)
+	}
+}
+
+func TestCodexArgsOmitAgentsDefaultByDefault(t *testing.T) {
+	launch.SetSubagentModel("")
+	args, _ := (&Codex{}).args("prizmal-flash", "", nil)
+	if strings.Contains(strings.Join(args, " "), "default_subagent_model") {
+		t.Fatalf("default_subagent_model set without --subagent-model: %v", args)
+	}
+}
+
+// Codex checks the subagent model against the models its catalog lists, so a
+// model the tenant list lacks still gets an entry.
+func TestCodexCatalogListsASubagentModelTheTenantListLacks(t *testing.T) {
+	launch.SetSubagentModel("prizmal-core")
+	t.Cleanup(func() { launch.SetSubagentModel("") })
+	catalog := []launch.LaunchModel{{Name: "prizmal-flash"}}
+
+	var slugs []string
+	for _, m := range codexCatalogModels("prizmal-flash", catalog) {
+		slugs = append(slugs, m.Name)
+	}
+	if strings.Join(slugs, ",") != "prizmal-flash,prizmal-core" {
+		t.Fatalf("catalog = %v, want the subagent model listed after the launched one", slugs)
+	}
+}
+
+func TestCodexCatalogListsASubagentModelOnce(t *testing.T) {
+	launch.SetSubagentModel("prizmal-core")
+	t.Cleanup(func() { launch.SetSubagentModel("") })
+	catalog := []launch.LaunchModel{{Name: "prizmal-flash"}, {Name: "prizmal-core"}}
+
+	if got := len(codexCatalogModels("prizmal-flash", catalog)); got != 2 {
+		t.Fatalf("catalog has %d models, want 2", got)
+	}
+}

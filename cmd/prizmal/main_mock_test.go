@@ -755,3 +755,47 @@ func TestMockHarnessBareCodexLaunchFailsWithoutAModel(t *testing.T) {
 		t.Error("codex was launched despite there being no model to launch it with")
 	}
 }
+
+// TestMockHarnessCodexLaunchPassesTheSubagentModel pins that --subagent-model
+// reaches Codex. Codex has no environment variable for it, so the launch hands
+// the child a -c override of agents.default_subagent_model, and lists the model
+// in the catalog Codex checks it against.
+func TestMockHarnessCodexLaunchPassesTheSubagentModel(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping subprocess test in short mode")
+	}
+
+	prizmalBin := filepath.Join(t.TempDir(), "prizmal")
+	if runtime.GOOS == "windows" {
+		prizmalBin += ".exe"
+	}
+	build := exec.Command("go", "build", "-o", prizmalBin, ".")
+	build.Env = os.Environ()
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build prizmal: %v\n%s", err, out)
+	}
+
+	mockBin := buildMockBinary(t)
+	exp := harnessExpectation{
+		name:         "codex",
+		binaryNames:  []string{"codex"},
+		requiredEnv:  []string{"OPENAI_API_KEY"},
+		requiredArgs: []string{"-m", mockLaunchModel},
+	}
+	home, expDir, _ := setupMockEnv(t, func() string { return mockBin }, exp)
+
+	const subagent = "prizmal-flash"
+	exitCode, stdout, stderr := runPrizmalSubprocessArgs(t, prizmalBin, home, expDir, exp.name, "--yes", "--subagent-model", subagent)
+	if exitCode != 0 {
+		t.Fatalf("prizmal codex --subagent-model exited %d\nstdout: %s\nstderr: %s", exitCode, stdout, stderr)
+	}
+
+	argsData, err := os.ReadFile(filepath.Join(expDir, "codex.called.args"))
+	if err != nil {
+		t.Fatalf("codex mock not invoked: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
+	want := `agents.default_subagent_model="` + subagent + `"`
+	if !strings.Contains(string(argsData), want) {
+		t.Errorf("codex args = %q, want them to carry -c %s", string(argsData), want)
+	}
+}
