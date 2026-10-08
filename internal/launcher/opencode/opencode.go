@@ -59,7 +59,7 @@ func (o *OpenCode) Run(model string, models []launch.LaunchModel, args []string)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Env = append(os.Environ(), o.envVars(model, models)...)
+	cmd.Env = o.childEnv(model, models)
 	// Select the Prizmal model on launch so opencode doesn't fall back to its
 	// own default (e.g. Claude Sonnet). The inline config registers the
 	// provider + model, but opencode picks its own default model unless
@@ -70,13 +70,22 @@ func (o *OpenCode) Run(model string, models []launch.LaunchModel, args []string)
 	return cmd.Run()
 }
 
+// childEnv is the environment opencode runs in: the inherited environment
+// without any OPENCODE_CONFIG_DIR, then the variables the launch adds. opencode
+// reads one config directory from that variable, so a value the user set for
+// their own tools is replaced for this launch, even when the search tool could
+// not be written and the launch sets none.
+func (o *OpenCode) childEnv(model string, models []launch.LaunchModel) []string {
+	return launch.ChildEnv([]string{"OPENCODE_CONFIG_DIR"}, o.envVars(model, models))
+}
+
 // envVars returns the variables prizmal adds to the opencode child process, on
 // top of the inherited environment. It deliberately sets none of opencode's
 // OPENCODE_ENABLE_* search flags: those switch on a websearch tool that calls
 // opencode's hosted search backends directly. Search goes through the Switch
 // instead, via the generated tool wired up here.
 func (o *OpenCode) envVars(model string, models []launch.LaunchModel) []string {
-	env := filterEnv(os.Environ(), "OPENCODE_CONFIG_DIR=")
+	var env []string
 	if content := o.resolveContent(model, models); content != "" {
 		env = append(env, "OPENCODE_CONFIG_CONTENT="+content)
 	}
@@ -91,9 +100,9 @@ func (o *OpenCode) envVars(model string, models []launch.LaunchModel) []string {
 		return env
 	}
 	return append(env,
-		// opencode reads one config directory from this variable, so a
-		// value the user set for their own tools is replaced for this launch
-		// unconditionally: filterEnv removed any inherited copy above.
+		// childEnv drops any inherited copy of this variable, so the
+		// directory the launch writes the search tool to is the one opencode
+		// reads.
 		"OPENCODE_CONFIG_DIR="+dir,
 		openCodeSearchURLEnv+"="+strings.TrimRight(envconfig.Host().String(), "/")+"/v1",
 		openCodeSearchKeyEnv+"="+envconfig.APIKey(),

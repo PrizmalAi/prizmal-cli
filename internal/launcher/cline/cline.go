@@ -40,7 +40,7 @@ func (c *Cline) Run(model string, _ []launch.LaunchModel, args []string) error {
 
 	launchArgs := clineLaunchArgs(model, args)
 	cmd := exec.Command(bin, launchArgs...)
-	cmd.Env = append(os.Environ(), c.envVars()...)
+	cmd.Env = c.childEnv()
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -50,6 +50,10 @@ func (c *Cline) Run(model string, _ []launch.LaunchModel, args []string) error {
 // envVars carries the key to cline on the child environment. cline's
 // openai-compatible provider reads OPENAI_API_KEY when its providers.json
 // settings hold no apiKey, which is how Edit writes them.
+// childEnv is the environment cline runs in: the inherited environment with
+// the launch's own variables in place of any inherited copy.
+func (c *Cline) childEnv() []string { return launch.ChildEnv(nil, c.envVars()) }
+
 func (c *Cline) envVars() []string {
 	return []string{"OPENAI_API_KEY=" + envconfig.APIKey()}
 }

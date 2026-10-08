@@ -271,34 +271,12 @@ var claudeInheritedModelVars = []string{
 // is keyed by name, so the CLI's own value always wins over an inherited one
 // and a variable can never appear twice.
 func claudeChildEnv(model string, rows []launch.ModelRow) []string {
-	drop := make(map[string]bool, len(claudeInheritedModelVars))
-	for _, name := range claudeInheritedModelVars {
-		drop[name] = true
-	}
-
-	// The launch's own variables are collected first, so the inherited pass can
-	// skip every name they define. A name defined twice would leave the child's
-	// value depending on which copy the OS reads first, and the launch value
-	// must be the one that wins.
+	// The launch's own variables are collected first so ChildEnv can skip
+	// every inherited name they define.
 	fixed := (&Claude{}).envVars()
-	fixedNames := make(map[string]bool, len(fixed))
-	for _, kv := range fixed {
-		name, _, _ := strings.Cut(kv, "=")
-		fixedNames[name] = true
-	}
-
-	env := make([]string, 0, len(os.Environ())+len(fixed)+1)
-	for _, kv := range os.Environ() {
-		name, _, _ := strings.Cut(kv, "=")
-		if drop[name] || fixedNames[name] {
-			continue
-		}
-		env = append(env, kv)
-	}
-	env = append(env, fixed...)
 	// The compaction window: without it Claude Code never compacts these
 	// launches (claude_compact.go says why).
-	env = append(env, claudeCompactWindowEnv+"="+claudeCompactWindowValue(os.Getenv(claudeCompactWindowEnv)))
+	fixed = append(fixed, claudeCompactWindowEnv+"="+claudeCompactWindowValue(os.Getenv(claudeCompactWindowEnv)))
 	// Claude Code builds the /model picker's Default row from the Opus tier,
 	// and ANTHROPIC_DEFAULT_OPUS_MODEL is the first place it reads that tier
 	// from. The settings JSON has no field for the row's text. Unset, the row
@@ -307,7 +285,7 @@ func claudeChildEnv(model string, rows []launch.ModelRow) []string {
 	// It also makes the "opus" alias resolve to the pinned model, the one
 	// target this launch routes to.
 	if model != "" {
-		env = append(env, "ANTHROPIC_DEFAULT_OPUS_MODEL="+claudeLaunchModelName(model, rows))
+		fixed = append(fixed, "ANTHROPIC_DEFAULT_OPUS_MODEL="+claudeLaunchModelName(model, rows))
 	}
 
 	// The subagent model variable, set only when a dedicated
@@ -316,10 +294,10 @@ func claudeChildEnv(model string, rows []launch.ModelRow) []string {
 	// default. There is no settings-JSON equivalent, so this variable is the
 	// only channel that gives subagents a different model than the parent.
 	if sub := launch.SelectedSubagentModel(); sub != "" {
-		env = append(env, "CLAUDE_CODE_SUBAGENT_MODEL="+claudeModelName(sub))
+		fixed = append(fixed, "CLAUDE_CODE_SUBAGENT_MODEL="+claudeModelName(sub))
 	}
 
-	return env
+	return launch.ChildEnv(claudeInheritedModelVars, fixed)
 }
 
 // claudeModelName returns the model name to hand Claude Code: the switch's own

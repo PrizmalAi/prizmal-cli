@@ -202,28 +202,10 @@ var codexInheritedVars = []string{
 // names are skipped in the inherited pass, so each appears once and the
 // launch value wins.
 func codexChildEnv() []string {
-	drop := make(map[string]bool, len(codexInheritedVars))
-	for _, name := range codexInheritedVars {
-		drop[name] = true
-	}
 	// An OPENAI_API_KEY from the operator's shell never reaches Codex: with a
 	// switch key the launch sets its own, and in device mode there is none.
-	drop["OPENAI_API_KEY"] = true
-	fixed := (&Codex{}).envVars()
-	for _, kv := range fixed {
-		name, _, _ := strings.Cut(kv, "=")
-		drop[name] = true
-	}
-
-	env := make([]string, 0, len(os.Environ())+len(fixed))
-	for _, kv := range os.Environ() {
-		name, _, _ := strings.Cut(kv, "=")
-		if drop[name] {
-			continue
-		}
-		env = append(env, kv)
-	}
-	env = append(env, fixed...)
+	drop := append(slices.Clone(codexInheritedVars), "OPENAI_API_KEY")
+	env := launch.ChildEnv(drop, (&Codex{}).envVars())
 	// The helper is a separate prizmal process that resolves the Switch URL from
 	// scratch, so this launch's resolved host is pinned for it.
 	if envconfig.DeviceMode() {

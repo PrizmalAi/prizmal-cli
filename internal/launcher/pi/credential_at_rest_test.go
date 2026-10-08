@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
@@ -196,5 +197,27 @@ func TestPiRestoreResetsPrizmalDefaults(t *testing.T) {
 	}
 	if got, _ := s["defaultModel"].(string); got == "probe-model" {
 		t.Fatalf("defaultModel = %q after restore: it names a model only the deleted entry served", got)
+	}
+}
+
+// A PRIZMAL_SWITCH_KEY already in the operator's shell must not reach pi beside
+// the launch's own: a name defined twice leaves the child's value to whichever
+// copy the OS reads first.
+func TestPiChildEnvCarriesTheLaunchKeyOnce(t *testing.T) {
+	internaltest.WithAPIKey(t, internaltest.FakeKeyAtRest)
+	// WithAPIKey clears the variable, so the inherited copy is set after it.
+	t.Setenv("PRIZMAL_SWITCH_KEY", "inherited-from-the-shell")
+
+	count := 0
+	for _, kv := range (&Pi{}).childEnv(nil) {
+		if strings.HasPrefix(kv, "PRIZMAL_SWITCH_KEY=") {
+			count++
+			if kv != "PRIZMAL_SWITCH_KEY="+internaltest.FakeKeyAtRest {
+				t.Errorf("child env carries %q, want the launch key", kv)
+			}
+		}
+	}
+	if count != 1 {
+		t.Fatalf("PRIZMAL_SWITCH_KEY appears %d times, want 1", count)
 	}
 }

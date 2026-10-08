@@ -2,6 +2,7 @@ package cline
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/internaltest"
@@ -138,5 +139,26 @@ func TestClineRestoreKeepsUserOwnOpenAICompatibleEntry(t *testing.T) {
 	}
 	if got, _ := cfg["lastUsedProvider"].(string); got != clineApiProvider {
 		t.Fatalf("lastUsedProvider = %q, want the user's own selection left alone", got)
+	}
+}
+
+// An OPENAI_API_KEY already in the operator's shell must not reach cline beside
+// the launch's own: a name defined twice leaves the child's value to whichever
+// copy the OS reads first.
+func TestClineChildEnvCarriesTheLaunchKeyOnce(t *testing.T) {
+	internaltest.WithAPIKey(t, internaltest.FakeKeyAtRest)
+	t.Setenv("OPENAI_API_KEY", "inherited-from-the-shell")
+
+	count := 0
+	for _, kv := range (&Cline{}).childEnv() {
+		if strings.HasPrefix(kv, "OPENAI_API_KEY=") {
+			count++
+			if kv != "OPENAI_API_KEY="+internaltest.FakeKeyAtRest {
+				t.Errorf("child env carries %q, want the launch key", kv)
+			}
+		}
+	}
+	if count != 1 {
+		t.Fatalf("OPENAI_API_KEY appears %d times, want 1", count)
 	}
 }

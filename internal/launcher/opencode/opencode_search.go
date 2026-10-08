@@ -139,17 +139,3 @@ export default {
   },
 }
 `
-
-// filterEnv returns env without any entry whose prefix matches name, so an
-// appended replacement is unconditional rather than relying on the exec
-// last-occurrence convention for duplicate environment entries.
-func filterEnv(env []string, prefix string) []string {
-	out := env[:0:0]
-	for _, kv := range env {
-		if strings.HasPrefix(kv, prefix) {
-			continue
-		}
-		out = append(out, kv)
-	}
-	return out
-}

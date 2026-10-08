@@ -67,7 +67,7 @@ func TestOpenCodeConfigDeniesBuiltinWebSearch(t *testing.T) {
 func TestOpenCodeLaunchEnablesNoHostedSearch(t *testing.T) {
 	internaltest.SandboxedHome(t)
 	o := &OpenCode{}
-	env := o.envVars("wire-test-model", launchtest.WireKeyTestModel())
+	env := o.childEnv("wire-test-model", launchtest.WireKeyTestModel())
 
 	for _, name := range []string{
 		"OPENCODE_ENABLE_PARALLEL",
@@ -243,12 +243,12 @@ func keysOf(m map[string]any) []string {
 
 // TestOpenCodeEnvReplacesInheritedConfigDir pins the unconditional replacement
 // of an inherited OPENCODE_CONFIG_DIR. Exec's last-occurrence convention would
-// resolve a duplicate in the appended value's favour anyway, but the filter
-// makes the replacement hold regardless of runtime convention.
+// resolve a duplicate in the appended value's favour anyway, but dropping the
+// inherited copy makes the replacement hold regardless of runtime convention.
 func TestOpenCodeEnvReplacesInheritedConfigDir(t *testing.T) {
 	t.Setenv("OPENCODE_CONFIG_DIR", "/home/user/.config/opencode")
 
-	env := (&OpenCode{}).envVars("", nil)
+	env := (&OpenCode{}).childEnv("", nil)
 
 	count := 0
 	for _, kv := range env {
