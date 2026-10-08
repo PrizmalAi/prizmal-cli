@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -169,7 +168,12 @@ func countingTokenCommand(t *testing.T, token string) (string, func() int) {
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	counter := filepath.Join(dir, "runs")
 	script := filepath.Join(dir, "token.sh")
-	body := "#!/bin/sh\necho run >> " + strconv.Quote(counter) + "\necho " + token + "\n"
+	// Both values go through shellQuote, which single-quotes and escapes any
+	// embedded quote. strconv.Quote is not enough here: it emits a
+	// double-quoted string, in which the shell would still expand $, backticks
+	// and \\, so a token or temp path carrying one would reach the test
+	// mangled rather than verbatim.
+	body := "#!/bin/sh\necho run >> " + shellQuote(counter) + "\necho " + shellQuote(token) + "\n"
 	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
