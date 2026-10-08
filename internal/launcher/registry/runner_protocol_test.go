@@ -119,6 +119,9 @@ func TestNoHypotheticalSeams(t *testing.T) {
 		// asks a runner whether it can refresh its own credential, so its
 		// method has two readers and a declared interface.
 		reflect.TypeOf((*launch.DeviceModeRunner)(nil)).Elem(),
+		// SubagentModelRunner is part of the protocol too: the CLI refuses
+		// --subagent-model for a runner that does not take it.
+		reflect.TypeOf((*launch.SubagentModelRunner)(nil)).Elem(),
 	} {
 		for i := range iface.NumMethod() {
 			protocol[iface.Method(i).Name] = true
