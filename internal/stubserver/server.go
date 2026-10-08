@@ -1336,7 +1336,10 @@ var tierFamilies = []string{"opus", "sonnet", "haiku", "fable", "mythos"}
 //
 // The aliases are the ones the Switch resolves: claude-tier-<tier> for a tier
 // some catalog entry holds, and any claude-<tier>... vendor id of that tier.
-// A tier no entry holds has no alias, so its names are refused.
+// The vendor-id prefix is deliberately broad: the Switch maps every
+// claude-<tier>... id to the tier's alias, so it serves any such id for a held
+// tier, and the stub does the same. A tier no entry holds has no alias, so its
+// names are refused.
 func serveModel(w http.ResponseWriter, r *http.Request, c *serverConfig) bool {
 	raw, _ := io.ReadAll(r.Body)
 	r.Body = io.NopCloser(bytes.NewReader(raw))
