@@ -292,8 +292,9 @@ func codexHygieneOverrides(model string, extra []string) []string {
 		"analytics.enabled=false",
 		"feedback.enabled=false",
 	}
-	// An operator's own -c for a memory model wins: Codex reads the later
-	// override, so the launch leaves its pin out rather than replace theirs.
+	// The launch pins a memory model only when the operator's own arguments
+	// leave that key alone, so an operator's -c for it is the only one Codex
+	// sees.
 	for _, key := range []string{"memories.extract_model", "memories.consolidation_model"} {
 		if model != "" && !codexExtraSetsKey(extra, key) {
 			overrides = append(overrides, fmt.Sprintf("%s=%q", key, model))
