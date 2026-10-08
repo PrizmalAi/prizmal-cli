@@ -71,13 +71,17 @@ func answerPrompts(t *testing.T, replies ...bool) *[]string {
 	asked := &[]string{}
 	recorder := &promptRecorder{asked: asked}
 	previousOut := confirmOut
-	confirmOut = recorder
+	// The restore is registered before the global is replaced, so the two
+	// cannot be separated by an early return later in this helper.
 	t.Cleanup(func() {
 		confirmOut = previousOut
 		if len(*asked) > len(replies) {
-			t.Errorf("unexpected confirmation prompt %d: %q", len(*asked), (*asked)[len(replies)])
+			// The last recorded prompt: in range whenever this guard is, since
+			// len(*asked)-1 >= len(replies) exactly when the test above holds.
+			t.Errorf("unexpected confirmation prompt %d: %q", len(*asked), (*asked)[len(*asked)-1])
 		}
 	})
+	confirmOut = recorder
 	return asked
 }
 
