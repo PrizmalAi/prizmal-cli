@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
-	"github.com/PrizmalAi/prizmal-cli/internal/internaltest"
 	"github.com/PrizmalAi/prizmal-cli/internal/stubserver"
 )
 
@@ -23,11 +22,11 @@ func TestStubServerClaudeWiring(t *testing.T) {
 
 	c := &Claude{}
 	env := c.envVars()
-	val := internaltest.EnvValue(env, "ANTHROPIC_BASE_URL=")
+	val := launchtest.EnvValue(env, "ANTHROPIC_BASE_URL=")
 	if want := launchtest.StubEndpoint(srv.URL); val != want {
 		t.Fatalf("ANTHROPIC_BASE_URL = %q, want %q", val, want)
 	}
-	keyVal := internaltest.EnvValue(env, "ANTHROPIC_AUTH_TOKEN=")
+	keyVal := launchtest.EnvValue(env, "ANTHROPIC_AUTH_TOKEN=")
 	if keyVal != stubserver.StubKey {
 		t.Fatalf("ANTHROPIC_AUTH_TOKEN = %q, want %q", keyVal, stubserver.StubKey)
 	}

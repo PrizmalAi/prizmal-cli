@@ -448,12 +448,12 @@ func TestCodexEnvCarriesAPlaceholderKeyWhenThereIsNone(t *testing.T) {
 	t.Cleanup(func() { envconfig.SetAPIKey("") })
 
 	envconfig.SetAPIKey("")
-	if got := internaltest.EnvValue((&Codex{}).envVars(), "OPENAI_API_KEY="); got != codexPlaceholderKey {
+	if got := launchtest.EnvValue((&Codex{}).envVars(), "OPENAI_API_KEY="); got != codexPlaceholderKey {
 		t.Fatalf("OPENAI_API_KEY with no key = %q, want the placeholder %q", got, codexPlaceholderKey)
 	}
 
 	envconfig.SetAPIKey("sk-real")
-	if got := internaltest.EnvValue((&Codex{}).envVars(), "OPENAI_API_KEY="); got != "sk-real" {
+	if got := launchtest.EnvValue((&Codex{}).envVars(), "OPENAI_API_KEY="); got != "sk-real" {
 		t.Fatalf("OPENAI_API_KEY with a key = %q, want the key", got)
 	}
 }

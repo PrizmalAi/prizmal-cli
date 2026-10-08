@@ -101,8 +101,8 @@ func TestMockHarnessOldCodexStopsBeforeSignIn(t *testing.T) {
 	_ = os.Remove(filepath.Join(home, ".prizmal", "config.json"))
 
 	code, _, stderr := runPrizmalLaunch(t, prizmalBin, home, expDir, "codex", []string{"--yes"}, nil)
-	if code == 0 || !strings.Contains(stderr, "too old") || !strings.Contains(stderr, "0.160.0") {
-		t.Fatalf("exit %d, stderr %q, want a too-old error naming 0.160.0", code, stderr)
+	if code == 0 || !strings.Contains(stderr, "too old") || !strings.Contains(stderr, "0.163.0") {
+		t.Fatalf("exit %d, stderr %q, want a too-old error naming 0.163.0", code, stderr)
 	}
 	if strings.Contains(strings.ToLower(stderr), "sign in") || strings.Contains(strings.ToLower(stderr), "sign-in") {
 		t.Errorf("the launch got to the sign-in before it checked Codex: %q", stderr)

@@ -51,7 +51,7 @@ func TestDocsCatalogExampleMatchesTheEntryALaunchWrites(t *testing.T) {
 	example := docsCatalogExample(t)
 
 	t.Setenv("HARNESS_CONTEXT_LENGTH", "")
-	entry := buildCodexModelEntry(launch.LaunchModel{Name: "your-model", ContextLength: 1_000_000})
+	entry := buildCodexModelEntry(launch.LaunchModel{Name: "your-model"})
 	entry["display_name"] = "your-model"
 	entry["description"] = "A model your switch key serves"
 	entry["base_instructions"] = example["base_instructions"] // copied from `codex debug models --bundled`
