@@ -25,6 +25,19 @@ jobs:
         run: go build ./...
       - name: Vet
         run: go vet ./...
+      # gofmt -l exits 0 even when it lists files, so the step fails on any
+      # output. A file gofmt cannot parse prints to stderr and exits 2; bash's
+      # errexit stops the step on that exit code.
+      - name: Gofmt
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
       - name: Test
         run: go test -race ./...
       # Windows harness-launch visibility step: the log must show which
