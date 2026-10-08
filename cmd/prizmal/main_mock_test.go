@@ -762,8 +762,11 @@ func TestMockHarnessBareCodexLaunchFailsWithoutAModel(t *testing.T) {
 			t.Errorf("refusal does not name %q: %s", want, stderr)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(expDir, "codex.called.args")); err == nil {
-		t.Error("codex was launched despite there being no model to launch it with")
+	// The launch asks Codex for its version before anything else, so the mock
+	// has been called once. A launch would be the last call, with more than
+	// the version flag.
+	if called, err := os.ReadFile(filepath.Join(expDir, "codex.called.args")); err == nil && strings.TrimSpace(string(called)) != "--version" {
+		t.Errorf("codex was launched despite there being no model to launch it with (args %q)", called)
 	}
 }
 
