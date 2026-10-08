@@ -20,6 +20,10 @@ Codex derives auto-compaction from the context window the catalog declares, 90% 
 
 Subagents run the session model by default. `--subagent-model` gives them a different one. The launch passes it to Codex twice: as `agents.default_subagent_model`, the model a spawned subagent runs when the spawn call names none, and as `review_model`, the model `/review` runs. A spawn call that names its own model still wins. Codex checks the model against the catalog, so the launch lists it in the catalog even when the Switch's model list lacks it.
 
+## Edit tool
+
+Codex sends its freeform `apply_patch` edit tool only for a model whose catalog entry sets `apply_patch_tool_type` to `"freeform"`. The entry the launch writes sets it, so Codex edits files through `apply_patch` instead of shell commands. The Switch translates the tool for models that can't take a freeform tool.
+
 ## Device login
 
 Codex refreshes a device token through its command-backed provider auth. On a machine signed in with a device key the launch passes `model_providers.prizmal.auth` overrides naming this binary as the command, so Codex runs `prizmal auth token` for its bearer token instead of reading a fixed key. The overrides carry no credential, and the launch passes no `env_key` beside them: Codex rejects a provider that names both a key and a command.
@@ -61,5 +65,7 @@ Codex runs without its shared background server whenever a launch passes `--prof
 `env_key` names the variable Codex reads the key from, so the key itself never enters the file.
 
 To give subagents their own model by hand, add `-c agents.default_subagent_model="your-subagent-model"` and `-c review_model="your-subagent-model"` to the `codex` command, and list that model in the catalog file that `model_catalog_json` names. Codex rejects a subagent model its catalog doesn't list.
+
+To get the `apply_patch` edit tool by hand, set `"apply_patch_tool_type": "freeform"` on your model's entry in the catalog file that `model_catalog_json` names.
 
 `prizmal codex` writes no profile. It passes the same provider settings as `-c` overrides and a model catalog from a temporary file, so your `~/.codex` stays as it was. The catalog makes Codex budget the 1M window the Switch serves instead of a default. It also installs Codex when the `codex` binary is missing.
