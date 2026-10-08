@@ -259,7 +259,7 @@ func TestEnterDeviceModeFallsBackToConfigKeyWhenRefreshFails(t *testing.T) {
 		t.Error("device mode is on after a failed refresh with a fallback key; the launch should fall back instead")
 	}
 	if got := envconfig.APIKey(); got != "sk-fallback-from-config" {
-		t.Fatalf("APIKey() = %q, want the config key to still resolve", got)
+		t.Fatalf("APIKey() does not resolve to the config key")
 	}
 	if !strings.Contains(stderr, "warning:") {
 		t.Fatalf("stderr = %q, want a warning that the device key could not refresh", stderr)

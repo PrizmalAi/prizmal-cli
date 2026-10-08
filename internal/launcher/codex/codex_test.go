@@ -370,6 +370,8 @@ func TestCodexKeyModeOverridesKeepEnvKeyAndNoAuth(t *testing.T) {
 // device token stay out of Codex's environment, and an OPENAI_API_KEY the
 // operator exported for OpenAI itself does not reach the Switch.
 func TestCodexDeviceModeChildEnvCarriesNoCredential(t *testing.T) {
+	internaltest.ClearCredentialEnv(t)
+	internaltest.UnsetSwitchURLEnv(t)
 	internaltest.WithDeviceMode(t)
 	envconfig.SetAPIKey("switch-key-probe")
 	t.Cleanup(func() { envconfig.SetAPIKey("") })
@@ -381,23 +383,25 @@ func TestCodexDeviceModeChildEnvCarriesNoCredential(t *testing.T) {
 
 	env := codexChildEnv()
 	joined := strings.Join(env, "\n")
+	shown := strings.Join(internaltest.RedactEnv(env), "\n")
 	for _, secret := range []string{"switch-key-probe", "pz-d-dt-test-token", "operator-openai-key"} {
 		if strings.Contains(joined, secret) {
-			t.Errorf("child env leaks %q:\n%s", secret, joined)
+			t.Errorf("child env leaks %q:\n%s", secret, shown)
 		}
 	}
 	if !strings.Contains(joined, envconfig.EnvVar+"=https://switch.example") {
-		t.Errorf("child env does not pin the Switch URL for the helper:\n%s", joined)
+		t.Errorf("child env does not pin the Switch URL for the helper:\n%s", shown)
 	}
 }
 
 func TestCodexKeyModeChildEnvCarriesSwitchKey(t *testing.T) {
+	internaltest.ClearCredentialEnv(t)
 	envconfig.SetDeviceMode(false)
 	envconfig.SetAPIKey("switch-key-probe")
 	t.Cleanup(func() { envconfig.SetAPIKey("") })
 	env := codexChildEnv()
 	if !strings.Contains(strings.Join(env, "\n"), "OPENAI_API_KEY=switch-key-probe") {
-		t.Errorf("key-mode env lacks the switch key: %v", env)
+		t.Errorf("key-mode env lacks the switch key: %v", internaltest.RedactEnv(env))
 	}
 }
 
@@ -415,16 +419,17 @@ func TestCodexEntryDeclaresTheFreeformApplyPatchTool(t *testing.T) {
 // A launch with no switch key, as against a loopback Switch, still gives Codex
 // a non-empty key: Codex fails on an empty one before it sends a request.
 func TestCodexEnvCarriesAPlaceholderKeyWhenThereIsNone(t *testing.T) {
+	internaltest.ClearCredentialEnv(t)
 	envconfig.SetDeviceMode(false)
 	t.Cleanup(func() { envconfig.SetAPIKey("") })
 
 	envconfig.SetAPIKey("")
 	if got := internaltest.EnvValue((&Codex{}).envVars(), "OPENAI_API_KEY="); got != codexPlaceholderKey {
-		t.Fatalf("OPENAI_API_KEY with no key = %q, want the placeholder %q", got, codexPlaceholderKey)
+		t.Fatalf("OPENAI_API_KEY with no key is not the placeholder %q", codexPlaceholderKey)
 	}
 
 	envconfig.SetAPIKey("sk-real")
 	if got := internaltest.EnvValue((&Codex{}).envVars(), "OPENAI_API_KEY="); got != "sk-real" {
-		t.Fatalf("OPENAI_API_KEY with a key = %q, want the key", got)
+		t.Fatalf("OPENAI_API_KEY with a key is not the key")
 	}
 }

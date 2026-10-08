@@ -127,8 +127,8 @@ type ModelRow struct {
 // The switch publishes this row as `default`: GET /v1/models answers
 // {"id":"default[1m]","name":"default","owned_by":"prizmal.ai"}, so the name to
 // match is `default`, not the `prizmal/default` spelling this CLI used to send.
-// Both are listed because the name routes through configselect, and a tenant
-// could carry either during the transition.
+// Both are listed because a tenant could carry either spelling during the
+// transition.
 //
 // A picker row exists to name a model that routes. This one routes to whatever
 // the switch key is already bound to, which is what a launch does with no model
@@ -157,7 +157,7 @@ func isReservedModelName(name string) bool {
 // A tier word in the model's name gives the row its tier's behavesAs and
 // description, which shape how Claude Code runs and shows the model. Neither
 // selects what serves the request: that is the Model id alone, resolved by
-// configselect.
+// the Switch.
 func ModelRows(models []LaunchModel) []ModelRow {
 	rows := make([]ModelRow, 0, len(models))
 	seen := make(map[string]bool, len(models))

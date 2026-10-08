@@ -2,6 +2,7 @@ package opencode
 
 import (
 	"encoding/json"
+	"github.com/PrizmalAi/prizmal-cli/internal/internaltest"
 	"slices"
 	"strings"
 	"testing"
@@ -44,7 +45,7 @@ func TestOpenCodeInjectsAPIKey(t *testing.T) {
 	envconfig.SetAPIKey("sk-opencode")
 	key, _ := opencodeOptionsAPIKey(t)
 	if key != "sk-opencode" {
-		t.Fatalf("opencode provider.prizmal.options.apiKey = %q, want sk-opencode", key)
+		t.Fatalf("opencode provider.prizmal.options.apiKey is not the launch key")
 	}
 	envconfig.SetAPIKey("")
 }
@@ -79,10 +80,11 @@ func TestOpenCodeProviderIDIsPrizmal(t *testing.T) {
 }
 
 func TestOpenCodeEmptyKeyIsEmptyNotPlaceholder(t *testing.T) {
+	internaltest.ClearCredentialEnv(t)
 	envconfig.SetAPIKey("")
 	key, opts := opencodeOptionsAPIKey(t)
 	if key != "" {
-		t.Fatalf("empty key: opencode options.apiKey = %q, want empty", key)
+		t.Fatalf("empty key: opencode options.apiKey is not empty")
 	}
 	for field, v := range opts {
 		if s, ok := v.(string); ok {
