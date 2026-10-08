@@ -733,6 +733,13 @@ func buildCodexModelEntry(launchModel launch.LaunchModel) map[string]any {
 	}
 }
 
+// codexMinVersion is the oldest Codex the launch supports. The launch passes
+// --no-daemon and command-backed provider auth, reads `codex debug models
+// --bundled`, and writes supports_search_tool, apply_patch_tool_type and
+// agents.default_subagent_model, which earlier releases do not know. It is the
+// release the terminal baselines pin, and a test keeps the two equal.
+const codexMinVersion = "0.160.0"
+
 func checkCodexVersion() error {
 	if _, err := exec.LookPath("codex"); err != nil {
 		return fmt.Errorf("codex is not installed, install with: npm install -g @openai/codex")
@@ -743,17 +750,16 @@ func checkCodexVersion() error {
 		return fmt.Errorf("failed to get codex version: %w", err)
 	}
 
-	// Parse output like "codex-cli 0.87.0"
+	// Parse output like "codex-cli 0.160.0"
 	fields := strings.Fields(strings.TrimSpace(string(out)))
 	if len(fields) < 2 {
 		return fmt.Errorf("unexpected codex version output: %s", string(out))
 	}
 
 	version := "v" + fields[len(fields)-1]
-	minVersion := "v0.134.0"
 
-	if semver.Compare(version, minVersion) < 0 {
-		return fmt.Errorf("codex version %s is too old, minimum required is %s, update with: npm update -g @openai/codex", fields[len(fields)-1], "0.134.0")
+	if semver.Compare(version, "v"+codexMinVersion) < 0 {
+		return fmt.Errorf("codex version %s is too old, minimum required is %s, update with: npm update -g @openai/codex", fields[len(fields)-1], codexMinVersion)
 	}
 
 	return nil
