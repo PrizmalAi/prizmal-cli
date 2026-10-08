@@ -539,11 +539,11 @@ func codexCatalogModel(modelName string, models []launch.LaunchModel) launch.Lau
 
 // codexCatalogModels returns the models Codex's /model picker lists: the rows
 // the prizmal picker lists, in its order, each with the row's text. A tier alias
-// is a row and the router config folded into it is not, so the two pickers show
+// is a row and the model folded into it is not, so the two pickers show
 // one list.
 //
 // The launched model gets an entry even when no row shows it, such as -m naming
-// a config a tier row folds away. Codex reads that entry for the model's
+// a model a tier row folds away. Codex reads that entry for the model's
 // window and prompt.
 func codexCatalogModels(modelName string, models []launch.LaunchModel) []launch.LaunchModel {
 	rows := launch.ModelRows(models)
