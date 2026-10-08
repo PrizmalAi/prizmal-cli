@@ -1,8 +1,10 @@
-package launch
+package pi
 
 import (
 	"encoding/json"
 	"testing"
+
+	launch "github.com/PrizmalAi/prizmal-cli/internal/launcher"
 )
 
 // piModelSetting pulls one numeric setting off a pi model config as an int.
@@ -27,7 +29,7 @@ func piModelSetting(t *testing.T, cfg map[string]any, key string) int {
 // default makes a session compact at a fraction of the window the Switch
 // accepts.
 func TestPiModelConfigDeclaresTheMillionTokenWindow(t *testing.T) {
-	cfg := createConfig(LaunchModel{Name: "smart"})
+	cfg := createConfig(launch.LaunchModel{Name: "smart"})
 
 	if got := piModelSetting(t, cfg, "contextWindow"); got != 1_000_000 {
 		t.Fatalf("contextWindow = %d, want 1000000: every model the Switch serves has a 1M window", got)
@@ -39,7 +41,7 @@ func TestPiModelConfigDeclaresTheMillionTokenWindow(t *testing.T) {
 func TestPiModelConfigHonoursTheOperatorStatedWindow(t *testing.T) {
 	t.Setenv("HARNESS_CONTEXT_LENGTH", "200000")
 
-	cfg := createConfig(LaunchModel{Name: "smart"})
+	cfg := createConfig(launch.LaunchModel{Name: "smart"})
 
 	if got := piModelSetting(t, cfg, "contextWindow"); got != 200000 {
 		t.Fatalf("contextWindow = %d, want the operator's 200000", got)
@@ -50,7 +52,7 @@ func TestPiModelConfigHonoursTheOperatorStatedWindow(t *testing.T) {
 // launch asks for the most any route allows, the whole window, and leaves the
 // Switch to cap the request to the limit of the route that serves it.
 func TestPiModelConfigDeclaresTheLargestOutputBudget(t *testing.T) {
-	cfg := createConfig(LaunchModel{Name: "smart"})
+	cfg := createConfig(launch.LaunchModel{Name: "smart"})
 
 	if got := piModelSetting(t, cfg, "maxTokens"); got != 1_000_000 {
 		t.Fatalf("maxTokens = %d, want 1000000: ask for the most a route allows and let the Switch cap it", got)
@@ -61,7 +63,7 @@ func TestPiModelConfigDeclaresTheLargestOutputBudget(t *testing.T) {
 // sidecar config, so a device launch and a switch-key launch of the same model
 // size it the same way. This pins the sidecar's two numbers.
 func TestPiDeviceConfigCarriesWindowAndOutputBudget(t *testing.T) {
-	data := piDeviceConfigJSON("smart", []LaunchModel{{Name: "smart"}})
+	data := piDeviceConfigJSON("smart", []launch.LaunchModel{{Name: "smart"}})
 	var config struct {
 		Models []struct {
 			ID            string `json:"id"`

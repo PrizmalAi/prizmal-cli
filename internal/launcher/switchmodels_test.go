@@ -82,9 +82,9 @@ func capsOf(t *testing.T, models []LaunchModel, name string) []model.Capability 
 
 // An entry that lists "image" is the only one that may carry vision.
 func TestParseSwitchCatalogMapsInputModalities(t *testing.T) {
-	models, err := parseSwitchCatalog([]byte(switchCatalogJSON))
+	models, err := ParseSwitchCatalog([]byte(switchCatalogJSON))
 	if err != nil {
-		t.Fatalf("parseSwitchCatalog: %v", err)
+		t.Fatalf("ParseSwitchCatalog: %v", err)
 	}
 	if len(models) != 4 {
 		t.Fatalf("parsed %d models, want 4: %v", len(models), LaunchModelNames(models))
@@ -110,9 +110,9 @@ func TestParseSwitchCatalogMapsInputModalities(t *testing.T) {
 // A missing or empty input_modalities array means the Switch said nothing, so
 // the entry must carry no capabilities at all: unknown, not text-only.
 func TestParseSwitchCatalogLeavesUnknownEntriesEmpty(t *testing.T) {
-	models, err := parseSwitchCatalog([]byte(switchCatalogJSON))
+	models, err := ParseSwitchCatalog([]byte(switchCatalogJSON))
 	if err != nil {
-		t.Fatalf("parseSwitchCatalog: %v", err)
+		t.Fatalf("ParseSwitchCatalog: %v", err)
 	}
 	for _, name := range []string{"empty-model", "silent-model"} {
 		if caps := capsOf(t, models, name); len(caps) != 0 {
@@ -123,9 +123,9 @@ func TestParseSwitchCatalogLeavesUnknownEntriesEmpty(t *testing.T) {
 
 // An unrecognised modality string is dropped rather than guessed at.
 func TestParseSwitchCatalogDropsUnknownModalities(t *testing.T) {
-	models, err := parseSwitchCatalog([]byte(`{"data":[{"id":"m","input_modalities":["video","hologram"]}]}`))
+	models, err := ParseSwitchCatalog([]byte(`{"data":[{"id":"m","input_modalities":["video","hologram"]}]}`))
 	if err != nil {
-		t.Fatalf("parseSwitchCatalog: %v", err)
+		t.Fatalf("ParseSwitchCatalog: %v", err)
 	}
 	if caps := capsOf(t, models, "m"); len(caps) != 0 {
 		t.Fatalf("capabilities = %v, want none", caps)
@@ -136,13 +136,13 @@ func TestParseSwitchCatalogDropsUnknownModalities(t *testing.T) {
 // out independently of "image": a row can carry both, either, or neither.
 // "file" is the only signal that a router config can take a PDF.
 func TestParseSwitchCatalogMapsFileToDocument(t *testing.T) {
-	models, err := parseSwitchCatalog([]byte(`{"data":[
+	models, err := ParseSwitchCatalog([]byte(`{"data":[
 		{"id":"file-model","input_modalities":["file","text"]},
 		{"id":"both-model","input_modalities":["file","image","text"]},
 		{"id":"image-model","input_modalities":["image","text"]}
 	]}`))
 	if err != nil {
-		t.Fatalf("parseSwitchCatalog: %v", err)
+		t.Fatalf("ParseSwitchCatalog: %v", err)
 	}
 
 	file := capsOf(t, models, "file-model")
@@ -167,8 +167,8 @@ func TestParseSwitchCatalogMapsFileToDocument(t *testing.T) {
 }
 
 func TestParseSwitchCatalogRejectsGarbage(t *testing.T) {
-	if _, err := parseSwitchCatalog([]byte("not json")); err == nil {
-		t.Fatal("parseSwitchCatalog accepted non-JSON")
+	if _, err := ParseSwitchCatalog([]byte("not json")); err == nil {
+		t.Fatal("ParseSwitchCatalog accepted non-JSON")
 	}
 }
 
@@ -331,13 +331,13 @@ func TestWithSwitchCapabilitiesWarningOmitsKey(t *testing.T) {
 // across the suffix in both directions, the way it already tolerates :latest,
 // or every launch model falls through to the unknown-capabilities path.
 func TestFindSwitchCatalogModelMatchesAcrossOneMillionSuffix(t *testing.T) {
-	catalog, err := parseSwitchCatalog([]byte(`{"data":[
+	catalog, err := ParseSwitchCatalog([]byte(`{"data":[
 		{"id":"vision-config[1m]","input_modalities":["image","text","video"]},
 		{"id":"text-config[1m]","input_modalities":["text"]},
 		{"id":"bare-config","input_modalities":["file","text"]}
 	]}`))
 	if err != nil {
-		t.Fatalf("parseSwitchCatalog: %v", err)
+		t.Fatalf("ParseSwitchCatalog: %v", err)
 	}
 
 	for _, tc := range []struct {
@@ -417,12 +417,12 @@ func TestBestEffortCatalogNamesKeySourceAndStatusOnFailure(t *testing.T) {
 // The Switch can tag a router config with the Claude tier it serves, and give
 // it a description. An unknown tier is dropped rather than guessed at.
 func TestParseSwitchCatalogReadsTierAndDescription(t *testing.T) {
-	models, err := parseSwitchCatalog([]byte(`{"data":[
+	models, err := ParseSwitchCatalog([]byte(`{"data":[
 		{"id":"smart[1m]","tier":"Opus","description":"Fast and cheap"},
 		{"id":"flash[1m]","tier":"mythos"},
 		{"id":"plain[1m]"}]}`))
 	if err != nil {
-		t.Fatalf("parseSwitchCatalog: %v", err)
+		t.Fatalf("ParseSwitchCatalog: %v", err)
 	}
 	if len(models) != 3 {
 		t.Fatalf("parsed %d models, want 3", len(models))
@@ -443,9 +443,9 @@ func TestParseSwitchCatalogReadsTierAndDescription(t *testing.T) {
 // one line.
 func TestParseSwitchCatalogCleansTheDescription(t *testing.T) {
 	body := `{"data":[{"id":"smart[1m]","description":"Fast\n cheap\u001b]0;title\u0007 \u001b[31mred\u001b[0m\t"}]}`
-	models, err := parseSwitchCatalog([]byte(body))
+	models, err := ParseSwitchCatalog([]byte(body))
 	if err != nil {
-		t.Fatalf("parseSwitchCatalog: %v", err)
+		t.Fatalf("ParseSwitchCatalog: %v", err)
 	}
 	if got := models[0].Description; got != "Fast cheap red" {
 		t.Fatalf("description = %q, want %q", got, "Fast cheap red")

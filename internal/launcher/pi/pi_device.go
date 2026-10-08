@@ -1,9 +1,10 @@
-package launch
+package pi
 
 import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	launch "github.com/PrizmalAi/prizmal-cli/internal/launcher"
 	"os"
 	"path/filepath"
 
@@ -41,7 +42,7 @@ const piDeviceConfigName = "prizmal-device.json"
 // provider from it, and resolves that provider's configured apiKey per request
 // rather than caching it. The oldest of those contracts to land is the
 // per-request resolution, which the apiKey environment reference already
-// requires: piEnvKeyReferenceVersion is the floor, and ensurePiInstalled
+// requires: piEnvKeyReferenceVersion is the floor, and EnsureInstalled
 // updates a Pi below it before the launch goes on to write this extension.
 
 // piDeviceLaunch is the directory a device-mode launch wrote the extension and
@@ -60,7 +61,7 @@ type piDeviceLaunch struct {
 // credential command it runs is exactly the binary the operator launched. A
 // package would add a distribution step, a version to keep in step with the
 // CLI, and a network fetch in the path of a launch that has none today.
-func writePiDeviceExtension(model string, models []LaunchModel) (*piDeviceLaunch, error) {
+func writePiDeviceExtension(model string, models []launch.LaunchModel) (*piDeviceLaunch, error) {
 	dir, err := os.MkdirTemp("", "prizmal-pi-")
 	if err != nil {
 		return nil, fmt.Errorf("create the pi extension directory: %w", err)
@@ -118,7 +119,7 @@ type piDeviceConfig struct {
 // Each row carries the window and the output budget, resolved the same way
 // createConfig resolves them for the models.json entry, so the two launches
 // size the same model the same way.
-func piDeviceConfigJSON(model string, models []LaunchModel) []byte {
+func piDeviceConfigJSON(model string, models []launch.LaunchModel) []byte {
 	rows := make([]piDeviceModel, 0, len(models))
 	seen := make(map[string]bool, len(models))
 	for _, m := range models {

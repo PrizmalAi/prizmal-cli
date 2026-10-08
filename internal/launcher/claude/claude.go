@@ -1,9 +1,10 @@
-package launch
+package claude
 
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	launch "github.com/PrizmalAi/prizmal-cli/internal/launcher"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -55,7 +56,7 @@ func (c *Claude) SupportsDeviceMode() bool { return true }
 // prizmal owns the model decision, so the harness receives it as a value
 // prizmal produced, never as one the operator typed. A caller-supplied --model
 // is consumed by the CLI before this point.
-func (c *Claude) args(model string, rows []ModelRow, settingsJSON string, extra []string) []string {
+func (c *Claude) args(model string, rows []launch.ModelRow, settingsJSON string, extra []string) []string {
 	var args []string
 	if settingsJSON != "" {
 		args = append(args, "--settings", settingsJSON)
@@ -66,7 +67,7 @@ func (c *Claude) args(model string, rows []ModelRow, settingsJSON string, extra 
 	return append(args, extra...)
 }
 
-func (c *Claude) findPath() (string, error) {
+func (c *Claude) FindPath() (string, error) {
 	if p, err := exec.LookPath("claude"); err == nil {
 		return p, nil
 	}
@@ -89,13 +90,13 @@ func (c *Claude) findPath() (string, error) {
 	return "", fmt.Errorf("claude binary not found")
 }
 
-func (c *Claude) Run(model string, models []LaunchModel, args []string) error {
-	claudePath, err := ensureClaudeInstalled()
+func (c *Claude) Run(model string, models []launch.LaunchModel, args []string) error {
+	claudePath, err := EnsureInstalled()
 	if err != nil {
 		return err
 	}
 
-	rows := ModelRows(models)
+	rows := launch.ModelRows(models)
 	settings, err := claudeSettingsJSON(model, rows)
 	if err != nil {
 		return err
@@ -118,41 +119,11 @@ func (c *Claude) Run(model string, models []LaunchModel, args []string) error {
 
 	env := claudeChildEnv(model, rows)
 	if envconfig.DeviceMode() {
-		env = EnsureHelperBaseURL(env, envconfig.BaseURL())
+		env = launch.EnsureHelperBaseURL(env, envconfig.BaseURL())
 	}
 	cmd.Env = env
 	return cmd.Run()
 }
-
-// EnsureHelperBaseURL makes sure the Switch URL this launch resolved is in the
-// child environment, so the apiKeyHelper Claude Code spawns refreshes against
-// the same host.
-//
-// The helper is a separate prizmal process and resolves the URL from scratch:
-// --url, then $PRIZMAL_SWITCH_URL, then the config file, then the production
-// default. A launch aimed at a non-default host by --url or by the environment
-// would otherwise let the helper fall back to production and mint a token the
-// launch's own Switch cannot use. Pinning the launch's resolved URL removes
-// that fallback. A config-file URL needs no pin, because the helper reads the
-// same file.
-func EnsureHelperBaseURL(env []string, baseURL string) []string {
-	if baseURL == "" {
-		return env
-	}
-	for _, kv := range env {
-		if name, _, _ := strings.Cut(kv, "="); name == envconfig.EnvVar {
-			return env // the operator's own environment already names the host
-		}
-	}
-	return append(env, envconfig.EnvVar+"="+baseURL)
-}
-
-// ClaudeHelperTTLMs is the interval Claude Code re-runs the apiKeyHelper on, in
-// milliseconds: 4 minutes. The device token expires 10 minutes after issue, so
-// a background refresh starts with at least 6 minutes still on the token in
-// hand. Claude Code's own default is 5 minutes, which would refresh with only
-// 5 minutes left; 4 minutes buys the margin a laptop sleep spends.
-const ClaudeHelperTTLMs = 240000
 
 // apiKeyHelperCommand is the settings value that tells Claude Code to fetch its
 // credential from this binary: the quoted executable path followed by the
@@ -254,7 +225,7 @@ func (c *Claude) envVars() []string {
 		// The helper refreshes the device token 4 minutes before it would
 		// otherwise expire, with 6 minutes still on the token in hand: enough
 		// for the background refresh a laptop sleep interrupts.
-		env = append(env, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS="+strconv.Itoa(ClaudeHelperTTLMs))
+		env = append(env, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS="+strconv.Itoa(launch.ClaudeHelperTTLMs))
 	}
 	return env
 }
@@ -299,7 +270,7 @@ var claudeInheritedModelVars = []string{
 // The filter is what makes the inline settings JSON authoritative. The result
 // is keyed by name, so the CLI's own value always wins over an inherited one
 // and a variable can never appear twice.
-func claudeChildEnv(model string, rows []ModelRow) []string {
+func claudeChildEnv(model string, rows []launch.ModelRow) []string {
 	drop := make(map[string]bool, len(claudeInheritedModelVars))
 	for _, name := range claudeInheritedModelVars {
 		drop[name] = true
@@ -344,17 +315,12 @@ func claudeChildEnv(model string, rows []ModelRow) []string {
 	// leaves them on the session model, which is Claude Code's "inherit"
 	// default. There is no settings-JSON equivalent, so this variable is the
 	// only channel that gives subagents a different model than the parent.
-	if sub := SelectedSubagentModel(); sub != "" {
+	if sub := launch.SelectedSubagentModel(); sub != "" {
 		env = append(env, "CLAUDE_CODE_SUBAGENT_MODEL="+claudeModelName(sub))
 	}
 
 	return env
 }
-
-// OneMillionSuffix is Claude Code's own context-budgeting instruction. It is
-// not part of any model id: Claude Code strips the suffix from the name before
-// it sends the request and budgets a 1M context window for that name.
-const OneMillionSuffix = "[1m]"
 
 // claudeModelName returns the model name to hand Claude Code: the switch's own
 // name with exactly one [1m] suffix, or none for a tier without a 1M window,
@@ -379,27 +345,27 @@ func claudeModelName(model string) string {
 	// shell export may carry one, and suffixes must not accumulate.
 	bare := model
 	for {
-		stripped := strings.TrimSuffix(bare, OneMillionSuffix)
+		stripped := strings.TrimSuffix(bare, launch.OneMillionSuffix)
 		if stripped == bare {
 			break
 		}
 		bare = stripped
 	}
-	if tier, ok := InferTier(bare); ok && !TierProfiles[tier].OneMillion {
+	if tier, ok := launch.InferTier(bare); ok && !launch.TierProfiles[tier].OneMillion {
 		return bare
 	}
-	return bare + OneMillionSuffix
+	return bare + launch.OneMillionSuffix
 }
 
 // claudeRowModelName is claudeModelName for a picker row, whose tier may come
 // from the Switch rather than from its name. A row's tier decides its window.
-func claudeRowModelName(row ModelRow) string {
+func claudeRowModelName(row launch.ModelRow) string {
 	if row.Tier == "" {
 		return claudeModelName(row.Model)
 	}
-	bare := strings.TrimSuffix(claudeModelName(row.Model), OneMillionSuffix)
-	if TierProfiles[row.Tier].OneMillion {
-		return bare + OneMillionSuffix
+	bare := strings.TrimSuffix(claudeModelName(row.Model), launch.OneMillionSuffix)
+	if launch.TierProfiles[row.Tier].OneMillion {
+		return bare + launch.OneMillionSuffix
 	}
 	return bare
 }
@@ -407,8 +373,8 @@ func claudeRowModelName(row ModelRow) string {
 // claudeLaunchModelName spells the launched model the way its own picker row
 // does, so the session model is one of the rows and runs with that row's
 // window. A model with no row is spelled from its name.
-func claudeLaunchModelName(model string, rows []ModelRow) string {
-	bare := strings.TrimSuffix(claudeModelName(model), OneMillionSuffix)
+func claudeLaunchModelName(model string, rows []launch.ModelRow) string {
+	bare := strings.TrimSuffix(claudeModelName(model), launch.OneMillionSuffix)
 	for _, row := range rows {
 		if row.Model == bare {
 			return claudeRowModelName(row)
@@ -422,7 +388,7 @@ func claudeLaunchModelName(model string, rows []ModelRow) string {
 //
 // It is one argument on the command line, so it is scoped to the launched
 // process and persists nowhere. Nothing is written to ~/.claude.
-func claudeSettingsJSON(model string, rows []ModelRow) (string, error) {
+func claudeSettingsJSON(model string, rows []launch.ModelRow) (string, error) {
 	if model == "" {
 		return "", nil
 	}
@@ -495,12 +461,12 @@ func claudeSettingsJSON(model string, rows []ModelRow) (string, error) {
 // resolves a tier to them either.
 func claudeModelOverrides() map[string]string {
 	overrides := make(map[string]string)
-	for tier, ids := range ClaudeFamilyIDs {
+	for tier, ids := range launch.ClaudeFamilyIDs {
 		if !profileInLineage(tier) {
 			continue
 		}
 		for _, id := range ids {
-			overrides[id] = claudeModelName(ClaudeTierModel(tier))
+			overrides[id] = claudeModelName(launch.ClaudeTierModel(tier))
 		}
 	}
 	return overrides
@@ -508,8 +474,8 @@ func claudeModelOverrides() map[string]string {
 
 // profileInLineage reports whether a tier's rows behave as a model of the
 // tier's own lineage.
-func profileInLineage(tier ModelTier) bool {
-	return slices.Contains(ClaudeFamilyIDs[tier], TierProfiles[tier].BehavesAs)
+func profileInLineage(tier launch.ModelTier) bool {
+	return slices.Contains(launch.ClaudeFamilyIDs[tier], launch.TierProfiles[tier].BehavesAs)
 }
 
 // modelOverride is one modelOverrides entry.
@@ -555,12 +521,12 @@ func (o orderedModelOverrides) MarshalJSON() ([]byte, error) {
 func claudeOrderedModelOverrides() orderedModelOverrides {
 	overrides := claudeModelOverrides()
 	ordered := make(orderedModelOverrides, 0, len(overrides))
-	for _, tier := range TierWords {
+	for _, tier := range launch.TierWords {
 		if !profileInLineage(tier) {
 			continue
 		}
-		profile := TierProfiles[tier].BehavesAs
-		ids := append([]string{profile}, slices.DeleteFunc(slices.Clone(ClaudeFamilyIDs[tier]), func(id string) bool {
+		profile := launch.TierProfiles[tier].BehavesAs
+		ids := append([]string{profile}, slices.DeleteFunc(slices.Clone(launch.ClaudeFamilyIDs[tier]), func(id string) bool {
 			return id == profile
 		})...)
 		for _, id := range ids {
@@ -568,48 +534,6 @@ func claudeOrderedModelOverrides() orderedModelOverrides {
 		}
 	}
 	return ordered
-}
-
-// ClaudeFamilyIDs maps each Claude Code model family to the catalog ids a
-// request can resolve to for that family, newest first. The ids are the provider_ids
-// first_party strings from the installed Claude Code binary catalog.
-//
-// The mythos family is absent: it has no tier alias (a request for
-// claude-mythos-5 or -5-1 passes through unmapped, reaching the Switch as the
-// id itself), so no entry belongs here.
-var ClaudeFamilyIDs = map[ModelTier][]string{
-	ModelTierOpus: {
-		"claude-opus-5-5",
-		"claude-opus-5",
-		"claude-opus-4-8",
-		"claude-opus-4-7",
-		"claude-opus-4-6",
-		"claude-opus-4-5-20251101",
-		"claude-opus-4-20250514",
-		"claude-opus-4-1-20250805",
-	},
-	ModelTierSonnet: {
-		"claude-sonnet-5-5",
-		"claude-sonnet-5",
-		"claude-sonnet-4-6",
-		"claude-sonnet-4-5-20250929",
-		"claude-sonnet-4-20250514",
-		"claude-3-7-sonnet-20250219",
-		"claude-3-5-sonnet-20241022",
-	},
-	ModelTierHaiku: {
-		"claude-haiku-4-5-20251001",
-		"claude-3-5-haiku-20241022",
-	},
-	ModelTierFable: {
-		"claude-fable-5-1",
-		"claude-fable-5",
-	},
-}
-
-// ClaudeTierModel is the model a tier runs, as the tenant named it.
-func ClaudeTierModel(tier ModelTier) string {
-	return ClaudeModelPrefix + "tier-" + string(tier)
 }
 
 // claudeModelPicker is the settings block that defines Claude Code's /model
@@ -623,7 +547,7 @@ func ClaudeTierModel(tier ModelTier) string {
 // profile Claude Code runs the model with, and its description is the row's
 // text. Routing is decided by the model id the row sends to the switch, never
 // by either field.
-func claudeModelPicker(rows []ModelRow) map[string]any {
+func claudeModelPicker(rows []launch.ModelRow) map[string]any {
 	options := make([]any, 0, len(rows))
 	for _, row := range rows {
 		option := map[string]any{
@@ -655,8 +579,8 @@ func claudeBaseURL(host string) string {
 	return host
 }
 
-func ensureClaudeInstalled() (string, error) {
-	if path, err := (&Claude{}).findPath(); err == nil {
+func EnsureInstalled() (string, error) {
+	if path, err := (&Claude{}).FindPath(); err == nil {
 		return path, nil
 	}
 
@@ -664,7 +588,7 @@ func ensureClaudeInstalled() (string, error) {
 		return "", err
 	}
 
-	ok, err := ConfirmPrompt("Claude Code is not installed. Install now?")
+	ok, err := launch.ConfirmPrompt("Claude Code is not installed. Install now?")
 	if err != nil {
 		return "", err
 	}
@@ -686,12 +610,12 @@ func ensureClaudeInstalled() (string, error) {
 		return "", fmt.Errorf("failed to install claude: %w", err)
 	}
 
-	path, err := (&Claude{}).findPath()
+	path, err := (&Claude{}).FindPath()
 	if err != nil {
 		return "", fmt.Errorf("claude was installed but the binary was not found on PATH\n\nYou may need to restart your shell")
 	}
 
-	fmt.Fprintf(os.Stderr, "%sClaude Code installed successfully%s\n\n", AnsiGreen, AnsiReset)
+	fmt.Fprintf(os.Stderr, "%sClaude Code installed successfully%s\n\n", launch.AnsiGreen, launch.AnsiReset)
 	return path, nil
 }
 

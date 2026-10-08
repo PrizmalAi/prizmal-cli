@@ -1,8 +1,9 @@
-package launch
+package opencode
 
 import (
 	"encoding/json"
 	"fmt"
+	launch "github.com/PrizmalAi/prizmal-cli/internal/launcher"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,9 +28,9 @@ type OpenCode struct {
 
 func (o *OpenCode) String() string { return "OpenCode" }
 
-// findOpenCode returns the opencode binary path, checking PATH first then the
+// Find returns the opencode binary path, checking PATH first then the
 // curl installer location (~/.opencode/bin) which may not be on PATH yet.
-func findOpenCode() (string, bool) {
+func Find() (string, bool) {
 	if p, err := exec.LookPath("opencode"); err == nil {
 		return p, true
 	}
@@ -48,8 +49,8 @@ func findOpenCode() (string, bool) {
 	return "", false
 }
 
-func (o *OpenCode) Run(model string, models []LaunchModel, args []string) error {
-	opencodePath, err := ensureOpenCodeInstalled()
+func (o *OpenCode) Run(model string, models []launch.LaunchModel, args []string) error {
+	opencodePath, err := EnsureInstalled()
 	if err != nil {
 		return err
 	}
@@ -74,7 +75,7 @@ func (o *OpenCode) Run(model string, models []LaunchModel, args []string) error 
 // OPENCODE_ENABLE_* search flags: those switch on a websearch tool that calls
 // opencode's hosted search backends directly. Search goes through the Switch
 // instead, via the generated tool wired up here.
-func (o *OpenCode) envVars(model string, models []LaunchModel) []string {
+func (o *OpenCode) envVars(model string, models []launch.LaunchModel) []string {
 	env := filterEnv(os.Environ(), "OPENCODE_CONFIG_DIR=")
 	if content := o.resolveContent(model, models); content != "" {
 		env = append(env, "OPENCODE_CONFIG_CONTENT="+content)
@@ -100,8 +101,8 @@ func (o *OpenCode) envVars(model string, models []LaunchModel) []string {
 	)
 }
 
-func ensureOpenCodeInstalled() (string, error) {
-	if opencodePath, ok := findOpenCode(); ok {
+func EnsureInstalled() (string, error) {
+	if opencodePath, ok := Find(); ok {
 		return opencodePath, nil
 	}
 
@@ -109,7 +110,7 @@ func ensureOpenCodeInstalled() (string, error) {
 		return "", err
 	}
 
-	ok, err := ConfirmPrompt("OpenCode is not installed. Install now?")
+	ok, err := launch.ConfirmPrompt("OpenCode is not installed. Install now?")
 	if err != nil {
 		return "", err
 	}
@@ -131,12 +132,12 @@ func ensureOpenCodeInstalled() (string, error) {
 		return "", fmt.Errorf("failed to install opencode: %w", err)
 	}
 
-	opencodePath, ok := findOpenCode()
+	opencodePath, ok := Find()
 	if !ok {
 		return "", fmt.Errorf("opencode was installed but the binary was not found on PATH\n\nYou may need to restart your shell")
 	}
 
-	fmt.Fprintf(os.Stderr, "%sOpenCode installed successfully%s\n\n", AnsiGreen, AnsiReset)
+	fmt.Fprintf(os.Stderr, "%sOpenCode installed successfully%s\n\n", launch.AnsiGreen, launch.AnsiReset)
 	return opencodePath, nil
 }
 
@@ -175,7 +176,7 @@ func openCodeInstallerCommand(goos string) (string, []string, error) {
 // resolveContent returns the inline config to send via OPENCODE_CONFIG_CONTENT.
 // Returns content built by Edit if available, otherwise builds from model.json
 // with the requested model as primary (e.g. re-launch with saved config).
-func (o *OpenCode) resolveContent(model string, models []LaunchModel) string {
+func (o *OpenCode) resolveContent(model string, models []launch.LaunchModel) string {
 	if o.configContent != "" {
 		return o.configContent
 	}
@@ -190,21 +191,21 @@ func (o *OpenCode) resolveContent(model string, models []LaunchModel) string {
 	return content
 }
 
-func resolveOpenCodeRunModels(primary string, models []LaunchModel, stateModels []string) []LaunchModel {
+func resolveOpenCodeRunModels(primary string, models []launch.LaunchModel, stateModels []string) []launch.LaunchModel {
 	if primary == "" {
 		return nil
 	}
 
-	resolved := make([]LaunchModel, 0, 1+len(models)+len(stateModels))
+	resolved := make([]launch.LaunchModel, 0, 1+len(models)+len(stateModels))
 	appendModel := func(name string) {
 		if name == "" || hasLaunchModel(resolved, name) {
 			return
 		}
-		if model, ok := FindLaunchModel(models, name); ok {
+		if model, ok := launch.FindLaunchModel(models, name); ok {
 			resolved = append(resolved, model)
 			return
 		}
-		resolved = append(resolved, FallbackLaunchModel(name))
+		resolved = append(resolved, launch.FallbackLaunchModel(name))
 	}
 
 	appendModel(primary)
@@ -217,9 +218,9 @@ func resolveOpenCodeRunModels(primary string, models []LaunchModel, stateModels 
 	return resolved
 }
 
-func hasLaunchModel(models []LaunchModel, name string) bool {
+func hasLaunchModel(models []launch.LaunchModel, name string) bool {
 	for _, model := range models {
-		if LaunchModelMatches(model.Name, name) || LaunchModelMatches(name, model.Name) {
+		if launch.LaunchModelMatches(model.Name, name) || launch.LaunchModelMatches(name, model.Name) {
 			return true
 		}
 	}
@@ -248,8 +249,8 @@ func openCodeStatePath() (string, error) {
 	return filepath.Join(home, ".local", "state", "opencode", "model.json"), nil
 }
 
-func (o *OpenCode) Edit(models []LaunchModel) error {
-	modelList := LaunchModelNames(models)
+func (o *OpenCode) Edit(models []launch.LaunchModel) error {
+	modelList := launch.LaunchModelNames(models)
 	if len(modelList) == 0 {
 		return nil
 	}
@@ -333,7 +334,7 @@ func (o *OpenCode) Models() []string {
 
 // buildInlineConfig produces the JSON string for OPENCODE_CONFIG_CONTENT.
 // primary is the model to launch with, models is the full list of available models.
-func buildInlineConfig(primary LaunchModel, models []LaunchModel) (string, error) {
+func buildInlineConfig(primary launch.LaunchModel, models []launch.LaunchModel) (string, error) {
 	if primary.Name == "" || len(models) == 0 {
 		return "", fmt.Errorf("buildInlineConfig: primary and models are required")
 	}
@@ -406,7 +407,7 @@ func isOpenCodeManagedProvider(e map[string]any) bool {
 	return id == "prizmal"
 }
 
-func buildModelEntries(modelList []LaunchModel) map[string]any {
+func buildModelEntries(modelList []launch.LaunchModel) map[string]any {
 	models := make(map[string]any)
 	for _, model := range modelList {
 		entry := map[string]any{
@@ -463,7 +464,7 @@ func buildModelEntries(modelList []LaunchModel) map[string]any {
 // omits input_modalities on some entries, and the fetch is skipped outright
 // for an unauthenticated launch, so unknown is common and must not newly block
 // an attachment: it keeps the permissive list this entry has always declared.
-func openCodeInputModalities(m LaunchModel) []string {
+func openCodeInputModalities(m launch.LaunchModel) []string {
 	if len(m.Capabilities) == 0 {
 		return []string{"text", "image", "pdf"}
 	}
@@ -477,7 +478,7 @@ func openCodeInputModalities(m LaunchModel) []string {
 	return modalities
 }
 
-func openCodeModelSupportsThinkingLevels(model LaunchModel) bool {
+func openCodeModelSupportsThinkingLevels(model launch.LaunchModel) bool {
 	for _, family := range append([]string{model.Details.Family}, model.Details.Families...) {
 		if normalizeOpenCodeModelFamily(family) == "gptoss" {
 			return true

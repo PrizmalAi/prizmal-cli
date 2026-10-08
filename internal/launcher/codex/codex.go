@@ -1,9 +1,10 @@
-package launch
+package codex
 
 import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	launch "github.com/PrizmalAi/prizmal-cli/internal/launcher"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -55,7 +56,7 @@ const (
 	// same reason: the device token lives 10 minutes, and a refresh every 4
 	// leaves at least 6 on the token in hand. Codex's own default of 5
 	// minutes would refresh with only 5 left.
-	codexRefreshIntervalMs = ClaudeHelperTTLMs
+	codexRefreshIntervalMs = launch.ClaudeHelperTTLMs
 
 	codexRootProfileKey          = "profile"
 	codexRootModelKey            = "model"
@@ -82,8 +83,8 @@ func (c *Codex) args(model, modelCatalogPath string, extra []string) ([]string, 
 	return args, nil
 }
 
-func (c *Codex) Run(model string, models []LaunchModel, args []string) error {
-	if err := ensureCodexInstalled(); err != nil {
+func (c *Codex) Run(model string, models []launch.LaunchModel, args []string) error {
+	if err := EnsureInstalled(); err != nil {
 		return err
 	}
 	if err := checkCodexVersion(); err != nil {
@@ -202,7 +203,7 @@ func codexChildEnv() []string {
 	// The helper is a separate prizmal process that resolves the Switch URL from
 	// scratch, so this launch's resolved host is pinned for it.
 	if envconfig.DeviceMode() {
-		env = EnsureHelperBaseURL(env, envconfig.BaseURL())
+		env = launch.EnsureHelperBaseURL(env, envconfig.BaseURL())
 	}
 	return env
 }
@@ -216,15 +217,15 @@ func codexHygieneOverrides() []string {
 		"analytics.enabled=false",
 		"feedback.enabled=false",
 	}
-	if sub := SelectedSubagentModel(); sub != "" {
+	if sub := launch.SelectedSubagentModel(); sub != "" {
 		overrides = append(overrides, fmt.Sprintf("review_model=%q", sub))
 	}
 	return overrides
 }
 
-// ensureCodexInstalled installs Codex with npm when it is missing, after the
+// EnsureInstalled installs Codex with npm when it is missing, after the
 // operator confirms.
-func ensureCodexInstalled() error {
+func EnsureInstalled() error {
 	if _, err := exec.LookPath("codex"); err == nil {
 		return nil
 	}
@@ -232,7 +233,7 @@ func ensureCodexInstalled() error {
 		return fmt.Errorf("codex is not installed and required dependencies are missing\n\nInstall the following first:\n  npm (Node.js): https://nodejs.org/\n\nThen re-run:\n  prizmal codex")
 	}
 
-	ok, err := ConfirmPrompt("Codex is not installed. Install with npm?")
+	ok, err := launch.ConfirmPrompt("Codex is not installed. Install with npm?")
 	if err != nil {
 		return err
 	}
@@ -251,25 +252,25 @@ func ensureCodexInstalled() error {
 	if _, err := exec.LookPath("codex"); err != nil {
 		return fmt.Errorf("codex was installed but the binary was not found on PATH\n\nYou may need to restart your shell")
 	}
-	fmt.Fprintf(os.Stderr, "%sCodex installed successfully%s\n\n", AnsiGreen, AnsiReset)
+	fmt.Fprintf(os.Stderr, "%sCodex installed successfully%s\n\n", launch.AnsiGreen, launch.AnsiReset)
 	return nil
 }
 
-func (c *Codex) Restore() (RestoreOutcome, error) {
+func (c *Codex) Restore() (launch.RestoreOutcome, error) {
 	configPath, err := codexConfigPath()
 	if err != nil {
-		return RestoreOutcome{}, err
+		return launch.RestoreOutcome{}, err
 	}
 
 	profileRemoved, err := removeCodexProfileConfig()
 	if err != nil {
-		return RestoreOutcome{}, codexRestoreFailure(configPath, err)
+		return launch.RestoreOutcome{}, codexRestoreFailure(configPath, err)
 	}
 	catalogRemoved, err := removeCodexModelCatalogIfUnused(configPath)
 	if err != nil {
-		return RestoreOutcome{}, codexRestoreFailure(configPath, err)
+		return launch.RestoreOutcome{}, codexRestoreFailure(configPath, err)
 	}
-	return RestoreOutcome{Removed: profileRemoved || catalogRemoved}, nil
+	return launch.RestoreOutcome{Removed: profileRemoved || catalogRemoved}, nil
 }
 
 func (c *Codex) RestoreSuccessMessage() string {
@@ -402,7 +403,7 @@ func codexConfigOverrideConflicts(value string) bool {
 
 // ensureCodexConfig writes a Codex profile file and model catalog so Codex uses
 // the launch endpoint without changing app-visible root config.
-func ensureCodexConfig(modelName string, models []LaunchModel) error {
+func ensureCodexConfig(modelName string, models []launch.LaunchModel) error {
 	configPath, err := codexConfigPath()
 	if err != nil {
 		return err
@@ -799,22 +800,22 @@ func codexRootLineHasKey(line, key string) bool {
 	return ok
 }
 
-func codexCatalogModel(modelName string, models []LaunchModel) LaunchModel {
-	if model, ok := FindLaunchModel(models, modelName); ok {
+func codexCatalogModel(modelName string, models []launch.LaunchModel) launch.LaunchModel {
+	if model, ok := launch.FindLaunchModel(models, modelName); ok {
 		model.Name = modelName
 		return model.WithCloudLimits()
 	}
-	return FallbackLaunchModel(modelName)
+	return launch.FallbackLaunchModel(modelName)
 }
 
 // codexCatalogModels returns the models Codex's /model picker lists: the
 // launched model first, then the rest of the catalog the launch was handed.
-func codexCatalogModels(modelName string, models []LaunchModel) []LaunchModel {
-	out := []LaunchModel{codexCatalogModel(modelName, models)}
+func codexCatalogModels(modelName string, models []launch.LaunchModel) []launch.LaunchModel {
+	out := []launch.LaunchModel{codexCatalogModel(modelName, models)}
 	for _, m := range models {
 		// The Claude tier aliases are rows for Claude Code's picker. A folded
 		// model is shown by its tier alias there, so Codex gets the model.
-		if LaunchModelMatches(m.Name, modelName) || isClaudeTierModel(m.Name) || IsReservedModelName(m.Name) {
+		if launch.LaunchModelMatches(m.Name, modelName) || isClaudeTierModel(m.Name) || launch.IsReservedModelName(m.Name) {
 			continue
 		}
 		out = append(out, m.WithCloudLimits())
@@ -823,7 +824,7 @@ func codexCatalogModels(modelName string, models []LaunchModel) []LaunchModel {
 }
 
 func isClaudeTierModel(name string) bool {
-	return slices.ContainsFunc(TierWords, func(t ModelTier) bool { return name == ClaudeTierModel(t) })
+	return slices.ContainsFunc(launch.TierWords, func(t launch.ModelTier) bool { return name == launch.ClaudeTierModel(t) })
 }
 
 // ShowsModelList reports that a launch hands Codex the whole catalog, because
@@ -841,7 +842,7 @@ var codexReasoningLevels = []any{
 // writeCodexModelCatalog writes one entry per model. The first model is the
 // launch's own: it gets the lowest priority number, which Codex sorts first
 // and offers as the default.
-func writeCodexModelCatalog(catalogPath string, models []LaunchModel) error {
+func writeCodexModelCatalog(catalogPath string, models []launch.LaunchModel) error {
 	prompt, err := readCodexSystemPrompt()
 	if err != nil {
 		return err
@@ -913,7 +914,7 @@ func readCodexSystemPrompt() (codexSystemPrompt, error) {
 	return codexSystemPrompt{baseInstructions: m.BaseInstructions, modelMessages: m.ModelMessages}, nil
 }
 
-func buildCodexModelEntry(launchModel LaunchModel) map[string]any {
+func buildCodexModelEntry(launchModel launch.LaunchModel) map[string]any {
 	modelName := launchModel.Name
 
 	// The declared window is the fallback unless the operator states the real

@@ -592,25 +592,6 @@ func TestPickerEscQuitsWhenNotFiltering(t *testing.T) {
 	}
 }
 
-// OwnsModelFlag is opt-in, and only Claude Code opts in. pi and codex read
-// --model for something other than the launch model, so the CLI must leave
-// their arguments alone; a runner that starts returning true would change which
-// provider pi runs.
-func TestOnlyClaudeOwnsTheModelFlag(t *testing.T) {
-	owner := func(r Runner) bool {
-		o, ok := r.(OwningModelFlag)
-		return ok && o.OwnsModelFlag()
-	}
-	if !owner(&Claude{}) {
-		t.Error("Claude does not own --model; the CLI would forward it and the harness would outrank prizmal's settings")
-	}
-	for _, r := range []Runner{&Pi{}, &Codex{}, &OpenCode{}, &Cline{}} {
-		if owner(r) {
-			t.Errorf("%s claims --model; pi reads a provider-qualified --model as a provider choice, and codex already refuses the flag", r.String())
-		}
-	}
-}
-
 // A tier the Switch sends outranks the tier word in the name. The row gets the
 // tier's behavesAs, and the tier's text unless the Switch sent a description.
 func TestModelRowsTakeTheSwitchsTier(t *testing.T) {

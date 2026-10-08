@@ -1,8 +1,10 @@
-package launch
+package claude
 
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/PrizmalAi/prizmal-cli/internal/internaltest"
+	launch "github.com/PrizmalAi/prizmal-cli/internal/launcher"
 	"os"
 	"path/filepath"
 	"slices"
@@ -19,16 +21,6 @@ func resetAPIKey(t *testing.T) {
 	t.Helper()
 	envconfig.SetAPIKey("")
 	t.Setenv(envconfig.KeyEnvVar, "")
-}
-
-// envValue returns the value of the var named after "prefix=" in env, or "".
-func envValue(env []string, prefix string) string {
-	for _, kv := range env {
-		if v, ok := strings.CutPrefix(kv, prefix); ok {
-			return v
-		}
-	}
-	return ""
 }
 
 // envNames returns every variable name in an environment.
@@ -48,13 +40,13 @@ func TestClaudeEnvVarsCarryAPIKey(t *testing.T) {
 
 	env := (&Claude{}).envVars()
 
-	if got := envValue(env, "ANTHROPIC_AUTH_TOKEN="); got != "sk-test-key" {
+	if got := internaltest.EnvValue(env, "ANTHROPIC_AUTH_TOKEN="); got != "sk-test-key" {
 		t.Fatalf("ANTHROPIC_AUTH_TOKEN = %q, want sk-test-key", got)
 	}
 	// The console-key variable is emptied rather than set: with both set,
 	// Claude Code warns that auth may not work, and an inherited shell
 	// export would otherwise ride along as an x-api-key header.
-	if got := envValue(env, "ANTHROPIC_API_KEY="); got != "" {
+	if got := internaltest.EnvValue(env, "ANTHROPIC_API_KEY="); got != "" {
 		t.Fatalf("ANTHROPIC_API_KEY = %q, want empty", got)
 	}
 	if !strings.Contains(strings.Join(env, "\n"), "ANTHROPIC_API_KEY=") {
@@ -67,10 +59,10 @@ func TestClaudeEnvVarsEmptyAPIKeyIsVerbatimEmpty(t *testing.T) {
 
 	env := (&Claude{}).envVars()
 
-	if got := envValue(env, "ANTHROPIC_API_KEY="); got != "" {
+	if got := internaltest.EnvValue(env, "ANTHROPIC_API_KEY="); got != "" {
 		t.Fatalf("ANTHROPIC_API_KEY = %q, want empty", got)
 	}
-	if got := envValue(env, "ANTHROPIC_AUTH_TOKEN="); got != "" {
+	if got := internaltest.EnvValue(env, "ANTHROPIC_AUTH_TOKEN="); got != "" {
 		t.Fatalf("ANTHROPIC_AUTH_TOKEN = %q, want empty", got)
 	}
 
@@ -94,7 +86,7 @@ func TestClaudeEnvVarsEnableToolSearch(t *testing.T) {
 
 	env := (&Claude{}).envVars()
 
-	if got := envValue(env, "ENABLE_TOOL_SEARCH="); got != "true" {
+	if got := internaltest.EnvValue(env, "ENABLE_TOOL_SEARCH="); got != "true" {
 		t.Fatalf("ENABLE_TOOL_SEARCH = %q, want true", got)
 	}
 }
@@ -116,7 +108,7 @@ func TestClaudeEnvVarsDisableClaudeAiConnectors(t *testing.T) {
 
 	env := (&Claude{}).envVars()
 
-	if got := envValue(env, "ENABLE_CLAUDEAI_MCP_SERVERS="); got != "false" {
+	if got := internaltest.EnvValue(env, "ENABLE_CLAUDEAI_MCP_SERVERS="); got != "false" {
 		t.Fatalf("ENABLE_CLAUDEAI_MCP_SERVERS = %q, want false", got)
 	}
 }
@@ -198,7 +190,7 @@ func TestClaudeChildEnvAuthTokenIsTheLaunchValueNotTheInheritedOne(t *testing.T)
 
 	env := claudeChildEnv("", nil)
 
-	if got := envValue(env, "ANTHROPIC_AUTH_TOKEN="); got != "sk-launch-key" {
+	if got := internaltest.EnvValue(env, "ANTHROPIC_AUTH_TOKEN="); got != "sk-launch-key" {
 		t.Fatalf("ANTHROPIC_AUTH_TOKEN = %q, want the launch key, never the inherited one", got)
 	}
 }
@@ -226,11 +218,11 @@ func TestClaudeChildEnvDeviceModeHasNoAuthToken(t *testing.T) {
 	if strings.Contains(strings.Join(env, "\n"), "ANTHROPIC_AUTH_TOKEN=") {
 		t.Fatalf("ANTHROPIC_AUTH_TOKEN is present in device mode:\n%v", env)
 	}
-	if got := envValue(env, "ANTHROPIC_API_KEY="); got != "" {
+	if got := internaltest.EnvValue(env, "ANTHROPIC_API_KEY="); got != "" {
 		t.Fatalf("ANTHROPIC_API_KEY = %q, want empty in device mode", got)
 	}
-	if got := envValue(env, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS="); got != strconv.Itoa(ClaudeHelperTTLMs) {
-		t.Fatalf("CLAUDE_CODE_API_KEY_HELPER_TTL_MS = %q, want %d", got, ClaudeHelperTTLMs)
+	if got := internaltest.EnvValue(env, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS="); got != strconv.Itoa(launch.ClaudeHelperTTLMs) {
+		t.Fatalf("CLAUDE_CODE_API_KEY_HELPER_TTL_MS = %q, want %d", got, launch.ClaudeHelperTTLMs)
 	}
 }
 
@@ -311,7 +303,7 @@ func TestClaudeChildEnvKeepsOneEntryPerName(t *testing.T) {
 	if count != 2 {
 		t.Fatalf("expected ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN exactly once each, got %d entries: %v", count, envNames(env))
 	}
-	if got := envValue(env, "ANTHROPIC_BASE_URL="); got != "https://switch.example.test" {
+	if got := internaltest.EnvValue(env, "ANTHROPIC_BASE_URL="); got != "https://switch.example.test" {
 		t.Fatalf("ANTHROPIC_BASE_URL = %q, want the launch value to win over the inherited one", got)
 	}
 }
@@ -320,8 +312,8 @@ func TestClaudeChildEnvKeepsOneEntryPerName(t *testing.T) {
 // picked, and omitted otherwise so subagents inherit the session model.
 func TestClaudeChildEnvSetsSubagentModelOnlyWhenPicked(t *testing.T) {
 	resetAPIKey(t)
-	SetSubagentModel("")
-	t.Cleanup(func() { SetSubagentModel("") })
+	launch.SetSubagentModel("")
+	t.Cleanup(func() { launch.SetSubagentModel("") })
 
 	if env := claudeChildEnv("", nil); strings.Contains(strings.Join(env, "\n"), "CLAUDE_CODE_SUBAGENT_MODEL=") {
 		t.Fatalf("CLAUDE_CODE_SUBAGENT_MODEL is set with no subagent model picked:\n%v", env)
@@ -329,9 +321,9 @@ func TestClaudeChildEnvSetsSubagentModelOnlyWhenPicked(t *testing.T) {
 
 	// Subagents produce most of the token traffic, so this variable is the one
 	// channel that lets them run something cheaper than the parent.
-	SetSubagentModel("cheap-model")
+	launch.SetSubagentModel("cheap-model")
 	env := claudeChildEnv("", nil)
-	if got := envValue(env, "CLAUDE_CODE_SUBAGENT_MODEL="); got != "cheap-model[1m]" {
+	if got := internaltest.EnvValue(env, "CLAUDE_CODE_SUBAGENT_MODEL="); got != "cheap-model[1m]" {
 		t.Fatalf("CLAUDE_CODE_SUBAGENT_MODEL = %q, want cheap-model[1m]", got)
 	}
 }
@@ -345,7 +337,7 @@ func TestClaudeChildEnvSetsOpusModelToPinnedModel(t *testing.T) {
 	t.Setenv("ANTHROPIC_DEFAULT_OPUS_MODEL", "inherited-should-not-survive")
 
 	env := claudeChildEnv("smart", nil)
-	if got := envValue(env, "ANTHROPIC_DEFAULT_OPUS_MODEL="); got != "smart[1m]" {
+	if got := internaltest.EnvValue(env, "ANTHROPIC_DEFAULT_OPUS_MODEL="); got != "smart[1m]" {
 		t.Fatalf("ANTHROPIC_DEFAULT_OPUS_MODEL = %q, want smart[1m]", got)
 	}
 	count := 0
@@ -389,7 +381,7 @@ func TestClaudeEnvVarsBaseURLDropsTrailingV1(t *testing.T) {
 
 	env := (&Claude{}).envVars()
 
-	if got := envValue(env, "ANTHROPIC_BASE_URL="); got != "https://switch.example.com" {
+	if got := internaltest.EnvValue(env, "ANTHROPIC_BASE_URL="); got != "https://switch.example.com" {
 		t.Fatalf("ANTHROPIC_BASE_URL = %q, want https://switch.example.com", got)
 	}
 }
@@ -425,7 +417,7 @@ func TestClaudeModelNameCarriesItsTiersSuffix(t *testing.T) {
 // outranks it. Both carry the same [1m] spelling, so whichever one Claude Code
 // resolves the model from, the 1M window holds.
 func TestClaudeArgsCarryInlineSettings(t *testing.T) {
-	settings, err := claudeSettingsJSON("some-model", []ModelRow{{Label: "some-model", Model: "some-model"}})
+	settings, err := claudeSettingsJSON("some-model", []launch.ModelRow{{Label: "some-model", Model: "some-model"}})
 	if err != nil {
 		t.Fatalf("claudeSettingsJSON: %v", err)
 	}
@@ -522,7 +514,7 @@ func TestClaudeArgsDoNotMutateTheCallersSlice(t *testing.T) {
 // The settings JSON carries the pinned model, the tier remaps, and the picker
 // rows, with the model's [1m] suffix applied and the rows' labels bare.
 func TestClaudeSettingsJSONShape(t *testing.T) {
-	rows := ModelRows([]LaunchModel{{Name: "claude-tier-haiku"}, {Name: "claude-tier-sonnet"}})
+	rows := launch.ModelRows([]launch.LaunchModel{{Name: "claude-tier-haiku"}, {Name: "claude-tier-sonnet"}})
 	settings, err := claudeSettingsJSON("claude-tier-haiku", rows)
 	if err != nil {
 		t.Fatalf("claudeSettingsJSON: %v", err)
@@ -667,8 +659,8 @@ func TestClaudeModelOverridesNameEachTiersProfileFirst(t *testing.T) {
 		}
 	}
 
-	for tier, profile := range TierProfiles {
-		alias := claudeModelName(ClaudeTierModel(tier))
+	for tier, profile := range launch.TierProfiles {
+		alias := claudeModelName(launch.ClaudeTierModel(tier))
 		if !profileInLineage(tier) {
 			// The session on this alias must miss the overrides, so that
 			// Claude Code reads the row's behavesAs instead.
@@ -715,11 +707,11 @@ func TestClaudeModelOverridesCarryTheirTiersSuffix(t *testing.T) {
 	overrides := claudeModelOverrides()
 
 	for key, value := range overrides {
-		if !strings.HasSuffix(value, OneMillionSuffix) {
-			t.Errorf("modelOverrides[%q] = %q, want it to end in %s", key, value, OneMillionSuffix)
+		if !strings.HasSuffix(value, launch.OneMillionSuffix) {
+			t.Errorf("modelOverrides[%q] = %q, want it to end in %s", key, value, launch.OneMillionSuffix)
 		}
-		if strings.Count(value, OneMillionSuffix) != 1 {
-			t.Errorf("modelOverrides[%q] = %q, want exactly one %s", key, value, OneMillionSuffix)
+		if strings.Count(value, launch.OneMillionSuffix) != 1 {
+			t.Errorf("modelOverrides[%q] = %q, want exactly one %s", key, value, launch.OneMillionSuffix)
 		}
 	}
 }
@@ -741,7 +733,7 @@ func TestClaudeModelOverridesCarryNoHaikuKey(t *testing.T) {
 // applies to the row, and it is never the id the row sends. Two rows with
 // different profiles still carry their own model ids, which are what route.
 func TestClaudeSettingsRowModelsAreNotTheirProfiles(t *testing.T) {
-	rows := ModelRows([]LaunchModel{{Name: "claude-tier-opus"}, {Name: "cheap-model"}})
+	rows := launch.ModelRows([]launch.LaunchModel{{Name: "claude-tier-opus"}, {Name: "cheap-model"}})
 	settings, err := claudeSettingsJSON("cheap-model", rows)
 	if err != nil {
 		t.Fatalf("claudeSettingsJSON: %v", err)
@@ -770,7 +762,7 @@ func TestClaudeSettingsRowModelsAreNotTheirProfiles(t *testing.T) {
 		t.Fatalf("picker options = %d, want %d: %s", len(got.ModelPicker.Options), len(want), settings)
 	}
 	for _, option := range got.ModelPicker.Options {
-		model := strings.TrimSuffix(option.Model, OneMillionSuffix)
+		model := strings.TrimSuffix(option.Model, launch.OneMillionSuffix)
 		tier, ok := want[model]
 		if !ok {
 			t.Errorf("row sends model %q, which is not one of the catalog's ids", option.Model)
@@ -789,7 +781,7 @@ func TestClaudeSettingsRowModelsAreNotTheirProfiles(t *testing.T) {
 // A row with no inferred tier carries no behavesAs field at all, rather than an
 // empty string the harness would have to interpret.
 func TestClaudeSettingsRowsOmitAnUnknownTier(t *testing.T) {
-	settings, err := claudeSettingsJSON("gpt-oss:20b", []ModelRow{{Label: "gpt-oss:20b", Model: "gpt-oss:20b"}})
+	settings, err := claudeSettingsJSON("gpt-oss:20b", []launch.ModelRow{{Label: "gpt-oss:20b", Model: "gpt-oss:20b"}})
 	if err != nil {
 		t.Fatalf("claudeSettingsJSON: %v", err)
 	}
@@ -816,7 +808,7 @@ func TestClaudeLaunchWritesNoSettingsFile(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	if _, err := claudeSettingsJSON("some-model", []ModelRow{{Label: "some-model", Model: "some-model"}}); err != nil {
+	if _, err := claudeSettingsJSON("some-model", []launch.ModelRow{{Label: "some-model", Model: "some-model"}}); err != nil {
 		t.Fatalf("claudeSettingsJSON: %v", err)
 	}
 
@@ -834,9 +826,9 @@ func TestClaudeChildEnvPassesCapabilitiesThrough(t *testing.T) {
 	const inherited = "my-model=effort"
 	t.Setenv("CLAUDE_CODE_MODEL_CAPABILITIES", inherited)
 
-	env := claudeChildEnv("claude-row-a", []ModelRow{{Label: "a", Model: "claude-row-a"}})
+	env := claudeChildEnv("claude-row-a", []launch.ModelRow{{Label: "a", Model: "claude-row-a"}})
 
-	if got := envValue(env, "CLAUDE_CODE_MODEL_CAPABILITIES="); got != inherited {
+	if got := internaltest.EnvValue(env, "CLAUDE_CODE_MODEL_CAPABILITIES="); got != inherited {
 		t.Fatalf("CLAUDE_CODE_MODEL_CAPABILITIES = %q, want %q", got, inherited)
 	}
 }
@@ -844,7 +836,7 @@ func TestClaudeChildEnvPassesCapabilitiesThrough(t *testing.T) {
 // A row the Switch tags haiku carries [1m], like every other tier. The Switch
 // serves every tier with a 1M window.
 func TestClaudeModelPickerGivesAHaikuTaggedRowTheSuffix(t *testing.T) {
-	picker := claudeModelPicker(ModelRows([]LaunchModel{{Name: "smart", Tier: "haiku"}, {Name: "flash", Tier: "opus"}}))
+	picker := claudeModelPicker(launch.ModelRows([]launch.LaunchModel{{Name: "smart", Tier: "haiku"}, {Name: "flash", Tier: "opus"}}))
 	options := picker["options"].([]any)
 	if got := options[0].(map[string]any)["model"]; got != "smart[1m]" {
 		t.Errorf("haiku-tagged row model = %v, want smart[1m]", got)
@@ -856,7 +848,7 @@ func TestClaudeModelPickerGivesAHaikuTaggedRowTheSuffix(t *testing.T) {
 
 // The Switch's tier decides a row's window, whatever its name says.
 func TestClaudeRowTakesItsWindowFromTheSwitchsTier(t *testing.T) {
-	rows := ModelRows([]LaunchModel{{Name: "team-haiku-blend", Tier: "opus"}})
+	rows := launch.ModelRows([]launch.LaunchModel{{Name: "team-haiku-blend", Tier: "opus"}})
 	if got := claudeRowModelName(rows[0]); got != "team-haiku-blend[1m]" {
 		t.Fatalf("opus-tagged row named haiku = %q, want team-haiku-blend[1m]", got)
 	}
@@ -867,7 +859,7 @@ func TestClaudeRowTakesItsWindowFromTheSwitchsTier(t *testing.T) {
 // --model flag, and the Opus-tier variable, or Claude Code runs a model no
 // row matches.
 func TestClaudeLaunchSpellsATieredConfigAsItsRow(t *testing.T) {
-	rows := ModelRows([]LaunchModel{{Name: "flash", Tier: "haiku"}})
+	rows := launch.ModelRows([]launch.LaunchModel{{Name: "flash", Tier: "haiku"}})
 	named := claudeLaunchModelName("flash", rows)
 	if named != "flash[1m]" {
 		t.Fatalf("launch name = %q, want flash[1m]", named)
@@ -895,15 +887,15 @@ func TestClaudeLaunchSpellsATieredConfigAsItsRow(t *testing.T) {
 func TestEnsureHelperBaseURLPinsTheResolvedHost(t *testing.T) {
 	env := []string{"PATH=/usr/bin", "ANTHROPIC_BASE_URL=https://api.staging.prizmal.ai"}
 
-	got := EnsureHelperBaseURL(env, "https://api.staging.prizmal.ai")
-	if v := envValue(got, envconfig.EnvVar+"="); v != "https://api.staging.prizmal.ai" {
+	got := launch.EnsureHelperBaseURL(env, "https://api.staging.prizmal.ai")
+	if v := internaltest.EnvValue(got, envconfig.EnvVar+"="); v != "https://api.staging.prizmal.ai" {
 		t.Fatalf("%s = %q, want the resolved host pinned for the helper", envconfig.EnvVar, v)
 	}
 
 	// An operator's own exported URL is already the host the child resolves, so
 	// the pin does not add a second entry.
 	withEnv := append([]string{envconfig.EnvVar + "=https://operator.example.test"}, env...)
-	got2 := EnsureHelperBaseURL(withEnv, "https://api.staging.prizmal.ai")
+	got2 := launch.EnsureHelperBaseURL(withEnv, "https://api.staging.prizmal.ai")
 	count := 0
 	for _, name := range envNames(got2) {
 		if name == envconfig.EnvVar {
@@ -930,7 +922,7 @@ func TestClaudeChildEnvNeverInheritsAnthropicAuthTokenOutsideDeviceMode(t *testi
 	// With an explicit switch key, the child carries it, never the inherited one.
 	envconfig.SetAPIKey("sk-explicit")
 	t.Cleanup(func() { envconfig.SetAPIKey("") })
-	if got := envValue(claudeChildEnv("", nil), "ANTHROPIC_AUTH_TOKEN="); got != "sk-explicit" {
+	if got := internaltest.EnvValue(claudeChildEnv("", nil), "ANTHROPIC_AUTH_TOKEN="); got != "sk-explicit" {
 		t.Fatalf("ANTHROPIC_AUTH_TOKEN = %q, want the explicit key, never the inherited one", got)
 	}
 
@@ -938,7 +930,7 @@ func TestClaudeChildEnvNeverInheritsAnthropicAuthTokenOutsideDeviceMode(t *testi
 	// before device mode: prizmal reads its key from $PRIZMAL_SWITCH_KEY, the
 	// flag, or the config file, never from ANTHROPIC_AUTH_TOKEN.
 	envconfig.SetAPIKey("")
-	if got := envValue(claudeChildEnv("", nil), "ANTHROPIC_AUTH_TOKEN="); got != "" {
+	if got := internaltest.EnvValue(claudeChildEnv("", nil), "ANTHROPIC_AUTH_TOKEN="); got != "" {
 		t.Fatalf("ANTHROPIC_AUTH_TOKEN = %q, want empty when no prizmal key is configured", got)
 	}
 }

@@ -1,7 +1,13 @@
-package launch
+package registry
 
 import (
 	"fmt"
+	launch "github.com/PrizmalAi/prizmal-cli/internal/launcher"
+	"github.com/PrizmalAi/prizmal-cli/internal/launcher/claude"
+	"github.com/PrizmalAi/prizmal-cli/internal/launcher/cline"
+	"github.com/PrizmalAi/prizmal-cli/internal/launcher/codex"
+	"github.com/PrizmalAi/prizmal-cli/internal/launcher/opencode"
+	"github.com/PrizmalAi/prizmal-cli/internal/launcher/pi"
 	"os"
 	"os/exec"
 	"slices"
@@ -19,7 +25,7 @@ type IntegrationInstallSpec struct {
 // IntegrationSpec is the canonical registry entry for one integration.
 type IntegrationSpec struct {
 	Name        string
-	Runner      Runner
+	Runner      launch.Runner
 	Aliases     []string
 	Hidden      bool
 	Description string
@@ -38,15 +44,15 @@ var launcherIntegrationOrder = []string{"claude", "codex", "cline", "opencode", 
 var integrationSpecs = []*IntegrationSpec{
 	{
 		Name:        "claude",
-		Runner:      &Claude{},
+		Runner:      &claude.Claude{},
 		Description: "Anthropic's coding tool with subagents",
 		Install: IntegrationInstallSpec{
 			CheckInstalled: func() bool {
-				_, err := (&Claude{}).findPath()
+				_, err := (&claude.Claude{}).FindPath()
 				return err == nil
 			},
 			EnsureInstalled: func() error {
-				_, err := ensureClaudeInstalled()
+				_, err := claude.EnsureInstalled()
 				return err
 			},
 			URL: "https://code.claude.com/docs/en/quickstart",
@@ -54,7 +60,7 @@ var integrationSpecs = []*IntegrationSpec{
 	},
 	{
 		Name:        "cline",
-		Runner:      &Cline{},
+		Runner:      &cline.Cline{},
 		Description: "Autonomous coding agent with parallel execution",
 		Install: IntegrationInstallSpec{
 			CheckInstalled: func() bool {
@@ -62,7 +68,7 @@ var integrationSpecs = []*IntegrationSpec{
 				return err == nil
 			},
 			EnsureInstalled: func() error {
-				_, err := ensureClineInstalled()
+				_, err := cline.EnsureInstalled()
 				return err
 			},
 			Command: []string{"npm", "install", "-g", "cline@latest"},
@@ -70,29 +76,29 @@ var integrationSpecs = []*IntegrationSpec{
 	},
 	{
 		Name:        "codex",
-		Runner:      &Codex{},
+		Runner:      &codex.Codex{},
 		Description: "OpenAI's open-source coding agent",
 		Install: IntegrationInstallSpec{
 			CheckInstalled: func() bool {
 				_, err := exec.LookPath("codex")
 				return err == nil
 			},
-			EnsureInstalled: ensureCodexInstalled,
+			EnsureInstalled: codex.EnsureInstalled,
 			URL:             "https://developers.openai.com/codex/cli/",
 			Command:         []string{"npm", "install", "-g", "@openai/codex"},
 		},
 	},
 	{
 		Name:        "opencode",
-		Runner:      &OpenCode{},
+		Runner:      &opencode.OpenCode{},
 		Description: "Anomaly's open-source coding agent",
 		Install: IntegrationInstallSpec{
 			CheckInstalled: func() bool {
-				_, ok := findOpenCode()
+				_, ok := opencode.Find()
 				return ok
 			},
 			EnsureInstalled: func() error {
-				_, err := ensureOpenCodeInstalled()
+				_, err := opencode.EnsureInstalled()
 				return err
 			},
 			URL: "https://opencode.ai",
@@ -100,7 +106,7 @@ var integrationSpecs = []*IntegrationSpec{
 	},
 	{
 		Name:        "pi",
-		Runner:      &Pi{},
+		Runner:      &pi.Pi{},
 		Description: "Minimal AI agent toolkit with plugin support",
 		Install: IntegrationInstallSpec{
 			CheckInstalled: func() bool {
@@ -108,7 +114,7 @@ var integrationSpecs = []*IntegrationSpec{
 				return err == nil
 			},
 			EnsureInstalled: func() error {
-				_, err := ensurePiInstalled()
+				_, err := pi.EnsureInstalled()
 				return err
 			},
 			Command: []string{"npm", "install", "-g", "@earendil-works/pi-coding-agent@latest"},
@@ -202,7 +208,7 @@ func LookupIntegrationSpec(name string) (*IntegrationSpec, error) {
 }
 
 // LookupIntegration resolves a registry name to the canonical key and runner.
-func LookupIntegration(name string) (string, Runner, error) {
+func LookupIntegration(name string) (string, launch.Runner, error) {
 	spec, err := LookupIntegrationSpec(name)
 	if err != nil {
 		return "", nil, err
@@ -217,7 +223,7 @@ func ListVisibleIntegrationSpecs() []IntegrationSpec {
 		if spec.Hidden {
 			continue
 		}
-		if supported, ok := spec.Runner.(SupportedIntegration); ok && supported.Supported() != nil {
+		if supported, ok := spec.Runner.(launch.SupportedIntegration); ok && supported.Supported() != nil {
 			continue
 		}
 		visible = append(visible, *spec)
@@ -292,7 +298,7 @@ func integrationFor(name string) (integration, error) {
 		installed = spec.Install.CheckInstalled()
 	}
 
-	_, editor := spec.Runner.(Editor)
+	_, editor := spec.Runner.(launch.Editor)
 	hint := ""
 	if spec.Install.URL != "" {
 		hint = "Install from " + hyperlink(spec.Install.URL, spec.Install.URL)
@@ -310,13 +316,13 @@ func integrationFor(name string) (integration, error) {
 }
 
 // EnsureIntegrationInstalled installs auto-installable integrations when missing.
-func EnsureIntegrationInstalled(name string, runner Runner) error {
+func EnsureIntegrationInstalled(name string, runner launch.Runner) error {
 	integration, err := integrationFor(name)
 	if err != nil {
 		return fmt.Errorf("%s is not installed", runner)
 	}
 
-	if supported, ok := runner.(SupportedIntegration); ok {
+	if supported, ok := runner.(launch.SupportedIntegration); ok {
 		if err := supported.Supported(); err != nil {
 			return err
 		}

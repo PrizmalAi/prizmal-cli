@@ -1,8 +1,9 @@
-package launch
+package cline
 
 import (
 	"encoding/json"
 	"fmt"
+	launch "github.com/PrizmalAi/prizmal-cli/internal/launcher"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,8 +32,8 @@ type Cline struct{}
 
 func (c *Cline) String() string { return "Cline" }
 
-func (c *Cline) Run(model string, _ []LaunchModel, args []string) error {
-	bin, err := ensureClineInstalled()
+func (c *Cline) Run(model string, _ []launch.LaunchModel, args []string) error {
+	bin, err := EnsureInstalled()
 	if err != nil {
 		return err
 	}
@@ -53,7 +54,7 @@ func (c *Cline) envVars() []string {
 	return []string{"OPENAI_API_KEY=" + envconfig.APIKey()}
 }
 
-func ensureClineInstalled() (string, error) {
+func EnsureInstalled() (string, error) {
 	if _, err := exec.LookPath("cline"); err == nil {
 		return "cline", nil
 	}
@@ -62,7 +63,7 @@ func ensureClineInstalled() (string, error) {
 		return "", fmt.Errorf("cline is not installed and required dependencies are missing\n\nInstall the following first:\n  npm (Node.js): https://nodejs.org/\n\nThen re-run:\n  prizmal cline")
 	}
 
-	ok, err := ConfirmPrompt("Cline is not installed. Install with npm?")
+	ok, err := launch.ConfirmPrompt("Cline is not installed. Install with npm?")
 	if err != nil {
 		return "", err
 	}
@@ -83,7 +84,7 @@ func ensureClineInstalled() (string, error) {
 		return "", fmt.Errorf("cline was installed but the binary was not found on PATH\n\nYou may need to restart your shell")
 	}
 
-	fmt.Fprintf(os.Stderr, "%sCline installed successfully%s\n\n", AnsiGreen, AnsiReset)
+	fmt.Fprintf(os.Stderr, "%sCline installed successfully%s\n\n", launch.AnsiGreen, launch.AnsiReset)
 	return "cline", nil
 }
 
@@ -109,7 +110,7 @@ func (c *Cline) Paths() []string {
 	return paths
 }
 
-func (c *Cline) Edit(models []LaunchModel) error {
+func (c *Cline) Edit(models []launch.LaunchModel) error {
 	if len(models) == 0 {
 		return nil
 	}
@@ -317,34 +318,34 @@ const clineRestoreSuccess = "Cline launch configuration removed."
 // reason Pi.Restore does: that helper copies the file it is about to overwrite
 // into ~/.prizmal/backup, which would deposit the key being removed one
 // directory over.
-func (c *Cline) Restore() (RestoreOutcome, error) {
+func (c *Cline) Restore() (launch.RestoreOutcome, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return RestoreOutcome{}, err
+		return launch.RestoreOutcome{}, err
 	}
 
 	providers, err := clineRestoreProviders(clineProvidersPath(home))
 	if err != nil {
-		return RestoreOutcome{}, err
+		return launch.RestoreOutcome{}, err
 	}
 	state, err := clineRestoreLegacyGlobalState(clineLegacyGlobalStatePath(home))
 	if err != nil {
-		return RestoreOutcome{}, err
+		return launch.RestoreOutcome{}, err
 	}
-	return providers.join(state), nil
+	return providers.Join(state), nil
 }
 
 func (c *Cline) RestoreSuccessMessage() string { return clineRestoreSuccess }
 
-func clineRestoreProviders(configPath string) (RestoreOutcome, error) {
+func clineRestoreProviders(configPath string) (launch.RestoreOutcome, error) {
 	config, err := clineReadExistingConfig(configPath)
 	if err != nil || config == nil {
-		return RestoreOutcome{}, err
+		return launch.RestoreOutcome{}, err
 	}
 
 	providers, _ := config["providers"].(map[string]any)
 	if providers == nil {
-		return RestoreOutcome{}, nil
+		return launch.RestoreOutcome{}, nil
 	}
 
 	changed := false
@@ -376,19 +377,19 @@ func clineRestoreProviders(configPath string) (RestoreOutcome, error) {
 	var put []string
 	if lastUsed, _ := config["lastUsedProvider"].(string); removed[lastUsed] {
 		delete(config, "lastUsedProvider")
-		previous := PreLaunchCopy("cline", "providers.json", clineProvidersPointAtPrizmal)
-		put = Reinstate(config, previous, "lastUsedProvider")
+		previous := launch.PreLaunchCopy("cline", "providers.json", clineProvidersPointAtPrizmal)
+		put = launch.Reinstate(config, previous, "lastUsedProvider")
 		changed = true
 	}
 
 	if !changed {
-		return RestoreOutcome{}, nil
+		return launch.RestoreOutcome{}, nil
 	}
 	config["providers"] = providers
 	if err := clineWriteJSONFile(configPath, config); err != nil {
-		return RestoreOutcome{}, err
+		return launch.RestoreOutcome{}, err
 	}
-	return RestoreOutcome{Removed: true, Reinstated: put}, nil
+	return launch.RestoreOutcome{Removed: true, Reinstated: put}, nil
 }
 
 // clineProvidersPointAtPrizmal reports whether a providers.json selects an
@@ -447,10 +448,10 @@ func clinePrizmalShapedEntry(entry map[string]any) bool {
 // points cline at an endpoint whose credential has just been removed, so
 // with no pre-launch copy left they are cleared. welcomeViewCompleted stays:
 // it is the user's own onboarding state, not a route to prizmal.
-func clineRestoreLegacyGlobalState(configPath string) (RestoreOutcome, error) {
+func clineRestoreLegacyGlobalState(configPath string) (launch.RestoreOutcome, error) {
 	config, err := clineReadExistingConfig(configPath)
 	if err != nil || config == nil {
-		return RestoreOutcome{}, err
+		return launch.RestoreOutcome{}, err
 	}
 
 	host := clineProviderHost()
@@ -472,15 +473,15 @@ func clineRestoreLegacyGlobalState(configPath string) (RestoreOutcome, error) {
 	}
 
 	if len(cleared) == 0 {
-		return RestoreOutcome{}, nil
+		return launch.RestoreOutcome{}, nil
 	}
-	previous := PreLaunchCopy("cline", "globalState.json", clineGlobalStatePointsAtPrizmal)
-	put := Reinstate(config, previous, cleared...)
+	previous := launch.PreLaunchCopy("cline", "globalState.json", clineGlobalStatePointsAtPrizmal)
+	put := launch.Reinstate(config, previous, cleared...)
 
 	if err := clineWriteJSONFile(configPath, config); err != nil {
-		return RestoreOutcome{}, err
+		return launch.RestoreOutcome{}, err
 	}
-	return RestoreOutcome{Removed: true, Reinstated: put}, nil
+	return launch.RestoreOutcome{Removed: true, Reinstated: put}, nil
 }
 
 var clineModes = []string{"actMode", "planMode"}
@@ -524,9 +525,9 @@ func clineManagedBaseURL(value any, host string) bool {
 // clineReadExistingConfig returns nil, nil when the file is absent — there is
 // nothing to restore — and an error only when it exists but cannot be used.
 func clineReadExistingConfig(configPath string) (map[string]any, error) {
-	return ReadJSONFile(configPath)
+	return launch.ReadJSONFile(configPath)
 }
 
 func clineWriteJSONFile(configPath string, config map[string]any) error {
-	return WriteJSONFile0600(configPath, config)
+	return launch.WriteJSONFile0600(configPath, config)
 }

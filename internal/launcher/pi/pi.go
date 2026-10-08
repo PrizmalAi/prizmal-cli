@@ -1,8 +1,9 @@
-package launch
+package pi
 
 import (
 	"encoding/json"
 	"fmt"
+	launch "github.com/PrizmalAi/prizmal-cli/internal/launcher"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -64,7 +65,7 @@ const piFallbackMaxOutputTokens = piFallbackContextWindow
 // the model itself carries, else the window every model the Switch serves has,
 // with $HARNESS_CONTEXT_LENGTH winning over both. Both pi launch paths resolve
 // it through here, so a device launch and a switch-key launch agree.
-func piModelContextWindow(model LaunchModel) int {
+func piModelContextWindow(model launch.LaunchModel) int {
 	if ctxLen := envconfig.ContextLength(); ctxLen > 0 {
 		return ctxLen
 	}
@@ -89,14 +90,14 @@ func (p *Pi) String() string { return "Pi" }
 // launch of the installed Pi does.
 func (p *Pi) SupportsDeviceMode() bool { return true }
 
-func (p *Pi) Run(model string, models []LaunchModel, args []string) error {
-	fmt.Fprintf(os.Stderr, "\n%sPreparing Pi...%s\n", AnsiGray, AnsiReset)
+func (p *Pi) Run(model string, models []launch.LaunchModel, args []string) error {
+	fmt.Fprintf(os.Stderr, "\n%sPreparing Pi...%s\n", launch.AnsiGray, launch.AnsiReset)
 	if err := ensureNpmInstalled(); err != nil {
 		return err
 	}
 
-	fmt.Fprintf(os.Stderr, "%sChecking Pi installation...%s\n", AnsiGray, AnsiReset)
-	bin, err := ensurePiInstalled()
+	fmt.Fprintf(os.Stderr, "%sChecking Pi installation...%s\n", launch.AnsiGray, launch.AnsiReset)
+	bin, err := EnsureInstalled()
 	if err != nil {
 		return err
 	}
@@ -111,7 +112,7 @@ func (p *Pi) Run(model string, models []LaunchModel, args []string) error {
 	}
 	defer extension.clean()
 
-	fmt.Fprintf(os.Stderr, "\n%sLaunching Pi...%s\n\n", AnsiGray, AnsiReset)
+	fmt.Fprintf(os.Stderr, "\n%sLaunching Pi...%s\n\n", launch.AnsiGray, launch.AnsiReset)
 
 	// A launch always arrives with a model: main resolves one from --model,
 	// the saved default, or the picker before it dispatches. Pi injects no
@@ -129,7 +130,7 @@ func (p *Pi) Run(model string, models []LaunchModel, args []string) error {
 // It returns nil when the process is not in device mode, which is every
 // switch-key launch: those select the provider entry Edit wrote and take the
 // key from the environment as before.
-func piDeviceLaunchFor(model string, models []LaunchModel) (*piDeviceLaunch, error) {
+func piDeviceLaunchFor(model string, models []launch.LaunchModel) (*piDeviceLaunch, error) {
 	if !envconfig.DeviceMode() {
 		return nil, nil
 	}
@@ -159,7 +160,7 @@ func (p *Pi) envVars(extension *piDeviceLaunch) []string {
 	if extension == nil {
 		return []string{envconfig.KeyEnvVar + "=" + envconfig.APIKey()}
 	}
-	return EnsureHelperBaseURL([]string{
+	return launch.EnsureHelperBaseURL([]string{
 		piCredentialCommandEnv + "=" + piCredentialCommand(),
 		piDeviceConfigEnv + "=" + extension.configPath,
 	}, envconfig.BaseURL())
@@ -240,17 +241,17 @@ func isProviderQualifiedModel(value string) bool {
 	return ok && id != ""
 }
 
-func ensurePiInstalled() (string, error) {
+func EnsureInstalled() (string, error) {
 	if _, err := exec.LookPath("pi"); err == nil {
 		install, pkgErr := installedPiPackageInfo()
 		if pkgErr != nil {
-			fmt.Fprintf(os.Stderr, "%sCould not verify which Pi package is installed: %v%s\n", AnsiYellow, pkgErr, AnsiReset)
+			fmt.Fprintf(os.Stderr, "%sCould not verify which Pi package is installed: %v%s\n", launch.AnsiYellow, pkgErr, launch.AnsiReset)
 			fmt.Fprintf(os.Stderr, "Pi will still launch. To switch to the official package manually:\n  npm uninstall -g %s\n  npm install -g %s\n\n", piLegacyNpmPackage, piNpmPackage)
 			return "pi", nil
 		}
 
 		if install.packageName == piLegacyNpmPackage {
-			fmt.Fprintf(os.Stderr, "%sUpdating Pi...%s\n", AnsiGray, AnsiReset)
+			fmt.Fprintf(os.Stderr, "%sUpdating Pi...%s\n", launch.AnsiGray, launch.AnsiReset)
 			if err := migrateLegacyPiPackage(install.npmPrefix); err != nil {
 				return "", err
 			}
@@ -258,7 +259,7 @@ func ensurePiInstalled() (string, error) {
 				return "", err
 			}
 		} else if install.packageName == piNpmPackage && piPredatesEnvKeyReference(install.version) {
-			fmt.Fprintf(os.Stderr, "%sUpdating Pi...%s\n", AnsiGray, AnsiReset)
+			fmt.Fprintf(os.Stderr, "%sUpdating Pi...%s\n", launch.AnsiGray, launch.AnsiReset)
 			if err := installPiPackageWithPrefix(install.npmPrefix); err != nil {
 				return "", err
 			}
@@ -272,7 +273,7 @@ func ensurePiInstalled() (string, error) {
 
 	install, pkgErr := installedPiPackageInfo()
 	if pkgErr == nil && install.packageName == piLegacyNpmPackage {
-		fmt.Fprintf(os.Stderr, "%sUpdating Pi...%s\n", AnsiGray, AnsiReset)
+		fmt.Fprintf(os.Stderr, "%sUpdating Pi...%s\n", launch.AnsiGray, launch.AnsiReset)
 		if err := migrateLegacyPiPackage(install.npmPrefix); err != nil {
 			return "", err
 		}
@@ -282,7 +283,7 @@ func ensurePiInstalled() (string, error) {
 		return "pi", nil
 	}
 	if pkgErr == nil && install.packageName == piNpmPackage {
-		fmt.Fprintf(os.Stderr, "%sInstalling Pi...%s\n", AnsiGray, AnsiReset)
+		fmt.Fprintf(os.Stderr, "%sInstalling Pi...%s\n", launch.AnsiGray, launch.AnsiReset)
 		if err := installPiPackageWithPrefix(install.npmPrefix); err != nil {
 			return "", err
 		}
@@ -292,7 +293,7 @@ func ensurePiInstalled() (string, error) {
 		return "pi", nil
 	}
 
-	ok, err := ConfirmPrompt("Install Pi with npm?")
+	ok, err := launch.ConfirmPrompt("Install Pi with npm?")
 	if err != nil {
 		return "", err
 	}
@@ -309,7 +310,7 @@ func ensurePiInstalled() (string, error) {
 		return "", err
 	}
 
-	fmt.Fprintf(os.Stderr, "%sPi installed successfully%s\n\n", AnsiGreen, AnsiReset)
+	fmt.Fprintf(os.Stderr, "%sPi installed successfully%s\n\n", launch.AnsiGreen, launch.AnsiReset)
 	return "pi", nil
 }
 
@@ -565,7 +566,7 @@ func (p *Pi) Paths() []string {
 	return paths
 }
 
-func (p *Pi) Edit(models []LaunchModel) error {
+func (p *Pi) Edit(models []launch.LaunchModel) error {
 	if len(models) == 0 {
 		return nil
 	}
@@ -632,7 +633,7 @@ func (p *Pi) Edit(models []LaunchModel) error {
 					// Rebuild stale managed cloud entries so createConfig refreshes
 					// the whole entry instead of patching it in place.
 					if !hasContextWindow(modelObj) {
-						if _, ok := LookupCloudModelLimit(id); ok {
+						if _, ok := launch.LookupCloudModelLimit(id); ok {
 							continue
 						}
 					}
@@ -692,69 +693,69 @@ const piRestoreSuccess = "Pi launch configuration removed."
 // The writes here deliberately bypass fileutil.WriteWithBackup. That helper
 // copies the file it is about to overwrite into ~/.prizmal/backup, which would
 // deposit the key being removed one directory over.
-func (p *Pi) Restore() (RestoreOutcome, error) {
+func (p *Pi) Restore() (launch.RestoreOutcome, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return RestoreOutcome{}, err
+		return launch.RestoreOutcome{}, err
 	}
 
 	models, err := piRestoreModels(filepath.Join(home, ".pi", "agent", "models.json"))
 	if err != nil {
-		return RestoreOutcome{}, err
+		return launch.RestoreOutcome{}, err
 	}
 	settings, err := piRestoreSettings(filepath.Join(home, ".pi", "agent", "settings.json"))
 	if err != nil {
-		return RestoreOutcome{}, err
+		return launch.RestoreOutcome{}, err
 	}
-	return models.join(settings), nil
+	return models.Join(settings), nil
 }
 
 func (p *Pi) RestoreSuccessMessage() string { return piRestoreSuccess }
 
-func piRestoreModels(configPath string) (RestoreOutcome, error) {
+func piRestoreModels(configPath string) (launch.RestoreOutcome, error) {
 	config, err := piReadJSONFile(configPath)
 	if err != nil || config == nil {
-		return RestoreOutcome{}, err
+		return launch.RestoreOutcome{}, err
 	}
 
 	providers, ok := config["providers"].(map[string]any)
 	if !ok {
-		return RestoreOutcome{}, nil
+		return launch.RestoreOutcome{}, nil
 	}
 	if _, ok := providers[piRestoredProviderID]; !ok {
-		return RestoreOutcome{}, nil
+		return launch.RestoreOutcome{}, nil
 	}
 	delete(providers, piRestoredProviderID)
 	config["providers"] = providers
 
 	if err := piWriteJSONFile(configPath, config); err != nil {
-		return RestoreOutcome{}, err
+		return launch.RestoreOutcome{}, err
 	}
-	return RestoreOutcome{Removed: true}, nil
+	return launch.RestoreOutcome{Removed: true}, nil
 }
 
 // piRestoreSettings puts defaultProvider and defaultModel back to what the
 // user had before the first launch, read from the backup Edit's write took.
 // With no such copy left, the two keys go, so nothing points at the provider
 // entry piRestoreModels just deleted.
-func piRestoreSettings(settingsPath string) (RestoreOutcome, error) {
+func piRestoreSettings(settingsPath string) (launch.RestoreOutcome, error) {
 	settings, err := piReadJSONFile(settingsPath)
 	if err != nil || settings == nil {
-		return RestoreOutcome{}, err
+		return launch.RestoreOutcome{}, err
 	}
 
 	if !piSettingsPointAtPrizmal(settings) {
-		return RestoreOutcome{}, nil
+		return launch.RestoreOutcome{}, nil
 	}
 	delete(settings, "defaultProvider")
 	delete(settings, "defaultModel")
-	previous := PreLaunchCopy("pi", "settings.json", piSettingsPointAtPrizmal)
-	put := Reinstate(settings, previous, "defaultProvider", "defaultModel")
+	previous := launch.PreLaunchCopy("pi", "settings.json", piSettingsPointAtPrizmal)
+	put := launch.Reinstate(settings, previous, "defaultProvider", "defaultModel")
 
 	if err := piWriteJSONFile(settingsPath, settings); err != nil {
-		return RestoreOutcome{}, err
+		return launch.RestoreOutcome{}, err
 	}
-	return RestoreOutcome{Removed: true, Reinstated: put}, nil
+	return launch.RestoreOutcome{Removed: true, Reinstated: put}, nil
 }
 
 func piSettingsPointAtPrizmal(settings map[string]any) bool {
@@ -765,11 +766,11 @@ func piSettingsPointAtPrizmal(settings map[string]any) bool {
 // piReadJSONFile returns nil, nil when the file is absent — there is nothing
 // to restore — and an error only when it exists but cannot be used.
 func piReadJSONFile(path string) (map[string]any, error) {
-	return ReadJSONFile(path)
+	return launch.ReadJSONFile(path)
 }
 
 func piWriteJSONFile(path string, config map[string]any) error {
-	return WriteJSONFile0600(path, config)
+	return launch.WriteJSONFile0600(path, config)
 }
 
 func (p *Pi) Models() []string {
@@ -828,7 +829,7 @@ func hasContextWindow(cfg map[string]any) bool {
 }
 
 // createConfig builds Pi model config with capability detection.
-func createConfig(model LaunchModel) map[string]any {
+func createConfig(model launch.LaunchModel) map[string]any {
 	cfg := map[string]any{
 		"id":      model.Name,
 		"_launch": true,

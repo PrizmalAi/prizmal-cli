@@ -1,4 +1,4 @@
-package launch
+package opencode
 
 import (
 	"encoding/json"
@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/PrizmalAi/prizmal-cli/internal/internaltest"
+	"github.com/PrizmalAi/prizmal-cli/internal/launcher/launchtest"
+
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 )
 
@@ -14,7 +17,7 @@ import (
 // returns it decoded.
 func openCodeInlineConfig(t *testing.T) map[string]any {
 	t.Helper()
-	content, err := buildInlineConfig(wireKeyTestModel()[0], wireKeyTestModel())
+	content, err := buildInlineConfig(launchtest.WireKeyTestModel()[0], launchtest.WireKeyTestModel())
 	if err != nil {
 		t.Fatalf("buildInlineConfig: %v", err)
 	}
@@ -62,9 +65,9 @@ func TestOpenCodeConfigDeniesBuiltinWebSearch(t *testing.T) {
 // TestOpenCodeLaunchEnablesNoHostedSearch guards the operator ruling: prizmal
 // must not switch on opencode's hosted search providers.
 func TestOpenCodeLaunchEnablesNoHostedSearch(t *testing.T) {
-	sandboxedHome(t)
+	internaltest.SandboxedHome(t)
 	o := &OpenCode{}
-	env := o.envVars("wire-test-model", wireKeyTestModel())
+	env := o.envVars("wire-test-model", launchtest.WireKeyTestModel())
 
 	for _, name := range []string{
 		"OPENCODE_ENABLE_PARALLEL",
@@ -84,7 +87,7 @@ func TestOpenCodeLaunchEnablesNoHostedSearch(t *testing.T) {
 // TestOpenCodeEnvVarsWireSearchToolToSwitch checks the launch environment
 // points the generated tool at the Switch, with the key passed out of band.
 func TestOpenCodeEnvVarsWireSearchToolToSwitch(t *testing.T) {
-	sandboxedHome(t)
+	internaltest.SandboxedHome(t)
 	envconfig.SetBaseURL("https://switch.example/")
 	envconfig.SetAPIKey("sk-search")
 	t.Cleanup(func() {
@@ -93,7 +96,7 @@ func TestOpenCodeEnvVarsWireSearchToolToSwitch(t *testing.T) {
 	})
 
 	o := &OpenCode{}
-	env := o.envVars("wire-test-model", wireKeyTestModel())
+	env := o.envVars("wire-test-model", launchtest.WireKeyTestModel())
 
 	dir, ok := envLookup(env, "OPENCODE_CONFIG_DIR")
 	if !ok || dir == "" {

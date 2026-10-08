@@ -139,9 +139,9 @@ func cleanDescription(desc string) string {
 	return strings.Join(strings.Fields(desc), " ")
 }
 
-// parseSwitchCatalog turns a GET /v1/models body into LaunchModels carrying
+// ParseSwitchCatalog turns a GET /v1/models body into LaunchModels carrying
 // only a name and the capabilities its input modalities imply.
-func parseSwitchCatalog(data []byte) ([]LaunchModel, error) {
+func ParseSwitchCatalog(data []byte) ([]LaunchModel, error) {
 	var catalog switchCatalogResponse
 	if err := json.Unmarshal(data, &catalog); err != nil {
 		return nil, fmt.Errorf("parse model catalog: %w", err)
@@ -241,7 +241,7 @@ func fetchSwitchCatalog(ctx context.Context) ([]LaunchModel, error) {
 	if err != nil {
 		return nil, err
 	}
-	return parseSwitchCatalog(body)
+	return ParseSwitchCatalog(body)
 }
 
 // findSwitchCatalogModel looks a launch model's name up in the catalog,

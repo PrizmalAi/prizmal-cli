@@ -19,8 +19,8 @@ type RestoreOutcome struct {
 	Reinstated []string
 }
 
-// join folds a second file's outcome into this one.
-func (o RestoreOutcome) join(other RestoreOutcome) RestoreOutcome {
+// Join folds a second file's outcome into this one.
+func (o RestoreOutcome) Join(other RestoreOutcome) RestoreOutcome {
 	return RestoreOutcome{
 		Removed:    o.Removed || other.Removed,
 		Reinstated: slices.Concat(o.Reinstated, other.Reinstated),

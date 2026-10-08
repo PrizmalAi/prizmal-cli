@@ -1,7 +1,9 @@
-package launch
+package registry
 
 import (
 	"testing"
+
+	launch "github.com/PrizmalAi/prizmal-cli/internal/launcher"
 )
 
 // TestDeviceModeSupport pins the device-mode surface: Claude Code refreshes a
@@ -13,7 +15,7 @@ import (
 func TestDeviceModeSupport(t *testing.T) {
 	for _, spec := range ListAllIntegrationSpecs() {
 		want := spec.Name == "claude" || spec.Name == "pi" || spec.Name == "codex"
-		if got := SupportsDeviceMode(spec.Runner); got != want {
+		if got := launch.SupportsDeviceMode(spec.Runner); got != want {
 			t.Errorf("%s SupportsDeviceMode = %v, want %v", spec.Name, got, want)
 		}
 	}

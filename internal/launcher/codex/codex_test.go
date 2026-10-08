@@ -1,4 +1,4 @@
-package launch
+package codex
 
 import (
 	"encoding/json"
@@ -7,6 +7,9 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/PrizmalAi/prizmal-cli/internal/internaltest"
+	launch "github.com/PrizmalAi/prizmal-cli/internal/launcher"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	"github.com/PrizmalAi/prizmal-cli/internal/model"
@@ -105,7 +108,7 @@ func codexContextWindow(t *testing.T, entry map[string]any) int {
 // writer added later without a wire from the catalog fails here instead of
 // leaving a session to compact at 90% of a window nobody chose.
 func TestCodexEntryDeclaresTheDocumentedContextWindow(t *testing.T) {
-	entry := buildCodexModelEntry(LaunchModel{
+	entry := buildCodexModelEntry(launch.LaunchModel{
 		Name:         "smart",
 		Capabilities: []model.Capability{model.CapabilityVision, model.CapabilityCompletion},
 	})
@@ -121,7 +124,7 @@ func TestCodexEntryDeclaresTheDocumentedContextWindow(t *testing.T) {
 func TestCodexEntryHonoursTheOperatorStatedContextWindow(t *testing.T) {
 	t.Setenv("HARNESS_CONTEXT_LENGTH", "1000000")
 
-	entry := buildCodexModelEntry(LaunchModel{Name: "smart"})
+	entry := buildCodexModelEntry(launch.LaunchModel{Name: "smart"})
 
 	if got := codexContextWindow(t, entry); got != 1_000_000 {
 		t.Fatalf("context_window = %d, want the operator's 1000000", got)
@@ -133,7 +136,7 @@ func TestCodexEntryHonoursTheOperatorStatedContextWindow(t *testing.T) {
 func TestCodexEntryIgnoresAnUnusableContextWindowOverride(t *testing.T) {
 	t.Setenv("HARNESS_CONTEXT_LENGTH", "not-a-number")
 
-	entry := buildCodexModelEntry(LaunchModel{Name: "smart"})
+	entry := buildCodexModelEntry(launch.LaunchModel{Name: "smart"})
 
 	if got := codexContextWindow(t, entry); got != codexFallbackContextWindow {
 		t.Fatalf("context_window = %d, want the fallback %d for an unparseable override", got, codexFallbackContextWindow)
@@ -146,7 +149,7 @@ func TestCodexEntryIgnoresAnUnusableContextWindowOverride(t *testing.T) {
 // the budget the vendor default gives it — on a branch that could never select
 // anything else.
 func TestCodexEntryTruncatesToolOutputInTokens(t *testing.T) {
-	policy, ok := buildCodexModelEntry(LaunchModel{Name: "smart"})["truncation_policy"].(map[string]any)
+	policy, ok := buildCodexModelEntry(launch.LaunchModel{Name: "smart"})["truncation_policy"].(map[string]any)
 	if !ok {
 		t.Fatal("codex entry lacks a truncation_policy map")
 	}
@@ -165,7 +168,7 @@ func TestCodexEntryTruncatesToolOutputInTokens(t *testing.T) {
 // neither base_instructions nor model_messages.instructions_template. The key
 // cannot be dropped until the entry carries a real template.
 func TestCodexEntryKeepsTheExplicitBaseInstructionsKey(t *testing.T) {
-	entry := buildCodexModelEntry(LaunchModel{Name: "smart"})
+	entry := buildCodexModelEntry(launch.LaunchModel{Name: "smart"})
 
 	instructions, ok := entry["base_instructions"]
 	if !ok {
@@ -208,7 +211,7 @@ const fakeCodexCatalog = `{"models":[
 func TestCodexCatalogCarriesCodexsOwnSystemPrompt(t *testing.T) {
 	fakeCodexBundle(t, fakeCodexCatalog)
 	path := filepath.Join(t.TempDir(), "catalog.json")
-	if err := writeCodexModelCatalog(path, []LaunchModel{{Name: "prizmal-flash"}}); err != nil {
+	if err := writeCodexModelCatalog(path, []launch.LaunchModel{{Name: "prizmal-flash"}}); err != nil {
 		t.Fatalf("writeCodexModelCatalog: %v", err)
 	}
 	raw, err := os.ReadFile(path)
@@ -255,7 +258,7 @@ func TestCodexCatalogFailsWhenThePromptIsUnreadable(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			fakeCodexBundle(t, catalog)
 			path := filepath.Join(t.TempDir(), "catalog.json")
-			if err := writeCodexModelCatalog(path, []LaunchModel{{Name: "prizmal-flash"}}); err == nil {
+			if err := writeCodexModelCatalog(path, []launch.LaunchModel{{Name: "prizmal-flash"}}); err == nil {
 				t.Fatal("want an error, got none")
 			}
 			if _, err := os.Stat(path); err == nil {
@@ -270,7 +273,7 @@ func TestCodexCatalogFailsWhenThePromptIsUnreadable(t *testing.T) {
 // model first, and the effort levels that turn on the effort picker.
 func TestCodexCatalogListsTheTenantCatalogWithEffortLevels(t *testing.T) {
 	fakeCodexBundle(t, fakeCodexCatalog)
-	catalog := []LaunchModel{
+	catalog := []launch.LaunchModel{
 		{Name: "prizmal-core", Description: "Core"},
 		{Name: "prizmal-flash", Description: "Fast"},
 		{Name: "prizmal-frontier", Description: "Best"},
@@ -321,11 +324,11 @@ func TestCodexCatalogDeclaresTheWindowTheSwitchPublishes(t *testing.T) {
 	fakeCodexBundle(t, fakeCodexCatalog)
 	t.Setenv("HARNESS_CONTEXT_LENGTH", "")
 	body := `{"data":[{"id":"prizmal-flash[1m]"},{"id":"prizmal-core"}]}`
-	catalog, err := parseSwitchCatalog([]byte(body))
+	catalog, err := launch.ParseSwitchCatalog([]byte(body))
 	if err != nil {
 		t.Fatal(err)
 	}
-	models := LaunchModels("prizmal-flash", catalog, true)
+	models := launch.LaunchModels("prizmal-flash", catalog, true)
 	path := filepath.Join(t.TempDir(), "catalog.json")
 	if err := writeCodexModelCatalog(path, codexCatalogModels("prizmal-flash", models)); err != nil {
 		t.Fatal(err)
@@ -355,7 +358,7 @@ func TestCodexCatalogDeclaresTheWindowTheSwitchPublishes(t *testing.T) {
 // channel: the provider runs `prizmal auth token` for its bearer token, and
 // declares no env_key, which Codex rejects next to a command.
 func TestCodexDeviceModeOverridesUseCommandAuth(t *testing.T) {
-	withDeviceMode(t)
+	internaltest.WithDeviceMode(t)
 	overrides := strings.Join(codexManagedConfigOverrides(""), "\n")
 
 	for _, want := range []string{
@@ -388,7 +391,7 @@ func TestCodexKeyModeOverridesKeepEnvKeyAndNoAuth(t *testing.T) {
 // combine with the command and fail Codex's config validation.
 func TestCodexDeviceModeProfileHasCommandAuthAndNoEnvKey(t *testing.T) {
 	sandboxCodexHome(t)
-	withDeviceMode(t)
+	internaltest.WithDeviceMode(t)
 	profilePath := filepath.Join(t.TempDir(), "prizmal.config.toml")
 	if err := writeCodexNamedProfileConfig(profilePath, codexProfileName, "gpt-test", "", ""); err != nil {
 		t.Fatalf("writeCodexNamedProfileConfig: %v", err)
@@ -410,7 +413,7 @@ func TestCodexDeviceModeProfileHasCommandAuthAndNoEnvKey(t *testing.T) {
 // device token stay out of Codex's environment, and an OPENAI_API_KEY the
 // operator exported for OpenAI itself does not reach the Switch.
 func TestCodexDeviceModeChildEnvCarriesNoCredential(t *testing.T) {
-	withDeviceMode(t)
+	internaltest.WithDeviceMode(t)
 	envconfig.SetAPIKey("switch-key-probe")
 	t.Cleanup(func() { envconfig.SetAPIKey("") })
 
