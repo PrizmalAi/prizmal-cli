@@ -96,7 +96,7 @@ func (c *Codex) args(model, modelCatalogPath string, extra []string) ([]string, 
 	for _, override := range managed {
 		args = append(args, "-c", override)
 	}
-	for _, override := range codexHygieneOverrides(model) {
+	for _, override := range codexHygieneOverrides(model, extra) {
 		args = append(args, "-c", override)
 	}
 	if model != "" {
@@ -258,6 +258,26 @@ func codexChildEnv() []string {
 	return env
 }
 
+// codexExtraSetsKey reports whether the operator's own arguments pass a -c
+// override for key.
+func codexExtraSetsKey(extra []string, key string) bool {
+	for i, arg := range extra {
+		value := ""
+		switch {
+		case (arg == "-c" || arg == "--config") && i+1 < len(extra):
+			value = extra[i+1]
+		case strings.HasPrefix(arg, "--config="):
+			value = strings.TrimPrefix(arg, "--config=")
+		case strings.HasPrefix(arg, "-c") && len(arg) > len("-c"):
+			value = strings.TrimPrefix(arg, "-c")
+		}
+		if name, _, ok := strings.Cut(value, "="); ok && strings.TrimSpace(name) == key {
+			return true
+		}
+	}
+	return false
+}
+
 // codexHygieneOverrides are the -c settings that keep a launch quiet and keep
 // every model slot on a name the Switch routes. Codex analytics and the
 // feedback upload are off. The memory pipeline's extraction and consolidation
@@ -267,16 +287,17 @@ func codexChildEnv() []string {
 // --subagent-model, when given, becomes the model Codex uses for /review and
 // for spawned subagents. They travel on the command line, so nothing is
 // written to disk.
-func codexHygieneOverrides(model string) []string {
+func codexHygieneOverrides(model string, extra []string) []string {
 	overrides := []string{
 		"analytics.enabled=false",
 		"feedback.enabled=false",
 	}
-	if model != "" {
-		overrides = append(overrides,
-			fmt.Sprintf("memories.extract_model=%q", model),
-			fmt.Sprintf("memories.consolidation_model=%q", model),
-		)
+	// An operator's own -c for a memory model wins: Codex reads the later
+	// override, so the launch leaves its pin out rather than replace theirs.
+	for _, key := range []string{"memories.extract_model", "memories.consolidation_model"} {
+		if model != "" && !codexExtraSetsKey(extra, key) {
+			overrides = append(overrides, fmt.Sprintf("%s=%q", key, model))
+		}
 	}
 	if sub := launch.SelectedSubagentModel(); sub != "" {
 		overrides = append(overrides,

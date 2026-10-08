@@ -84,3 +84,18 @@ func TestCodexCatalogNamesOnlyTheLaunchsModels(t *testing.T) {
 		t.Errorf("the catalog carries an OpenAI model id the bundled prompt did not")
 	}
 }
+
+// An operator who passes their own memory model keeps it.
+func TestCodexArgsKeepAnOperatorsMemoryModel(t *testing.T) {
+	launch.SetSubagentModel("")
+	args, err := (&Codex{}).args("prizmal-flash", "", []string{"-c", `memories.extract_model="mine"`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if codexHasOverride(args, `memories.extract_model="prizmal-flash"`) {
+		t.Errorf("the launch replaced the operator's memories.extract_model: %v", args)
+	}
+	if !codexHasOverride(args, `memories.consolidation_model="prizmal-flash"`) {
+		t.Errorf("the launch dropped the pin the operator did not set: %v", args)
+	}
+}
