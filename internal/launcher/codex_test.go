@@ -170,3 +170,14 @@ func TestCodexEntryKeepsTheExplicitBaseInstructionsKey(t *testing.T) {
 		t.Fatalf("base_instructions = %v, want the empty template the entry has always written", instructions)
 	}
 }
+
+// Codex sends its freeform apply_patch tool only for a model whose catalog
+// entry sets apply_patch_tool_type. Without it Codex edits files through shell
+// commands.
+func TestCodexEntryDeclaresTheFreeformApplyPatchTool(t *testing.T) {
+	entry := buildCodexModelEntry(LaunchModel{Name: "smart"})
+
+	if got := entry["apply_patch_tool_type"]; got != "freeform" {
+		t.Fatalf("apply_patch_tool_type = %v, want freeform", got)
+	}
+}

@@ -41,6 +41,10 @@ const (
 	// overrides it for an operator who knows better.
 	codexFallbackContextWindow = 1_000_000
 
+	// codexApplyPatchToolType is the only value Codex 0.160 defines for
+	// apply_patch_tool_type (ApplyPatchToolType::Freeform in codex-rs protocol).
+	codexApplyPatchToolType = "freeform"
+
 	codexRootProfileKey          = "profile"
 	codexRootModelKey            = "model"
 	codexRootModelProviderKey    = "model_provider"
@@ -684,6 +688,11 @@ func buildCodexModelEntry(launchModel LaunchModel) map[string]any {
 		"supports_reasoning_summaries": false,
 		"supported_reasoning_levels":   []any{},
 		"experimental_supported_tools": []any{},
+		// Codex sends its freeform apply_patch edit tool only for a model whose
+		// entry sets this (codex-rs core/src/tools/spec_plan.rs). Without it
+		// Codex edits files through shell commands. The Switch folds the tool
+		// for routes that have no freeform tools.
+		"apply_patch_tool_type": codexApplyPatchToolType,
 	}
 }
 
