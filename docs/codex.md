@@ -14,6 +14,10 @@ The launch selects the profile with `--profile prizmal` and also passes the prov
 
 Codex derives auto-compaction from the context window the catalog declares, 90% of it unless the entry sets `auto_compact_token_limit`, which prizmal doesn't emit. Every model the Switch serves has a 1M window, so the entry declares 1,000,000. Declaring a smaller window makes Codex discard conversation history the Switch would have accepted. `HARNESS_CONTEXT_LENGTH` overrides it for an operator who knows better.
 
+## Subagent model
+
+Subagents run the session model by default. `--subagent-model` gives them a different one. Codex reads that choice from `agents.default_subagent_model`, so the launch passes `-c agents.default_subagent_model="<model>"`. Codex checks the model against the catalog, so the launch lists it in `~/.codex/model.json` beside the session model. A spawn call that names its own model still wins.
+
 ## Device login
 
 Codex can't refresh a device token during a session: it reads `OPENAI_API_KEY` once, and a device token expires ten minutes after issue. So a `prizmal codex` launch on a machine signed in with a device key ignores device login and runs on the switch key from the config file, the environment, or `--api-key`. With no switch key, prizmal asks for one, as any unauthenticated launch does.
@@ -47,5 +51,7 @@ OPENAI_API_KEY="$PRIZMAL_SWITCH_KEY" codex --profile prizmal -m your-model
 ```
 
 `env_key` names the variable Codex reads the key from, so the key itself never enters the file.
+
+To give subagents their own model by hand, add `-c agents.default_subagent_model="your-subagent-model"` to the `codex` command, and list that model in the catalog file that `model_catalog_json` names. Codex rejects a subagent model its catalog doesn't list.
 
 `prizmal codex` writes this profile and a model catalog beside it, and passes the provider settings and catalog path as `-c` overrides so your root `config.toml` stays as it was. The catalog makes Codex budget the 1M window the Switch serves instead of a default. It also installs Codex when the `codex` binary is missing.

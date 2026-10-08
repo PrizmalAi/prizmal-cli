@@ -45,6 +45,11 @@ const (
 	codexRootModelKey            = "model"
 	codexRootModelProviderKey    = "model_provider"
 	codexRootModelCatalogJSONKey = "model_catalog_json"
+
+	// codexAgentsSubagentModelKey is the config key Codex reads for the model
+	// a spawned subagent runs when the spawn call names none. Codex checks it
+	// against the models its catalog lists, so the catalog carries that model.
+	codexAgentsSubagentModelKey = "agents.default_subagent_model"
 )
 
 func (c *Codex) args(model, modelCatalogPath string, extra []string) ([]string, error) {
@@ -55,6 +60,9 @@ func (c *Codex) args(model, modelCatalogPath string, extra []string) ([]string, 
 	args := []string{"--profile", codexProfileName}
 	for _, override := range codexManagedConfigOverrides(modelCatalogPath) {
 		args = append(args, "-c", override)
+	}
+	if sub := selectedSubagentModel(); sub != "" {
+		args = append(args, "-c", fmt.Sprintf("%s=%q", codexAgentsSubagentModelKey, sub))
 	}
 	if model != "" {
 		args = append(args, "-m", model)
@@ -225,6 +233,8 @@ func codexConfigOverrideConflicts(value string) bool {
 		key == codexRootModelProviderKey,
 		key == codexRootModelCatalogJSONKey:
 		return true
+	case key == codexAgentsSubagentModelKey:
+		return selectedSubagentModel() != ""
 	case strings.HasPrefix(key, "model_providers."):
 		return true
 	}
@@ -248,7 +258,11 @@ func ensureCodexConfig(modelName string, models []LaunchModel) error {
 	}
 
 	catalogPath := codexModelCatalogPathForConfig(configPath)
-	if err := writeCodexModelCatalog(catalogPath, codexCatalogModel(modelName, models)); err != nil {
+	catalogModels := []LaunchModel{codexCatalogModel(modelName, models)}
+	if sub := selectedSubagentModel(); sub != "" && sub != modelName {
+		catalogModels = append(catalogModels, codexCatalogModel(sub, models))
+	}
+	if err := writeCodexModelCatalog(catalogPath, catalogModels...); err != nil {
 		return err
 	}
 
@@ -624,11 +638,14 @@ func codexCatalogModel(modelName string, models []LaunchModel) LaunchModel {
 	return fallbackLaunchModel(modelName)
 }
 
-func writeCodexModelCatalog(catalogPath string, model LaunchModel) error {
-	entry := buildCodexModelEntry(model)
+func writeCodexModelCatalog(catalogPath string, models ...LaunchModel) error {
+	entries := make([]any, 0, len(models))
+	for _, model := range models {
+		entries = append(entries, buildCodexModelEntry(model))
+	}
 
 	catalog := map[string]any{
-		"models": []any{entry},
+		"models": entries,
 	}
 
 	data, err := json.MarshalIndent(catalog, "", "  ")

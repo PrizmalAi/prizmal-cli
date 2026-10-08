@@ -151,7 +151,7 @@ Flags:
       --pick                   choose a model from this switch key's tenant, and save it as the default
       --persist                write the integration configuration without launching (persistent until --restore)
       --restore                restore the integration's original configuration and exit
-      --subagent-model string  model for subagents, which default to the session model
+      --subagent-model string  model for subagents, which default to the session model (Claude Code and Codex)
   -u, --url string             provider base URL (or $PRIZMAL_SWITCH_URL)
   -v, --version                print the version
   -y, --yes                    auto-approve confirmation prompts

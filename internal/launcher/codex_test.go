@@ -170,3 +170,57 @@ func TestCodexEntryKeepsTheExplicitBaseInstructionsKey(t *testing.T) {
 		t.Fatalf("base_instructions = %v, want the empty template the entry has always written", instructions)
 	}
 }
+
+// Codex has no environment variable for its subagent model. It reads
+// agents.default_subagent_model, so a launch with --subagent-model must pass
+// that key as a -c override.
+func TestCodexArgsCarryTheSubagentModel(t *testing.T) {
+	SetSubagentModel("prizmal-flash")
+	t.Cleanup(func() { SetSubagentModel("") })
+
+	args, err := (&Codex{}).args("prizmal-frontier", "", nil)
+	if err != nil {
+		t.Fatalf("args: %v", err)
+	}
+
+	want := `agents.default_subagent_model="prizmal-flash"`
+	for i, arg := range args {
+		if arg == "-c" && i+1 < len(args) && args[i+1] == want {
+			return
+		}
+	}
+	t.Fatalf("args = %q, want a -c %s override", args, want)
+}
+
+func TestCodexArgsLeaveSubagentsOnTheSessionModelByDefault(t *testing.T) {
+	SetSubagentModel("")
+
+	args, err := (&Codex{}).args("prizmal-frontier", "", nil)
+	if err != nil {
+		t.Fatalf("args: %v", err)
+	}
+	if strings.Contains(strings.Join(args, " "), "default_subagent_model") {
+		t.Fatalf("args = %q carry a subagent model the launch did not pick", args)
+	}
+}
+
+// Codex checks the subagent model against the models its catalog lists, so a
+// catalog that holds only the session model makes every spawn fail.
+func TestCodexCatalogListsTheSubagentModel(t *testing.T) {
+	home := sandboxCodexHome(t)
+	SetSubagentModel("prizmal-flash")
+	t.Cleanup(func() { SetSubagentModel("") })
+
+	if err := ensureCodexConfig("prizmal-frontier", nil); err != nil {
+		t.Fatalf("ensureCodexConfig: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".codex", "model.json"))
+	if err != nil {
+		t.Fatalf("read catalog: %v", err)
+	}
+	for _, slug := range []string{`"slug": "prizmal-frontier"`, `"slug": "prizmal-flash"`} {
+		if !strings.Contains(string(data), slug) {
+			t.Errorf("catalog lacks %s:\n%s", slug, data)
+		}
+	}
+}
