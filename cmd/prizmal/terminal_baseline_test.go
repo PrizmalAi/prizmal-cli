@@ -135,6 +135,12 @@ type baselineCase struct {
 	updateOld, updateNew string
 	// configExtra adds fields to the config file the case starts with.
 	configExtra map[string]any
+	// recorder, when set, keeps every inference request the case's stub
+	// receives, with the model name it carried and whether the stub served it.
+	recorder *stubserver.Recorder
+	// setup runs once the case's HOME and project directory exist and before
+	// the harness starts, for a case that needs a git repository or a file.
+	setup func(t *testing.T, home, project string)
 }
 
 // updateScenario describes the install a case poses as and the release host it
@@ -316,6 +322,9 @@ func renderBaseline(t *testing.T, tmuxPath, prizmalBin, claudeDir string, tc bas
 	} else {
 		opts = append(opts, stubserver.WithModels(catalog...))
 	}
+	if tc.recorder != nil {
+		opts = append(opts, stubserver.WithRecorder(tc.recorder))
+	}
 	if tc.deviceApproved {
 		opts = append(opts, stubserver.WithDeviceApproval())
 	}
@@ -358,6 +367,9 @@ func renderBaseline(t *testing.T, tmuxPath, prizmalBin, claudeDir string, tc bas
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if tc.setup != nil {
+		tc.setup(t, home, project)
 	}
 	if !tc.noConfig {
 		cfg := map[string]any{

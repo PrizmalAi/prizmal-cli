@@ -1,9 +1,5 @@
 Select a model
-▸ tier-opus    Opus tier
-  tier-sonnet  Sonnet tier
-  tier-haiku   Haiku tier
-  tier-fable   Fable tier
-  smart
+▸ smart
   flash
 
   ↑/k up • ↓/j down • / filter • esc quit without saving

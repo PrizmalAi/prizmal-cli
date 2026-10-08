@@ -17,14 +17,14 @@
 
 
 
+
+
+
+
   Select Model and Effort
 
 
 › 1. smart (current)
-  2. tier-opus        Opus tier
-  3. tier-sonnet      Sonnet tier
-  4. tier-haiku       Haiku tier
-  5. tier-fable       Fable tier
-  6. flash
+  2. flash
 
   enter select · esc back

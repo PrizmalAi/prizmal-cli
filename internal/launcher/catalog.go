@@ -269,12 +269,15 @@ func withClaudeTiers(catalog []LaunchModel) []LaunchModel {
 	holders := make(map[string]bool, len(claudecode.Tiers))
 	for _, tier := range claudecode.Tiers {
 		name := claudecode.TierModel(tier)
-		entry, ok := FindCatalogModel(catalog, name)
-		if !ok {
-			entry = LaunchModel{Name: name}
+		entry, listed := FindCatalogModel(catalog, name)
+		i := slices.IndexFunc(catalog, func(m LaunchModel) bool { return m.Tier == string(tier) })
+		// A tier no config holds has no alias: the Switch refuses the name, so
+		// no row offers it.
+		if !listed && i < 0 {
+			continue
 		}
 		entry.Name = name
-		if i := slices.IndexFunc(catalog, func(m LaunchModel) bool { return m.Tier == string(tier) }); i >= 0 {
+		if i >= 0 {
 			holder := catalog[i]
 			holders[holder.Name] = true
 			if entry.Description == "" {
@@ -286,8 +289,9 @@ func withClaudeTiers(catalog []LaunchModel) []LaunchModel {
 		}
 		models = append(models, entry)
 	}
+	tierRows := len(models)
 	for _, entry := range catalog {
-		if slices.ContainsFunc(models[:len(claudecode.Tiers)], func(tier LaunchModel) bool {
+		if slices.ContainsFunc(models[:tierRows], func(tier LaunchModel) bool {
 			return ModelNamesSame(entry.Name, tier.Name)
 		}) {
 			continue
@@ -298,6 +302,40 @@ func withClaudeTiers(catalog []LaunchModel) []LaunchModel {
 		models = append(models, entry)
 	}
 	return models
+}
+
+// HoldsTier reports whether the catalog has the tier's alias, which it has
+// when some config holds the tier.
+func HoldsTier(catalog []LaunchModel, tier claudecode.Tier) bool {
+	return slices.ContainsFunc(catalog, func(m LaunchModel) bool {
+		return ModelNamesSame(m.Name, claudecode.TierModel(tier))
+	})
+}
+
+// CheckRoutable refuses a model name the Switch would refuse. The catalog is
+// the list of names the key routes, the tier aliases the tenant holds among
+// them, so a name outside it is a router config the tenant has no copy of, and
+// the Switch answers it with an error instead of a model.
+//
+// `default` is refused whatever the catalog lists. It names the router config
+// the key is bound to, and the Switch is dropping that binding.
+//
+// An unread catalog passes everything. The launch path reads the catalog on a
+// best effort, and an endpoint that serves no model list is a supported target,
+// so the absence of a list is not evidence of a wrong name.
+func CheckRoutable(name string, catalog []LaunchModel) error {
+	if len(catalog) == 0 || name == "" {
+		return nil
+	}
+	bare := ModelNameWithoutSuffix(name)
+	if isReservedModelName(bare) {
+		return fmt.Errorf("model %q names the router config the key is bound to, which the Switch is dropping; "+
+			"run `prizmal --list` for the names it routes", name)
+	}
+	if _, ok := FindCatalogModel(catalog, name); ok {
+		return nil
+	}
+	return fmt.Errorf("model %q is not a name this Switch routes; run `prizmal --list` for the names it does", name)
 }
 
 // FindCatalogModel looks a model name up in a list of catalog entries, using
