@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -22,6 +23,8 @@ func docsCatalogExample(t *testing.T) map[string]any {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A Windows checkout may turn the file's line endings into CRLF.
+	data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
 	block := regexp.MustCompile("(?s)<!-- catalog-example -->\\s*```json\\n(.*?)\\n```").FindSubmatch(data)
 	if block == nil {
 		t.Fatal("docs/codex.md has no catalog example: a ```json block after <!-- catalog-example -->")
