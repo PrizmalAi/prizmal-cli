@@ -7,11 +7,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 
-	"github.com/PrizmalAi/prizmal-cli/internal/claudecode"
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	"github.com/PrizmalAi/prizmal-cli/internal/fileutil"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher"
@@ -568,32 +566,31 @@ func codexCatalogModel(modelName string, models []launch.LaunchModel) launch.Lau
 	return launch.FallbackLaunchModel(modelName)
 }
 
-// codexCatalogModels returns the models Codex's /model picker lists: the
-// launched model first, then the rest of the catalog the launch was handed.
+// codexCatalogModels returns the models Codex's /model picker lists: the rows
+// the prizmal picker lists, in its order, each with the row's text. A tier alias
+// is a row and the router config folded into it is not, so the two pickers show
+// one list.
+//
+// The launched model gets an entry even when no row shows it, such as -m naming
+// a config a tier row folds away. Codex reads that entry for the model's
+// window and prompt.
 func codexCatalogModels(modelName string, models []launch.LaunchModel) []launch.LaunchModel {
-	out := []launch.LaunchModel{codexCatalogModel(modelName, models)}
-	for _, m := range models {
-		// The picker's placeholder row names a model the Switch is retiring, and
-		// a tier alias is a row Claude Code's own picker folds a model into, so
-		// Codex gets neither.
-		if launch.ModelNamesSame(m.Name, modelName) || launch.IsReservedModelName(m.Name) ||
-			isClaudeTierRow(m.Name) {
-			continue
-		}
-		out = append(out, m)
+	rows := launch.ModelRows(models)
+	out := make([]launch.LaunchModel, 0, len(rows)+1)
+	launched := false
+	for _, row := range rows {
+		entry := codexCatalogModel(row.Model, models)
+		entry.Description = row.Description
+		entry.FoldedInto = ""
+		out = append(out, entry)
+		launched = launched || launch.ModelNamesSame(row.Model, modelName)
+	}
+	if !launched {
+		entry := codexCatalogModel(modelName, models)
+		entry.FoldedInto = ""
+		out = append(out, entry)
 	}
 	return out
-}
-
-// isClaudeTierRow reports whether a catalog name is one of Claude Code's tier
-// aliases. Those rows exist for Claude Code's picker, which shows a folded
-// model under its tier's alias, and Codex has no such picker row. The tier
-// identity is claudecode's to define: this asks that package rather than
-// spelling the aliases here.
-func isClaudeTierRow(name string) bool {
-	return slices.ContainsFunc(claudecode.Tiers, func(tier claudecode.Tier) bool {
-		return launch.ModelNamesSame(name, claudecode.TierModel(tier))
-	})
 }
 
 // ShowsModelList reports that a launch hands Codex the whole catalog, because
@@ -616,9 +613,16 @@ func writeCodexModelCatalog(catalogPath string, models []launch.LaunchModel) err
 	if err != nil {
 		return err
 	}
+	labels := make(map[string]string, len(models))
+	for _, row := range launch.ModelRows(models) {
+		labels[row.Model] = row.Label
+	}
 	entries := make([]any, 0, len(models))
 	for i, model := range models {
 		entry := buildCodexModelEntry(model)
+		if label := labels[model.Name]; label != "" {
+			entry["display_name"] = label
+		}
 		entry["priority"] = i
 		entry["base_instructions"] = prompt.baseInstructions
 		if len(prompt.modelMessages) > 0 {
