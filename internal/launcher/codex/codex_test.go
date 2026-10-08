@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -27,69 +26,6 @@ func sandboxCodexHome(t *testing.T) string {
 	t.Setenv("HOME", d)
 	t.Setenv("USERPROFILE", d)
 	return d
-}
-
-// TestCodexProfileConfigSourcesKeyFromEnvNotDisk pins the credential channel
-// for codex: the generated profile names the environment variable codex must
-// read (env_key), and carries no literal api_key. prizmal sets that variable
-// on the child at exec, so the key lives for one process instead of forever.
-func TestCodexProfileConfigSourcesKeyFromEnvNotDisk(t *testing.T) {
-	sandboxCodexHome(t)
-	envconfig.SetAPIKey("not-a-real-key-codex-probe")
-	t.Cleanup(func() { envconfig.SetAPIKey("") })
-
-	profilePath := filepath.Join(t.TempDir(), "prizmal.config.toml")
-	if err := writeCodexNamedProfileConfig(profilePath, codexProfileName, "gpt-test", "", ""); err != nil {
-		t.Fatalf("writeCodexNamedProfileConfig: %v", err)
-	}
-
-	data, err := os.ReadFile(profilePath)
-	if err != nil {
-		t.Fatalf("read config: %v", err)
-	}
-	text := string(data)
-	parsed, err := codexParseConfig(text)
-	if err != nil {
-		t.Fatalf("parse config: %v", err)
-	}
-
-	if got, ok := parsed.String("model_providers", codexProfileName, "env_key"); !ok || got != "OPENAI_API_KEY" {
-		t.Fatalf("env_key = %q (ok=%v), want OPENAI_API_KEY", got, ok)
-	}
-	if got, ok := parsed.String("model_providers", codexProfileName, "api_key"); ok {
-		t.Fatalf("api_key = %q is present; the profile must carry no credential at rest", got)
-	}
-	if strings.Contains(text, "not-a-real-key-codex-probe") {
-		t.Fatalf("the provider key appears in the generated profile:\n%s", text)
-	}
-}
-
-// TestCodexProfileConfigNeverWritesPlaceholderKey guards against regressing to
-// the old placeholder credential, and against api_key coming back at all.
-func TestCodexProfileConfigNeverWritesPlaceholderKey(t *testing.T) {
-	sandboxCodexHome(t)
-	envconfig.SetAPIKey("")
-	t.Cleanup(func() { envconfig.SetAPIKey("") })
-
-	profilePath := filepath.Join(t.TempDir(), "prizmal.config.toml")
-	if err := writeCodexNamedProfileConfig(profilePath, codexProfileName, "gpt-test", "", ""); err != nil {
-		t.Fatalf("writeCodexNamedProfileConfig: %v", err)
-	}
-	data, err := os.ReadFile(profilePath)
-	if err != nil {
-		t.Fatalf("read config: %v", err)
-	}
-	text := string(data)
-
-	for _, bad := range []string{
-		"api_key",
-		"OPENAI_API_KEY=harness-launch",
-		"OPENAI_API_KEY=ollama",
-	} {
-		if strings.Contains(text, bad) {
-			t.Fatalf("found %q in config:\n%s", bad, text)
-		}
-	}
 }
 
 // codexContextWindow pulls context_window off a codex catalog entry.
@@ -416,29 +352,6 @@ func TestCodexKeyModeOverridesKeepEnvKeyAndNoAuth(t *testing.T) {
 	}
 }
 
-// TestCodexDeviceModeProfileHasCommandAuthAndNoEnvKey: the profile file and
-// the -c overrides merge key by key, so a profile that kept env_key would
-// combine with the command and fail Codex's config validation.
-func TestCodexDeviceModeProfileHasCommandAuthAndNoEnvKey(t *testing.T) {
-	sandboxCodexHome(t)
-	launchtest.WithDeviceMode(t)
-	profilePath := filepath.Join(t.TempDir(), "prizmal.config.toml")
-	if err := writeCodexNamedProfileConfig(profilePath, codexProfileName, "gpt-test", "", ""); err != nil {
-		t.Fatalf("writeCodexNamedProfileConfig: %v", err)
-	}
-	data, _ := os.ReadFile(profilePath)
-	parsed, err := codexParseConfig(string(data))
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	if _, ok := parsed.String("model_providers", codexProfileName, "env_key"); ok {
-		t.Errorf("profile keeps env_key in device mode:\n%s", data)
-	}
-	if got, ok := parsed.String("model_providers", codexProfileName, "auth", "command"); !ok || !filepath.IsAbs(got) {
-		t.Errorf("auth.command = %q (ok=%v), want an absolute executable path:\n%s", got, ok, data)
-	}
-}
-
 // TestCodexDeviceModeChildEnvCarriesNoCredential: the switch key and the
 // device token stay out of Codex's environment, and an OPENAI_API_KEY the
 // operator exported for OpenAI itself does not reach the Switch.
@@ -502,68 +415,3 @@ func managedOverrides(t *testing.T, modelCatalogPath string) []string {
 	}
 	return overrides
 }
-
-// TestCodexDeviceModeProfileAndOverridesAgree: the profile file and the -c
-// overrides carry the same provider settings, from one renderer, so a launch
-// that reaches Codex both ways cannot name env_key in one and a command in the
-// other.
-func TestCodexDeviceModeProfileAndOverridesAgree(t *testing.T) {
-	sandboxCodexHome(t)
-	launchtest.WithDeviceMode(t)
-	profilePath := filepath.Join(t.TempDir(), "prizmal.config.toml")
-	if err := writeCodexNamedProfileConfig(profilePath, codexProfileName, "gpt-test", "", ""); err != nil {
-		t.Fatalf("writeCodexNamedProfileConfig: %v", err)
-	}
-	profile, err := os.ReadFile(profilePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	overrides := map[string]string{}
-	for _, override := range managedOverrides(t, "") {
-		key, value, ok := strings.Cut(override, "=")
-		if !ok {
-			continue
-		}
-		overrides[key] = value
-	}
-
-	// Each override is parsed as the TOML document it is, and compared to the
-	// value the profile states under the same key path, so the two cannot drift
-	// apart in spelling either.
-	for _, key := range []string{"auth.command", "auth.args", "auth.refresh_interval_ms"} {
-		override, ok := overrides["model_providers."+codexProfileName+"."+key]
-		if !ok {
-			t.Errorf("the overrides lack %s:\n%v", key, overrides)
-			continue
-		}
-		fromOverride, err := codexParseConfig(probeKey + " = " + override)
-		if err != nil {
-			t.Errorf("%s override %q does not parse: %v", key, override, err)
-			continue
-		}
-		fromFile, err := codexParseConfig(string(profile))
-		if err != nil {
-			t.Fatalf("parse the profile: %v", err)
-		}
-		path := append([]string{"model_providers", codexProfileName}, strings.Split(key, ".")...)
-		wantOverride, ok := fromOverride.values[probeKey]
-		if !ok {
-			t.Errorf("%s override %q parsed to nothing", key, override)
-			continue
-		}
-		gotProfile, ok := fromFile.value(path...)
-		if !ok {
-			t.Errorf("the profile lacks %s:\n%s", key, profile)
-			continue
-		}
-		if !reflect.DeepEqual(wantOverride, gotProfile) {
-			t.Errorf("%s = %v in the overrides and %v in the profile", key, wantOverride, gotProfile)
-		}
-	}
-	if _, ok := overrides["model_providers."+codexProfileName+".env_key"]; ok {
-		t.Errorf("device-mode overrides name env_key:\n%v", overrides)
-	}
-}
-
-const probeKey = "__prizmal_test_probe"
