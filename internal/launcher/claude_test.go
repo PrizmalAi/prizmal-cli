@@ -229,8 +229,8 @@ func TestClaudeChildEnvDeviceModeHasNoAuthToken(t *testing.T) {
 	if got := envValue(env, "ANTHROPIC_API_KEY="); got != "" {
 		t.Fatalf("ANTHROPIC_API_KEY = %q, want empty in device mode", got)
 	}
-	if got := envValue(env, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS="); got != strconv.Itoa(claudeHelperTTLMs) {
-		t.Fatalf("CLAUDE_CODE_API_KEY_HELPER_TTL_MS = %q, want %d", got, claudeHelperTTLMs)
+	if got := envValue(env, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS="); got != strconv.Itoa(ClaudeHelperTTLMs) {
+		t.Fatalf("CLAUDE_CODE_API_KEY_HELPER_TTL_MS = %q, want %d", got, ClaudeHelperTTLMs)
 	}
 }
 
@@ -667,18 +667,18 @@ func TestClaudeModelOverridesNameEachTiersProfileFirst(t *testing.T) {
 		}
 	}
 
-	for tier, profile := range tierProfiles {
-		alias := claudeModelName(claudeTierModel(tier))
+	for tier, profile := range TierProfiles {
+		alias := claudeModelName(ClaudeTierModel(tier))
 		if !profileInLineage(tier) {
 			// The session on this alias must miss the overrides, so that
 			// Claude Code reads the row's behavesAs instead.
 			if got, ok := firstKey[alias]; ok {
-				t.Errorf("modelOverrides maps %q to %s, so a session on the alias runs as %s instead of %s", got, alias, got, profile.behavesAs)
+				t.Errorf("modelOverrides maps %q to %s, so a session on the alias runs as %s instead of %s", got, alias, got, profile.BehavesAs)
 			}
 			continue
 		}
-		if got := firstKey[alias]; got != profile.behavesAs {
-			t.Errorf("first modelOverrides key for %s = %q, want %q, the id its rows behave as", alias, got, profile.behavesAs)
+		if got := firstKey[alias]; got != profile.BehavesAs {
+			t.Errorf("first modelOverrides key for %s = %q, want %q, the id its rows behave as", alias, got, profile.BehavesAs)
 		}
 	}
 }
@@ -715,11 +715,11 @@ func TestClaudeModelOverridesCarryTheirTiersSuffix(t *testing.T) {
 	overrides := claudeModelOverrides()
 
 	for key, value := range overrides {
-		if !strings.HasSuffix(value, oneMillionSuffix) {
-			t.Errorf("modelOverrides[%q] = %q, want it to end in %s", key, value, oneMillionSuffix)
+		if !strings.HasSuffix(value, OneMillionSuffix) {
+			t.Errorf("modelOverrides[%q] = %q, want it to end in %s", key, value, OneMillionSuffix)
 		}
-		if strings.Count(value, oneMillionSuffix) != 1 {
-			t.Errorf("modelOverrides[%q] = %q, want exactly one %s", key, value, oneMillionSuffix)
+		if strings.Count(value, OneMillionSuffix) != 1 {
+			t.Errorf("modelOverrides[%q] = %q, want exactly one %s", key, value, OneMillionSuffix)
 		}
 	}
 }
@@ -770,7 +770,7 @@ func TestClaudeSettingsRowModelsAreNotTheirProfiles(t *testing.T) {
 		t.Fatalf("picker options = %d, want %d: %s", len(got.ModelPicker.Options), len(want), settings)
 	}
 	for _, option := range got.ModelPicker.Options {
-		model := strings.TrimSuffix(option.Model, oneMillionSuffix)
+		model := strings.TrimSuffix(option.Model, OneMillionSuffix)
 		tier, ok := want[model]
 		if !ok {
 			t.Errorf("row sends model %q, which is not one of the catalog's ids", option.Model)
@@ -895,7 +895,7 @@ func TestClaudeLaunchSpellsATieredConfigAsItsRow(t *testing.T) {
 func TestEnsureHelperBaseURLPinsTheResolvedHost(t *testing.T) {
 	env := []string{"PATH=/usr/bin", "ANTHROPIC_BASE_URL=https://api.staging.prizmal.ai"}
 
-	got := ensureHelperBaseURL(env, "https://api.staging.prizmal.ai")
+	got := EnsureHelperBaseURL(env, "https://api.staging.prizmal.ai")
 	if v := envValue(got, envconfig.EnvVar+"="); v != "https://api.staging.prizmal.ai" {
 		t.Fatalf("%s = %q, want the resolved host pinned for the helper", envconfig.EnvVar, v)
 	}
@@ -903,7 +903,7 @@ func TestEnsureHelperBaseURLPinsTheResolvedHost(t *testing.T) {
 	// An operator's own exported URL is already the host the child resolves, so
 	// the pin does not add a second entry.
 	withEnv := append([]string{envconfig.EnvVar + "=https://operator.example.test"}, env...)
-	got2 := ensureHelperBaseURL(withEnv, "https://api.staging.prizmal.ai")
+	got2 := EnsureHelperBaseURL(withEnv, "https://api.staging.prizmal.ai")
 	count := 0
 	for _, name := range envNames(got2) {
 		if name == envconfig.EnvVar {

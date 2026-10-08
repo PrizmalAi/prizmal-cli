@@ -73,9 +73,9 @@ func newCountingSwitch(t *testing.T, body string, calls *int, status ...int) str
 
 func capsOf(t *testing.T, models []LaunchModel, name string) []model.Capability {
 	t.Helper()
-	m, ok := findLaunchModel(models, name)
+	m, ok := FindLaunchModel(models, name)
 	if !ok {
-		t.Fatalf("no model %q in %v", name, launchModelNames(models))
+		t.Fatalf("no model %q in %v", name, LaunchModelNames(models))
 	}
 	return m.Capabilities
 }
@@ -87,7 +87,7 @@ func TestParseSwitchCatalogMapsInputModalities(t *testing.T) {
 		t.Fatalf("parseSwitchCatalog: %v", err)
 	}
 	if len(models) != 4 {
-		t.Fatalf("parsed %d models, want 4: %v", len(models), launchModelNames(models))
+		t.Fatalf("parsed %d models, want 4: %v", len(models), LaunchModelNames(models))
 	}
 
 	vision := capsOf(t, models, "vision-model")
@@ -351,7 +351,7 @@ func TestFindSwitchCatalogModelMatchesAcrossOneMillionSuffix(t *testing.T) {
 	} {
 		entry, ok := findSwitchCatalogModel(catalog, tc.launch)
 		if !ok {
-			t.Errorf("findSwitchCatalogModel(%q) found nothing; catalog ids: %v", tc.launch, launchModelNames(catalog))
+			t.Errorf("findSwitchCatalogModel(%q) found nothing; catalog ids: %v", tc.launch, LaunchModelNames(catalog))
 			continue
 		}
 		if !slices.Equal(entry.Capabilities, tc.want) {

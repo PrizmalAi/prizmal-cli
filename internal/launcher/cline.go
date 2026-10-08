@@ -83,7 +83,7 @@ func ensureClineInstalled() (string, error) {
 		return "", fmt.Errorf("cline was installed but the binary was not found on PATH\n\nYou may need to restart your shell")
 	}
 
-	fmt.Fprintf(os.Stderr, "%sCline installed successfully%s\n\n", ansiGreen, ansiReset)
+	fmt.Fprintf(os.Stderr, "%sCline installed successfully%s\n\n", AnsiGreen, AnsiReset)
 	return "cline", nil
 }
 
@@ -376,8 +376,8 @@ func clineRestoreProviders(configPath string) (RestoreOutcome, error) {
 	var put []string
 	if lastUsed, _ := config["lastUsedProvider"].(string); removed[lastUsed] {
 		delete(config, "lastUsedProvider")
-		previous := preLaunchCopy("cline", "providers.json", clineProvidersPointAtPrizmal)
-		put = reinstate(config, previous, "lastUsedProvider")
+		previous := PreLaunchCopy("cline", "providers.json", clineProvidersPointAtPrizmal)
+		put = Reinstate(config, previous, "lastUsedProvider")
 		changed = true
 	}
 
@@ -474,8 +474,8 @@ func clineRestoreLegacyGlobalState(configPath string) (RestoreOutcome, error) {
 	if len(cleared) == 0 {
 		return RestoreOutcome{}, nil
 	}
-	previous := preLaunchCopy("cline", "globalState.json", clineGlobalStatePointsAtPrizmal)
-	put := reinstate(config, previous, cleared...)
+	previous := PreLaunchCopy("cline", "globalState.json", clineGlobalStatePointsAtPrizmal)
+	put := Reinstate(config, previous, cleared...)
 
 	if err := clineWriteJSONFile(configPath, config); err != nil {
 		return RestoreOutcome{}, err
@@ -524,9 +524,9 @@ func clineManagedBaseURL(value any, host string) bool {
 // clineReadExistingConfig returns nil, nil when the file is absent — there is
 // nothing to restore — and an error only when it exists but cannot be used.
 func clineReadExistingConfig(configPath string) (map[string]any, error) {
-	return readJSONFile(configPath)
+	return ReadJSONFile(configPath)
 }
 
 func clineWriteJSONFile(configPath string, config map[string]any) error {
-	return writeJSONFile0600(configPath, config)
+	return WriteJSONFile0600(configPath, config)
 }

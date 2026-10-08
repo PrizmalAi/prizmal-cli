@@ -59,7 +59,7 @@ type switchCatalogEntry struct {
 // by, so stripping it would print a name that resolves to a different model
 // than the one listed.
 func (e switchCatalogEntry) routableName() string {
-	return strings.TrimSuffix(e.ID, oneMillionSuffix)
+	return strings.TrimSuffix(e.ID, OneMillionSuffix)
 }
 
 // oneMillionContext is the window a [1m] id declares.
@@ -68,7 +68,7 @@ const oneMillionContext = 1_000_000
 // contextLength is the 1M window the Switch publishes by decorating the id
 // with [1m], and zero when the id carries no suffix.
 func (e switchCatalogEntry) contextLength() int {
-	if strings.HasSuffix(e.ID, oneMillionSuffix) {
+	if strings.HasSuffix(e.ID, OneMillionSuffix) {
 		return oneMillionContext
 	}
 	return 0
@@ -119,7 +119,7 @@ func capabilitiesFromModalities(modalities []string) []model.Capability {
 // that is not one of the Claude tiers.
 func knownTier(tier string) string {
 	tier = strings.ToLower(strings.TrimSpace(tier))
-	if _, ok := tierProfiles[modelTier(tier)]; ok {
+	if _, ok := TierProfiles[ModelTier(tier)]; ok {
 		return tier
 	}
 	return ""
@@ -248,7 +248,7 @@ func fetchSwitchCatalog(ctx context.Context) ([]LaunchModel, error) {
 // tolerating the implicit :latest tag the way the rest of the launcher does.
 func findSwitchCatalogModel(catalog []LaunchModel, name string) (LaunchModel, bool) {
 	for _, entry := range catalog {
-		if launchModelMatches(entry.Name, name) {
+		if LaunchModelMatches(entry.Name, name) {
 			return entry, true
 		}
 	}

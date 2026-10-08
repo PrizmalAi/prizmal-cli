@@ -118,13 +118,13 @@ func (c *Claude) Run(model string, models []LaunchModel, args []string) error {
 
 	env := claudeChildEnv(model, rows)
 	if envconfig.DeviceMode() {
-		env = ensureHelperBaseURL(env, envconfig.BaseURL())
+		env = EnsureHelperBaseURL(env, envconfig.BaseURL())
 	}
 	cmd.Env = env
 	return cmd.Run()
 }
 
-// ensureHelperBaseURL makes sure the Switch URL this launch resolved is in the
+// EnsureHelperBaseURL makes sure the Switch URL this launch resolved is in the
 // child environment, so the apiKeyHelper Claude Code spawns refreshes against
 // the same host.
 //
@@ -135,7 +135,7 @@ func (c *Claude) Run(model string, models []LaunchModel, args []string) error {
 // launch's own Switch cannot use. Pinning the launch's resolved URL removes
 // that fallback. A config-file URL needs no pin, because the helper reads the
 // same file.
-func ensureHelperBaseURL(env []string, baseURL string) []string {
+func EnsureHelperBaseURL(env []string, baseURL string) []string {
 	if baseURL == "" {
 		return env
 	}
@@ -147,12 +147,12 @@ func ensureHelperBaseURL(env []string, baseURL string) []string {
 	return append(env, envconfig.EnvVar+"="+baseURL)
 }
 
-// claudeHelperTTLMs is the interval Claude Code re-runs the apiKeyHelper on, in
+// ClaudeHelperTTLMs is the interval Claude Code re-runs the apiKeyHelper on, in
 // milliseconds: 4 minutes. The device token expires 10 minutes after issue, so
 // a background refresh starts with at least 6 minutes still on the token in
 // hand. Claude Code's own default is 5 minutes, which would refresh with only
 // 5 minutes left; 4 minutes buys the margin a laptop sleep spends.
-const claudeHelperTTLMs = 240000
+const ClaudeHelperTTLMs = 240000
 
 // apiKeyHelperCommand is the settings value that tells Claude Code to fetch its
 // credential from this binary: the quoted executable path followed by the
@@ -254,7 +254,7 @@ func (c *Claude) envVars() []string {
 		// The helper refreshes the device token 4 minutes before it would
 		// otherwise expire, with 6 minutes still on the token in hand: enough
 		// for the background refresh a laptop sleep interrupts.
-		env = append(env, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS="+strconv.Itoa(claudeHelperTTLMs))
+		env = append(env, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS="+strconv.Itoa(ClaudeHelperTTLMs))
 	}
 	return env
 }
@@ -344,17 +344,17 @@ func claudeChildEnv(model string, rows []ModelRow) []string {
 	// leaves them on the session model, which is Claude Code's "inherit"
 	// default. There is no settings-JSON equivalent, so this variable is the
 	// only channel that gives subagents a different model than the parent.
-	if sub := selectedSubagentModel(); sub != "" {
+	if sub := SelectedSubagentModel(); sub != "" {
 		env = append(env, "CLAUDE_CODE_SUBAGENT_MODEL="+claudeModelName(sub))
 	}
 
 	return env
 }
 
-// oneMillionSuffix is Claude Code's own context-budgeting instruction. It is
+// OneMillionSuffix is Claude Code's own context-budgeting instruction. It is
 // not part of any model id: Claude Code strips the suffix from the name before
 // it sends the request and budgets a 1M context window for that name.
-const oneMillionSuffix = "[1m]"
+const OneMillionSuffix = "[1m]"
 
 // claudeModelName returns the model name to hand Claude Code: the switch's own
 // name with exactly one [1m] suffix, or none for a tier without a 1M window,
@@ -379,27 +379,27 @@ func claudeModelName(model string) string {
 	// shell export may carry one, and suffixes must not accumulate.
 	bare := model
 	for {
-		stripped := strings.TrimSuffix(bare, oneMillionSuffix)
+		stripped := strings.TrimSuffix(bare, OneMillionSuffix)
 		if stripped == bare {
 			break
 		}
 		bare = stripped
 	}
-	if tier, ok := inferTier(bare); ok && !tierProfiles[tier].oneMillion {
+	if tier, ok := InferTier(bare); ok && !TierProfiles[tier].OneMillion {
 		return bare
 	}
-	return bare + oneMillionSuffix
+	return bare + OneMillionSuffix
 }
 
 // claudeRowModelName is claudeModelName for a picker row, whose tier may come
 // from the Switch rather than from its name. A row's tier decides its window.
 func claudeRowModelName(row ModelRow) string {
-	if row.tier == "" {
+	if row.Tier == "" {
 		return claudeModelName(row.Model)
 	}
-	bare := strings.TrimSuffix(claudeModelName(row.Model), oneMillionSuffix)
-	if tierProfiles[row.tier].oneMillion {
-		return bare + oneMillionSuffix
+	bare := strings.TrimSuffix(claudeModelName(row.Model), OneMillionSuffix)
+	if TierProfiles[row.Tier].OneMillion {
+		return bare + OneMillionSuffix
 	}
 	return bare
 }
@@ -408,7 +408,7 @@ func claudeRowModelName(row ModelRow) string {
 // does, so the session model is one of the rows and runs with that row's
 // window. A model with no row is spelled from its name.
 func claudeLaunchModelName(model string, rows []ModelRow) string {
-	bare := strings.TrimSuffix(claudeModelName(model), oneMillionSuffix)
+	bare := strings.TrimSuffix(claudeModelName(model), OneMillionSuffix)
 	for _, row := range rows {
 		if row.Model == bare {
 			return claudeRowModelName(row)
@@ -495,12 +495,12 @@ func claudeSettingsJSON(model string, rows []ModelRow) (string, error) {
 // resolves a tier to them either.
 func claudeModelOverrides() map[string]string {
 	overrides := make(map[string]string)
-	for tier, ids := range claudeFamilyIDs {
+	for tier, ids := range ClaudeFamilyIDs {
 		if !profileInLineage(tier) {
 			continue
 		}
 		for _, id := range ids {
-			overrides[id] = claudeModelName(claudeTierModel(tier))
+			overrides[id] = claudeModelName(ClaudeTierModel(tier))
 		}
 	}
 	return overrides
@@ -508,8 +508,8 @@ func claudeModelOverrides() map[string]string {
 
 // profileInLineage reports whether a tier's rows behave as a model of the
 // tier's own lineage.
-func profileInLineage(tier modelTier) bool {
-	return slices.Contains(claudeFamilyIDs[tier], tierProfiles[tier].behavesAs)
+func profileInLineage(tier ModelTier) bool {
+	return slices.Contains(ClaudeFamilyIDs[tier], TierProfiles[tier].BehavesAs)
 }
 
 // modelOverride is one modelOverrides entry.
@@ -555,12 +555,12 @@ func (o orderedModelOverrides) MarshalJSON() ([]byte, error) {
 func claudeOrderedModelOverrides() orderedModelOverrides {
 	overrides := claudeModelOverrides()
 	ordered := make(orderedModelOverrides, 0, len(overrides))
-	for _, tier := range tierWords {
+	for _, tier := range TierWords {
 		if !profileInLineage(tier) {
 			continue
 		}
-		profile := tierProfiles[tier].behavesAs
-		ids := append([]string{profile}, slices.DeleteFunc(slices.Clone(claudeFamilyIDs[tier]), func(id string) bool {
+		profile := TierProfiles[tier].BehavesAs
+		ids := append([]string{profile}, slices.DeleteFunc(slices.Clone(ClaudeFamilyIDs[tier]), func(id string) bool {
 			return id == profile
 		})...)
 		for _, id := range ids {
@@ -570,15 +570,15 @@ func claudeOrderedModelOverrides() orderedModelOverrides {
 	return ordered
 }
 
-// claudeFamilyIDs maps each Claude Code model family to the catalog ids a
+// ClaudeFamilyIDs maps each Claude Code model family to the catalog ids a
 // request can resolve to for that family, newest first. The ids are the provider_ids
 // first_party strings from the installed Claude Code binary catalog.
 //
 // The mythos family is absent: it has no tier alias (a request for
 // claude-mythos-5 or -5-1 passes through unmapped, reaching the Switch as the
 // id itself), so no entry belongs here.
-var claudeFamilyIDs = map[modelTier][]string{
-	modelTierOpus: {
+var ClaudeFamilyIDs = map[ModelTier][]string{
+	ModelTierOpus: {
 		"claude-opus-5-5",
 		"claude-opus-5",
 		"claude-opus-4-8",
@@ -588,7 +588,7 @@ var claudeFamilyIDs = map[modelTier][]string{
 		"claude-opus-4-20250514",
 		"claude-opus-4-1-20250805",
 	},
-	modelTierSonnet: {
+	ModelTierSonnet: {
 		"claude-sonnet-5-5",
 		"claude-sonnet-5",
 		"claude-sonnet-4-6",
@@ -597,19 +597,19 @@ var claudeFamilyIDs = map[modelTier][]string{
 		"claude-3-7-sonnet-20250219",
 		"claude-3-5-sonnet-20241022",
 	},
-	modelTierHaiku: {
+	ModelTierHaiku: {
 		"claude-haiku-4-5-20251001",
 		"claude-3-5-haiku-20241022",
 	},
-	modelTierFable: {
+	ModelTierFable: {
 		"claude-fable-5-1",
 		"claude-fable-5",
 	},
 }
 
-// claudeTierModel is the model a tier runs, as the tenant named it.
-func claudeTierModel(tier modelTier) string {
-	return claudeModelPrefix + "tier-" + string(tier)
+// ClaudeTierModel is the model a tier runs, as the tenant named it.
+func ClaudeTierModel(tier ModelTier) string {
+	return ClaudeModelPrefix + "tier-" + string(tier)
 }
 
 // claudeModelPicker is the settings block that defines Claude Code's /model
@@ -691,7 +691,7 @@ func ensureClaudeInstalled() (string, error) {
 		return "", fmt.Errorf("claude was installed but the binary was not found on PATH\n\nYou may need to restart your shell")
 	}
 
-	fmt.Fprintf(os.Stderr, "%sClaude Code installed successfully%s\n\n", ansiGreen, ansiReset)
+	fmt.Fprintf(os.Stderr, "%sClaude Code installed successfully%s\n\n", AnsiGreen, AnsiReset)
 	return path, nil
 }
 

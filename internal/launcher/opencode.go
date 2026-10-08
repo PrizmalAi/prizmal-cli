@@ -136,7 +136,7 @@ func ensureOpenCodeInstalled() (string, error) {
 		return "", fmt.Errorf("opencode was installed but the binary was not found on PATH\n\nYou may need to restart your shell")
 	}
 
-	fmt.Fprintf(os.Stderr, "%sOpenCode installed successfully%s\n\n", ansiGreen, ansiReset)
+	fmt.Fprintf(os.Stderr, "%sOpenCode installed successfully%s\n\n", AnsiGreen, AnsiReset)
 	return opencodePath, nil
 }
 
@@ -200,11 +200,11 @@ func resolveOpenCodeRunModels(primary string, models []LaunchModel, stateModels 
 		if name == "" || hasLaunchModel(resolved, name) {
 			return
 		}
-		if model, ok := findLaunchModel(models, name); ok {
+		if model, ok := FindLaunchModel(models, name); ok {
 			resolved = append(resolved, model)
 			return
 		}
-		resolved = append(resolved, fallbackLaunchModel(name))
+		resolved = append(resolved, FallbackLaunchModel(name))
 	}
 
 	appendModel(primary)
@@ -219,7 +219,7 @@ func resolveOpenCodeRunModels(primary string, models []LaunchModel, stateModels 
 
 func hasLaunchModel(models []LaunchModel, name string) bool {
 	for _, model := range models {
-		if launchModelMatches(model.Name, name) || launchModelMatches(name, model.Name) {
+		if LaunchModelMatches(model.Name, name) || LaunchModelMatches(name, model.Name) {
 			return true
 		}
 	}
@@ -249,7 +249,7 @@ func openCodeStatePath() (string, error) {
 }
 
 func (o *OpenCode) Edit(models []LaunchModel) error {
-	modelList := launchModelNames(models)
+	modelList := LaunchModelNames(models)
 	if len(modelList) == 0 {
 		return nil
 	}

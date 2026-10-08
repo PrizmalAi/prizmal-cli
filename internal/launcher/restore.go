@@ -27,12 +27,12 @@ func (o RestoreOutcome) join(other RestoreOutcome) RestoreOutcome {
 	}
 }
 
-// preLaunchCopy returns the newest backup of an integration's file whose
+// PreLaunchCopy returns the newest backup of an integration's file whose
 // content pointsAtPrizmal rejects: the copy fileutil.WriteWithBackup took
 // before the first launch repointed the file. Later persists back up copies
 // that already point at prizmal, and those are skipped. It is nil when no
 // such copy survives, and Restore then falls back to clearing the pointers.
-func preLaunchCopy(integration, name string, pointsAtPrizmal func(map[string]any) bool) map[string]any {
+func PreLaunchCopy(integration, name string, pointsAtPrizmal func(map[string]any) bool) map[string]any {
 	for _, path := range fileutil.Backups(integration, name) {
 		previous, err := fileutil.ReadJSON(path)
 		if err != nil || pointsAtPrizmal(previous) {
@@ -46,7 +46,7 @@ func preLaunchCopy(integration, name string, pointsAtPrizmal func(map[string]any
 // reinstate puts the named keys of the pre-launch copy back into config. A
 // key the copy holds is set; a key it lacks stays as the caller left it,
 // which is deleted. It returns what it set, as key=value, for the outcome.
-func reinstate(config, previous map[string]any, keys ...string) []string {
+func Reinstate(config, previous map[string]any, keys ...string) []string {
 	var put []string
 	for _, key := range keys {
 		value, ok := previous[key]

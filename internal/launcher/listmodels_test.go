@@ -21,7 +21,7 @@ func TestParseSwitchCatalogStripsTheSuffixOffTheID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseSwitchCatalog: %v", err)
 	}
-	if got := launchModelNames(models); len(got) != 2 || got[0] != "cheap" || got[1] != "opus" {
+	if got := LaunchModelNames(models); len(got) != 2 || got[0] != "cheap" || got[1] != "opus" {
 		t.Fatalf("names = %v, want [cheap opus]", got)
 	}
 }
@@ -38,7 +38,7 @@ func TestParseSwitchCatalogIgnoresALabelOnlyName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseSwitchCatalog: %v", err)
 	}
-	got := launchModelNames(models)
+	got := LaunchModelNames(models)
 	want := []string{"openai/gpt-4o-mini", "anthropic/claude-sonnet-5"}
 	if len(got) != len(want) {
 		t.Fatalf("names = %v, want %v", got, want)
@@ -59,7 +59,7 @@ func TestParseSwitchCatalogFallsBackToTheIDWithoutDecoration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseSwitchCatalog: %v", err)
 	}
-	if got := launchModelNames(models); len(got) != 2 || got[0] != "gpt-4o-mini" || got[1] != "cheap" {
+	if got := LaunchModelNames(models); len(got) != 2 || got[0] != "gpt-4o-mini" || got[1] != "cheap" {
 		t.Fatalf("names = %v, want [gpt-4o-mini cheap]", got)
 	}
 }
@@ -74,7 +74,7 @@ func TestParseSwitchCatalogKeepsARealTagOnTheID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseSwitchCatalog: %v", err)
 	}
-	got := launchModelNames(models)
+	got := LaunchModelNames(models)
 	want := []string{"mymodel:latest", "other:v2"}
 	if len(got) != len(want) {
 		t.Fatalf("names = %v, want %v", got, want)
@@ -93,7 +93,7 @@ func TestParseSwitchCatalogSkipsAnEntryWithNoID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseSwitchCatalog: %v", err)
 	}
-	if got := launchModelNames(models); len(got) != 1 || got[0] != "cheap" {
+	if got := LaunchModelNames(models); len(got) != 1 || got[0] != "cheap" {
 		t.Fatalf("names = %v, want [cheap]", got)
 	}
 }
@@ -105,7 +105,7 @@ func TestParseSwitchCatalogSkipsEntriesWithNoName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseSwitchCatalog: %v", err)
 	}
-	if got := launchModelNames(models); len(got) != 1 || got[0] != "cheap" {
+	if got := LaunchModelNames(models); len(got) != 1 || got[0] != "cheap" {
 		t.Fatalf("names = %v, want [cheap]", got)
 	}
 }

@@ -55,7 +55,7 @@ const (
 	// same reason: the device token lives 10 minutes, and a refresh every 4
 	// leaves at least 6 on the token in hand. Codex's own default of 5
 	// minutes would refresh with only 5 left.
-	codexRefreshIntervalMs = claudeHelperTTLMs
+	codexRefreshIntervalMs = ClaudeHelperTTLMs
 
 	codexRootProfileKey          = "profile"
 	codexRootModelKey            = "model"
@@ -122,7 +122,7 @@ func (c *Codex) Run(model string, models []LaunchModel, args []string) error {
 // `prizmal auth token` for its bearer token, and an OPENAI_API_KEY the operator
 // exported for OpenAI itself is removed so it can neither reach the Switch nor
 // be mistaken for the provider's key. The Switch URL this launch resolved is
-// pinned for the helper, which resolves its own (see ensureHelperBaseURL).
+// pinned for the helper, which resolves its own (see EnsureHelperBaseURL).
 // envVars returns the child environment that carries the provider credential.
 // This is the only channel the key travels on: the generated profile names
 // OPENAI_API_KEY via env_key rather than embedding the key, so nothing
@@ -202,7 +202,7 @@ func codexChildEnv() []string {
 	// The helper is a separate prizmal process that resolves the Switch URL from
 	// scratch, so this launch's resolved host is pinned for it.
 	if envconfig.DeviceMode() {
-		env = ensureHelperBaseURL(env, envconfig.BaseURL())
+		env = EnsureHelperBaseURL(env, envconfig.BaseURL())
 	}
 	return env
 }
@@ -216,7 +216,7 @@ func codexHygieneOverrides() []string {
 		"analytics.enabled=false",
 		"feedback.enabled=false",
 	}
-	if sub := selectedSubagentModel(); sub != "" {
+	if sub := SelectedSubagentModel(); sub != "" {
 		overrides = append(overrides, fmt.Sprintf("review_model=%q", sub))
 	}
 	return overrides
@@ -251,7 +251,7 @@ func ensureCodexInstalled() error {
 	if _, err := exec.LookPath("codex"); err != nil {
 		return fmt.Errorf("codex was installed but the binary was not found on PATH\n\nYou may need to restart your shell")
 	}
-	fmt.Fprintf(os.Stderr, "%sCodex installed successfully%s\n\n", ansiGreen, ansiReset)
+	fmt.Fprintf(os.Stderr, "%sCodex installed successfully%s\n\n", AnsiGreen, AnsiReset)
 	return nil
 }
 
@@ -800,11 +800,11 @@ func codexRootLineHasKey(line, key string) bool {
 }
 
 func codexCatalogModel(modelName string, models []LaunchModel) LaunchModel {
-	if model, ok := findLaunchModel(models, modelName); ok {
+	if model, ok := FindLaunchModel(models, modelName); ok {
 		model.Name = modelName
 		return model.WithCloudLimits()
 	}
-	return fallbackLaunchModel(modelName)
+	return FallbackLaunchModel(modelName)
 }
 
 // codexCatalogModels returns the models Codex's /model picker lists: the
@@ -814,7 +814,7 @@ func codexCatalogModels(modelName string, models []LaunchModel) []LaunchModel {
 	for _, m := range models {
 		// The Claude tier aliases are rows for Claude Code's picker. A folded
 		// model is shown by its tier alias there, so Codex gets the model.
-		if launchModelMatches(m.Name, modelName) || isClaudeTierModel(m.Name) || isReservedModelName(m.Name) {
+		if LaunchModelMatches(m.Name, modelName) || isClaudeTierModel(m.Name) || IsReservedModelName(m.Name) {
 			continue
 		}
 		out = append(out, m.WithCloudLimits())
@@ -823,7 +823,7 @@ func codexCatalogModels(modelName string, models []LaunchModel) []LaunchModel {
 }
 
 func isClaudeTierModel(name string) bool {
-	return slices.ContainsFunc(tierWords, func(t modelTier) bool { return name == claudeTierModel(t) })
+	return slices.ContainsFunc(TierWords, func(t ModelTier) bool { return name == ClaudeTierModel(t) })
 }
 
 // ShowsModelList reports that a launch hands Codex the whole catalog, because

@@ -19,25 +19,25 @@ import (
 // valid and the tenant is reachable, it simply has no models.
 var ErrNoModels = errors.New("this switch key's tenant serves no models")
 
-// modelTier is the Claude Code model family a model is recognised as, from a
+// ModelTier is the Claude Code model family a model is recognised as, from a
 // tier word in its name.
-type modelTier string
+type ModelTier string
 
 const (
-	modelTierOpus   modelTier = "opus"
-	modelTierSonnet modelTier = "sonnet"
-	modelTierHaiku  modelTier = "haiku"
-	modelTierFable  modelTier = "fable"
+	ModelTierOpus   ModelTier = "opus"
+	ModelTierSonnet ModelTier = "sonnet"
+	ModelTierHaiku  ModelTier = "haiku"
+	ModelTierFable  ModelTier = "fable"
 )
 
-// tierWords are the tier names a model can be recognised by, in the order they
+// TierWords are the tier names a model can be recognised by, in the order they
 // are tried. A name carrying more than one is pathological; the first match
 // wins and the row still routes by its own model id.
-var tierWords = []modelTier{modelTierOpus, modelTierSonnet, modelTierHaiku, modelTierFable}
+var TierWords = []ModelTier{ModelTierOpus, ModelTierSonnet, ModelTierHaiku, ModelTierFable}
 
-// tierProfile is how Claude Code treats a model of one tier.
-type tierProfile struct {
-	// behavesAs is the first-party id whose client-side handling (prompt
+// TierProfile is how Claude Code treats a model of one tier.
+type TierProfile struct {
+	// BehavesAs is the first-party id whose client-side handling (prompt
 	// profile, capability and effort defaults) Claude Code applies to the
 	// model. Claude Code resolves the field through its own model catalog, so
 	// a tier word would resolve to nothing: the session would warn that the
@@ -48,35 +48,35 @@ type tierProfile struct {
 	// model released before Claude Opus 4.6, Haiku 4.5 among them, so the
 	// haiku tier runs as Sonnet 5 and keeps auto mode. The row still reads "Haiku tier",
 	// and the Switch routes it by its own name.
-	behavesAs string
-	// oneMillion reports whether that model accepts a 1M context window.
+	BehavesAs string
+	// OneMillion reports whether that model accepts a 1M context window.
 	// Claude Code drops a /model row that asks for 1M on a model without one.
-	oneMillion bool
-	// description is the row's text in Claude Code's /model picker, which
+	OneMillion bool
+	// Description is the row's text in Claude Code's /model picker, which
 	// otherwise reads "Custom model (<model>)" whatever behavesAs says.
-	description string
+	Description string
 }
 
-// tierProfiles maps each tier to how Claude Code treats it.
-var tierProfiles = map[modelTier]tierProfile{
-	modelTierOpus:   {behavesAs: "claude-opus-5", oneMillion: true, description: "Opus tier"},
-	modelTierSonnet: {behavesAs: "claude-sonnet-5", oneMillion: true, description: "Sonnet tier"},
-	modelTierHaiku:  {behavesAs: "claude-sonnet-5", oneMillion: true, description: "Haiku tier"},
-	modelTierFable:  {behavesAs: "claude-fable-5-1", oneMillion: true, description: "Fable tier"},
+// TierProfiles maps each tier to how Claude Code treats it.
+var TierProfiles = map[ModelTier]TierProfile{
+	ModelTierOpus:   {BehavesAs: "claude-opus-5", OneMillion: true, Description: "Opus tier"},
+	ModelTierSonnet: {BehavesAs: "claude-sonnet-5", OneMillion: true, Description: "Sonnet tier"},
+	ModelTierHaiku:  {BehavesAs: "claude-sonnet-5", OneMillion: true, Description: "Haiku tier"},
+	ModelTierFable:  {BehavesAs: "claude-fable-5-1", OneMillion: true, Description: "Fable tier"},
 }
 
-// claudeModelPrefix is the decoration the tenant's aliases carry so that
+// ClaudeModelPrefix is the decoration the tenant's aliases carry so that
 // Claude Code's row filter keeps them. It is stripped from a display label
 // only: the id sent to the Switch keeps it, because that is the name that
 // routes.
-const claudeModelPrefix = "claude-"
+const ClaudeModelPrefix = "claude-"
 
-// inferTier reports which tier a model name names, matching the tier words
+// InferTier reports which tier a model name names, matching the tier words
 // anywhere in the name and case-insensitively. A name without one has no tier,
 // which is the common case for a model the tenant named itself.
-func inferTier(name string) (modelTier, bool) {
+func InferTier(name string) (ModelTier, bool) {
 	lower := strings.ToLower(name)
-	for _, tier := range tierWords {
+	for _, tier := range TierWords {
 		if strings.Contains(lower, string(tier)) {
 			return tier, true
 		}
@@ -89,10 +89,10 @@ func inferTier(name string) (modelTier, bool) {
 // operator never chose. A name that is nothing but decoration falls back to
 // the name it came from, so a row is never blank.
 func modelDisplayLabel(name string) string {
-	label := strings.TrimSuffix(name, oneMillionSuffix)
-	if len(label) >= len(claudeModelPrefix) &&
-		strings.EqualFold(label[:len(claudeModelPrefix)], claudeModelPrefix) {
-		label = label[len(claudeModelPrefix):]
+	label := strings.TrimSuffix(name, OneMillionSuffix)
+	if len(label) >= len(ClaudeModelPrefix) &&
+		strings.EqualFold(label[:len(ClaudeModelPrefix)], ClaudeModelPrefix) {
+		label = label[len(ClaudeModelPrefix):]
 	}
 	if label == "" {
 		return name
@@ -109,8 +109,8 @@ type ModelRow struct {
 	BehavesAs   string
 	Description string
 
-	// tier is the row's Claude tier, empty for a model with none.
-	tier modelTier
+	// Tier is the row's Claude tier, empty for a model with none.
+	Tier ModelTier
 }
 
 // reservedModelNames are the placeholder rows the picker never offers.
@@ -130,8 +130,8 @@ const (
 	reservedModelNameLegacy = "prizmal/default"
 )
 
-// isReservedModelName reports whether a catalog name is a placeholder row.
-func isReservedModelName(name string) bool {
+// IsReservedModelName reports whether a catalog name is a placeholder row.
+func IsReservedModelName(name string) bool {
 	return name == reservedModelName || name == reservedModelNameLegacy
 }
 
@@ -154,22 +154,22 @@ func ModelRows(models []LaunchModel) []ModelRow {
 	seen := make(map[string]bool, len(models))
 
 	for _, m := range models {
-		name := strings.TrimSuffix(m.Name, oneMillionSuffix)
-		if name == "" || seen[name] || isReservedModelName(name) || m.FoldedInto != "" {
+		name := strings.TrimSuffix(m.Name, OneMillionSuffix)
+		if name == "" || seen[name] || IsReservedModelName(name) || m.FoldedInto != "" {
 			continue
 		}
 		seen[name] = true
 
 		row := ModelRow{Label: modelDisplayLabel(name), Model: name, Description: m.Description}
-		tier, ok := modelTier(m.Tier), m.Tier != ""
+		tier, ok := ModelTier(m.Tier), m.Tier != ""
 		if !ok {
-			tier, ok = inferTier(name)
+			tier, ok = InferTier(name)
 		}
 		if ok {
-			row.tier = tier
-			row.BehavesAs = tierProfiles[tier].behavesAs
+			row.Tier = tier
+			row.BehavesAs = TierProfiles[tier].BehavesAs
 			if row.Description == "" {
-				row.Description = tierProfiles[tier].description
+				row.Description = TierProfiles[tier].Description
 			}
 		}
 		rows = append(rows, row)
