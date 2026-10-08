@@ -262,7 +262,7 @@ func TestDeviceSettingsJSONAddsHelperToExistingSettings(t *testing.T) {
 // model by alias as the first key, in object order, that maps to it, so a
 // resorted object makes a tier alias run as the oldest model mapped to it.
 func TestDeviceSettingsJSONKeepsTheOverrideKeyOrder(t *testing.T) {
-	settings, err := claudeSettingsJSON("claude-tier-haiku", nil)
+	settings, err := claudeSettingsJSON("claude-tier-haiku", allTierRows())
 	if err != nil {
 		t.Fatalf("claudeSettingsJSON: %v", err)
 	}
@@ -514,7 +514,7 @@ func TestClaudeArgsDoNotMutateTheCallersSlice(t *testing.T) {
 // The settings JSON carries the pinned model, the tier remaps, and the picker
 // rows, with the model's [1m] suffix applied and the rows' labels bare.
 func TestClaudeSettingsJSONShape(t *testing.T) {
-	rows := launch.ModelRows([]launch.LaunchModel{{Name: "claude-tier-haiku"}, {Name: "claude-tier-sonnet"}})
+	rows := launch.ModelRows([]launch.LaunchModel{{Name: "claude-tier-haiku"}, {Name: "claude-tier-sonnet"}, {Name: "claude-tier-opus"}})
 	settings, err := claudeSettingsJSON("claude-tier-haiku", rows)
 	if err != nil {
 		t.Fatalf("claudeSettingsJSON: %v", err)
@@ -543,8 +543,8 @@ func TestClaudeSettingsJSONShape(t *testing.T) {
 	if !got.ModelPicker.ReplaceBuiltInOptions {
 		t.Error("replaceBuiltInOptions is false; built-in rows would appear beside the tenant's")
 	}
-	if len(got.ModelPicker.Options) != 2 {
-		t.Fatalf("picker options = %d, want 2: %s", len(got.ModelPicker.Options), settings)
+	if len(got.ModelPicker.Options) != 3 {
+		t.Fatalf("picker options = %d, want 3: %s", len(got.ModelPicker.Options), settings)
 	}
 	if got.ModelPicker.Options[0].Label != "tier-haiku" {
 		t.Errorf("option label = %q, want tier-haiku (the suffix is stripped for display)", got.ModelPicker.Options[0].Label)
@@ -598,7 +598,7 @@ func TestClaudeModelOverridesKeysAreCanonicalIds(t *testing.T) {
 		"claude-fable-5-1",
 		"claude-fable-5",
 	}
-	overrides := claudeModelOverrides()
+	overrides := claudeModelOverrides(allHeldTiers())
 
 	if len(overrides) != len(wantKeys) {
 		t.Fatalf("modelOverrides has %d entries, want %d: %v", len(overrides), len(wantKeys), wantKeys)
@@ -629,7 +629,7 @@ func TestClaudeModelOverridesKeysAreCanonicalIds(t *testing.T) {
 // session runs on. Sorted keys would put the oldest id first: the haiku alias
 // would run as the retired Claude 3.5 Haiku, and opus as Opus 4.1.
 func TestClaudeModelOverridesNameEachTiersProfileFirst(t *testing.T) {
-	settings, err := claudeSettingsJSON("smart", nil)
+	settings, err := claudeSettingsJSON("smart", allTierRows())
 	if err != nil {
 		t.Fatalf("claudeSettingsJSON: %v", err)
 	}
@@ -681,8 +681,8 @@ func TestClaudeModelOverridesNameEachTiersProfileFirst(t *testing.T) {
 // mapped to an empty model, and a lineage listing an id twice would repeat a
 // JSON key.
 func TestClaudeOrderedModelOverridesMatchTheMapping(t *testing.T) {
-	want := claudeModelOverrides()
-	ordered := claudeOrderedModelOverrides()
+	want := claudeModelOverrides(allHeldTiers())
+	ordered := claudeOrderedModelOverrides(allHeldTiers())
 
 	seen := map[string]bool{}
 	for _, entry := range ordered {
@@ -705,7 +705,7 @@ func TestClaudeOrderedModelOverridesMatchTheMapping(t *testing.T) {
 // value. Without the [1m] suffix it budgets a 200k window and compacts a long
 // session early.
 func TestClaudeModelOverridesCarryTheirTiersSuffix(t *testing.T) {
-	overrides := claudeModelOverrides()
+	overrides := claudeModelOverrides(allHeldTiers())
 
 	for key, value := range overrides {
 		if !strings.HasSuffix(value, launch.OneMillionSuffix) {
@@ -723,7 +723,7 @@ func TestClaudeModelOverridesCarryTheirTiersSuffix(t *testing.T) {
 // run as Haiku 4.5, which Claude Code refuses auto mode to, and would drop
 // the tier's /model row, whose 1M window Haiku 4.5 lacks.
 func TestClaudeModelOverridesCarryNoHaikuKey(t *testing.T) {
-	for key, value := range claudeModelOverrides() {
+	for key, value := range claudeModelOverrides(allHeldTiers()) {
 		if strings.Contains(key, "haiku") {
 			t.Errorf("modelOverrides[%q] = %q, and a haiku key resolves the haiku-tier session to a haiku model", key, value)
 		}
@@ -933,5 +933,64 @@ func TestClaudeChildEnvNeverInheritsAnthropicAuthTokenOutsideDeviceMode(t *testi
 	envconfig.SetAPIKey("")
 	if got := internaltest.EnvValue(claudeChildEnv("", nil), "ANTHROPIC_AUTH_TOKEN="); got != "" {
 		t.Fatalf("ANTHROPIC_AUTH_TOKEN = %q, want empty when no prizmal key is configured", got)
+	}
+}
+
+// allTierRows are the rows of a tenant that holds every Claude tier.
+func allTierRows() []launch.ModelRow {
+	var rows []launch.ModelRow
+	for _, tier := range launch.TierWords() {
+		rows = append(rows, launch.ModelRow{Label: string(tier), Model: launch.ClaudeTierModel(tier), Tier: tier})
+	}
+	return rows
+}
+
+// allHeldTiers is the held set of a tenant that holds every Claude tier.
+func allHeldTiers() map[launch.ModelTier]bool { return claudeHeldTiers(allTierRows()) }
+
+// Claude Code maps its own ids for a tier to the tenant's alias for it. A
+// tenant with no config on the tier has no alias, and the Switch refuses the
+// name, so the launch maps only the tiers the tenant holds.
+func TestClaudeModelOverridesCoverOnlyTheHeldTiers(t *testing.T) {
+	held := claudeHeldTiers(launch.ModelRows([]launch.LaunchModel{{Name: "claude-tier-sonnet"}}))
+	overrides := claudeModelOverrides(held)
+	if len(overrides) == 0 {
+		t.Fatal("a held sonnet tier has no overrides")
+	}
+	for key, value := range overrides {
+		if !strings.HasPrefix(key, "claude-sonnet") && !strings.HasPrefix(key, "claude-3-") {
+			t.Errorf("modelOverrides[%q] = %q, but only the sonnet tier is held", key, value)
+		}
+		if value != "claude-tier-sonnet[1m]" {
+			t.Errorf("modelOverrides[%q] = %q, want the held alias", key, value)
+		}
+	}
+	if got := claudeModelOverrides(nil); len(got) != 0 {
+		t.Errorf("a tenant with no tier got overrides: %v", got)
+	}
+}
+
+// A tier the tenant does not hold has words Claude Code still resolves: the
+// /model alias, a subagent's model, the small model behind the background
+// calls. The launch points each at the launch model, a name the tenant routes,
+// so none resolves to a vendor id the Switch refuses.
+func TestClaudeChildEnvPointsAnUnheldTierAtTheLaunchModel(t *testing.T) {
+	rows := launch.ModelRows([]launch.LaunchModel{{Name: "smart"}, {Name: "flash"}})
+	env := claudeChildEnv("smart", rows)
+	for _, name := range []string{"SONNET", "HAIKU", "FABLE"} {
+		if got := internaltest.EnvValue(env, "ANTHROPIC_DEFAULT_"+name+"_MODEL="); got != "smart[1m]" {
+			t.Errorf("ANTHROPIC_DEFAULT_%s_MODEL = %q, want the launch model smart[1m]", name, got)
+		}
+	}
+}
+
+func TestClaudeChildEnvLeavesAHeldTierToItsAlias(t *testing.T) {
+	rows := launch.ModelRows([]launch.LaunchModel{{Name: "claude-tier-haiku"}, {Name: "smart"}})
+	env := claudeChildEnv("smart", rows)
+	if got := internaltest.EnvValue(env, "ANTHROPIC_DEFAULT_HAIKU_MODEL="); got != "" {
+		t.Errorf("ANTHROPIC_DEFAULT_HAIKU_MODEL = %q for a held tier, want it unset", got)
+	}
+	if got := internaltest.EnvValue(env, "ANTHROPIC_DEFAULT_SONNET_MODEL="); got != "smart[1m]" {
+		t.Errorf("ANTHROPIC_DEFAULT_SONNET_MODEL = %q, want the launch model", got)
 	}
 }

@@ -220,9 +220,23 @@ func runHarnessLaunch(t *testing.T, harness string, mode harnessLaunchKeyMode) {
 			}
 		}
 	}
+	assertEveryModelNameServed(t, recorder)
 	if !strings.Contains(stdout, stubserver.Reply) {
 		t.Fatalf("%s did not print the stub's reply %q on stdout (run error: %v, timed out: %v)\n--- stdout ---\n%s\n--- stderr ---\n%s",
 			harness, stubserver.Reply, runErr, timedOut, tail(stdout, 50), tail(stderr, 50))
+	}
+}
+
+// assertEveryModelNameServed fails when the harness sent the stub a model name
+// that is not a router config or an alias. The stub refuses such a name the
+// way the Switch will once it stops serving the key's bound config for it.
+func assertEveryModelNameServed(t *testing.T, recorder *stubserver.Recorder) {
+	t.Helper()
+	if len(recorder.ModelCalls()) == 0 {
+		t.Error("the harness sent the stub no inference request, so no model name was checked")
+	}
+	if refused := recorder.RefusedModels(); len(refused) > 0 {
+		t.Errorf("the harness sent model names the Switch would refuse: %q", refused)
 	}
 }
 

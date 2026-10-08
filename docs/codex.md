@@ -26,6 +26,10 @@ Codex derives auto-compaction from the context window the catalog declares, 90% 
 
 Subagents run the session model by default. `--subagent-model` gives them a different one. The launch passes it to Codex twice: as `agents.default_subagent_model`, the model a spawned subagent runs when the spawn call names none, and as `review_model`, the model `/review` runs. A spawn call that names its own model still wins. Codex checks the model against the catalog, so the launch lists it in the catalog even when the Switch's model list lacks it.
 
+## Model names
+
+The Switch refuses a model name that is not one of your tenant's router configs or an alias. Codex fills most model settings from the session model, and the launch sets the rest, so every request carries a name your tenant routes. `/review`, compaction, the auto reviewer and spawned subagents run the session model unless `--subagent-model` says otherwise. The memory pipeline defaults to two OpenAI model ids that Codex sends whether or not the catalog lists them, so the launch sets `memories.extract_model` and `memories.consolidation_model` to the launch model. The launch also refuses a `-m` or `--subagent-model` that your tenant does not route.
+
 ## Edit tool
 
 Codex sends its freeform `apply_patch` edit tool only for a model whose catalog entry sets `apply_patch_tool_type` to `"freeform"`. The entry the launch writes sets it, so Codex edits files through `apply_patch` instead of shell commands. The Switch translates the tool for models that can't take a freeform tool.
@@ -126,6 +130,8 @@ Codex runs without its shared background server whenever a launch passes `--prof
 `env_key` names the variable Codex reads the key from, so the key itself never enters the file. `model_catalog_json` points at a catalog file with one entry per model, written as the [catalog entry](#catalog-entry) section shows. Without it Codex has no entry for your model and falls back to its own defaults for the window and the prompt.
 
 To give subagents their own model by hand, add `-c agents.default_subagent_model="your-subagent-model"` and `-c review_model="your-subagent-model"` to the `codex` command, and list that model in the catalog file that `model_catalog_json` names. Codex rejects a subagent model its catalog doesn't list.
+
+To keep the memory pipeline on your model by hand, add `-c memories.extract_model="your-model"` and `-c memories.consolidation_model="your-model"` to the `codex` command.
 
 To get the `apply_patch` edit tool by hand, set `"apply_patch_tool_type": "freeform"` on your model's entry in the catalog file that `model_catalog_json` names.
 

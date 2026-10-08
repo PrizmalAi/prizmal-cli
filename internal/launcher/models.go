@@ -87,30 +87,33 @@ func catalogModels(ctx context.Context) ([]LaunchModel, error) {
 	return modelCatalog.models, nil
 }
 
-// withClaudeTiers puts every Claude tier alias first, then the switch's own
-// entries, so an operator can pick a tier or a named router config.
+// withClaudeTiers puts a Claude tier alias first for each tier the tenant
+// holds, then the switch's own entries, so an operator can pick a tier or a
+// named router config.
 //
 // The switch lists router configs, not the tier aliases its admin writes for
-// each tier. The aliases still route, so the CLI supplies them itself. A tier
-// the switch lists too appears once, in its tier's place, with the
-// capabilities the switch gave it.
+// each tier. A config the switch tags with a tier holds that tier's alias, so
+// the alias routes, and the CLI supplies its row itself. A tier no config
+// holds has no alias: the Switch refuses the name, so no row offers it. A tier
+// the switch lists by its alias name counts as held too.
 //
-// A config the switch tags with a tier holds that tier's alias, so both names
-// route to it. The tier row stands for it: the row takes the config's
-// description and capabilities, and the config is folded out of the rows. The
-// switch gives a tier one holder. Should it send two, only the first is folded,
-// and the other keeps its own row.
+// A held tier appears once, in its tier's place, with the capabilities the
+// switch gave it. The config that holds it is folded out of the rows: the row
+// takes the config's description and capabilities. The switch gives a tier one
+// holder. Should it send two, only the first is folded, and the other keeps
+// its own row.
 func withClaudeTiers(catalog []LaunchModel) []LaunchModel {
 	models := make([]LaunchModel, 0, len(tierWords)+len(catalog))
 	holders := make(map[string]bool, len(tierWords))
 	for _, tier := range tierWords {
 		name := ClaudeTierModel(tier)
-		entry, ok := findSwitchCatalogModel(catalog, name)
-		if !ok {
-			entry = LaunchModel{Name: name}
+		entry, listed := findSwitchCatalogModel(catalog, name)
+		i := slices.IndexFunc(catalog, func(m LaunchModel) bool { return m.Tier == string(tier) })
+		if !listed && i < 0 {
+			continue
 		}
 		entry.Name = name
-		if i := slices.IndexFunc(catalog, func(m LaunchModel) bool { return m.Tier == string(tier) }); i >= 0 {
+		if i >= 0 {
 			holder := catalog[i]
 			holders[holder.Name] = true
 			if entry.Description == "" {
@@ -122,8 +125,9 @@ func withClaudeTiers(catalog []LaunchModel) []LaunchModel {
 		}
 		models = append(models, entry)
 	}
+	tierRows := len(models)
 	for _, entry := range catalog {
-		if slices.ContainsFunc(models[:len(tierWords)], func(tier LaunchModel) bool {
+		if slices.ContainsFunc(models[:tierRows], func(tier LaunchModel) bool {
 			return LaunchModelMatches(entry.Name, tier.Name)
 		}) {
 			continue
@@ -134,6 +138,40 @@ func withClaudeTiers(catalog []LaunchModel) []LaunchModel {
 		models = append(models, entry)
 	}
 	return models
+}
+
+// HoldsTier reports whether the catalog has the tier's alias, which it has
+// when some config holds the tier.
+func HoldsTier(catalog []LaunchModel, tier ModelTier) bool {
+	return slices.ContainsFunc(catalog, func(m LaunchModel) bool {
+		return LaunchModelMatches(m.Name, ClaudeTierModel(tier))
+	})
+}
+
+// CheckRoutable refuses a model name the Switch would refuse. The catalog is
+// the list of names the key routes, the tier aliases the tenant holds among
+// them, so a name outside it is a router config the tenant has no copy of, and
+// the Switch answers it with an error instead of a model.
+//
+// `default` is refused whatever the catalog lists. It names the router config
+// the key is bound to, and the Switch is dropping that binding.
+//
+// An unread catalog passes everything. The launch path reads the catalog on a
+// best effort, and an endpoint that serves no model list is a supported target,
+// so the absence of a list is not evidence of a wrong name.
+func CheckRoutable(name string, catalog []LaunchModel) error {
+	if len(catalog) == 0 || name == "" {
+		return nil
+	}
+	bare := bareLaunchModelName(name)
+	if isReservedModelName(bare) {
+		return fmt.Errorf("model %q names the router config the key is bound to, which the Switch is dropping; "+
+			"run `prizmal --list` for the names it routes", name)
+	}
+	if _, ok := findSwitchCatalogModel(catalog, name); ok {
+		return nil
+	}
+	return fmt.Errorf("model %q is not a name this Switch routes; run `prizmal --list` for the names it does", name)
 }
 
 // BestEffortCatalog returns the tenant's models, or nil when they could not be

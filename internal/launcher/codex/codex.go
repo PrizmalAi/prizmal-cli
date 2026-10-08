@@ -96,7 +96,7 @@ func (c *Codex) args(model, modelCatalogPath string, extra []string) ([]string, 
 	for _, override := range managed {
 		args = append(args, "-c", override)
 	}
-	for _, override := range codexHygieneOverrides() {
+	for _, override := range codexHygieneOverrides(model) {
 		args = append(args, "-c", override)
 	}
 	if model != "" {
@@ -258,14 +258,25 @@ func codexChildEnv() []string {
 	return env
 }
 
-// codexHygieneOverrides are the -c settings that keep a launch quiet: Codex
-// analytics and the feedback upload are off, and --subagent-model, when given,
-// becomes the model Codex uses for /review and for spawned subagents. They travel on the command line, so
-// nothing is written to disk.
-func codexHygieneOverrides() []string {
+// codexHygieneOverrides are the -c settings that keep a launch quiet and keep
+// every model slot on a name the Switch routes. Codex analytics and the
+// feedback upload are off. The memory pipeline's extraction and consolidation
+// models are the launch model: Codex defaults them to OpenAI ids and sends
+// those whether or not the catalog lists them, so an operator who turns
+// memories on would otherwise send the Switch two names it does not route.
+// --subagent-model, when given, becomes the model Codex uses for /review and
+// for spawned subagents. They travel on the command line, so nothing is
+// written to disk.
+func codexHygieneOverrides(model string) []string {
 	overrides := []string{
 		"analytics.enabled=false",
 		"feedback.enabled=false",
+	}
+	if model != "" {
+		overrides = append(overrides,
+			fmt.Sprintf("memories.extract_model=%q", model),
+			fmt.Sprintf("memories.consolidation_model=%q", model),
+		)
 	}
 	if sub := launch.SelectedSubagentModel(); sub != "" {
 		overrides = append(overrides,

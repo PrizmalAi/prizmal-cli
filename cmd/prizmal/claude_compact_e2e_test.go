@@ -212,9 +212,11 @@ func TestClaudeCompactsOnTheStatedWindowAndOnARecognizedRefusal(t *testing.T) {
 			if tc.refusal != "" {
 				plan.OverflowAbove(1_000_000, tc.refusal)
 			}
+			rec := &stubserver.Recorder{}
 			srv := stubserver.NewServer(
 				stubserver.WithModels("stub-model"),
 				stubserver.WithUsagePlan(plan),
+				stubserver.WithRecorder(rec),
 			)
 			t.Cleanup(srv.Close)
 
@@ -293,6 +295,10 @@ func TestClaudeCompactsOnTheStatedWindowAndOnARecognizedRefusal(t *testing.T) {
 			if requests < 3 {
 				t.Fatalf("the conversation did not reach the third turn: %d requests\n--- turn1 stderr ---\n%s\n--- turn2 stderr ---\n%s\n--- turn3 stdout ---\n%s\n--- turn3 stderr ---\n%s", requests, tail(stderr1, 30), tail(stderr2, 30), tail(stdout3, 30), tail(stderr3, 30))
 			}
+
+			// The compaction request is a request like the others: it names the
+			// session model, a name the tenant routes.
+			assertServed(t, rec)
 
 			markerIndex := -1
 			for i, body := range plan.Bodies() {

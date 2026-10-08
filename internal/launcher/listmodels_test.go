@@ -111,14 +111,14 @@ func TestParseSwitchCatalogSkipsEntriesWithNoName(t *testing.T) {
 }
 
 // ListSwitchModels answers the same question the picker does, so the tier
-// aliases the Switch does not list lead the way they lead --pick. The
+// aliases the Switch does not list, for the tiers its configs hold, lead the way they lead --pick. The
 // Switch's own entries keep its order underneath: `default` first and the rest
 // sorted, and re-sorting here would fight that.
-func TestListSwitchModelsOffersEveryClaudeTierFirst(t *testing.T) {
+func TestListSwitchModelsOffersTheHeldClaudeTiersFirst(t *testing.T) {
 	srv, _, _ := switchTestServer(t, `{"data":[
 		{"id":"default[1m]","name":"default"},
-		{"id":"alpha[1m]","name":"alpha"},
-		{"id":"zeta[1m]","name":"zeta"}
+		{"id":"alpha[1m]","name":"alpha","tier":"opus"},
+		{"id":"zeta[1m]","name":"zeta","tier":"haiku"}
 	]}`, http.StatusOK)
 	useSwitch(t, srv.URL, "test-switch-key")
 	ResetModelCatalog()
@@ -128,10 +128,7 @@ func TestListSwitchModelsOffersEveryClaudeTierFirst(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListSwitchModels: %v", err)
 	}
-	want := []string{
-		"claude-tier-opus", "claude-tier-sonnet", "claude-tier-haiku", "claude-tier-fable",
-		"default", "alpha", "zeta",
-	}
+	want := []string{"claude-tier-opus", "claude-tier-haiku", "default", "alpha", "zeta"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("names = %v, want %v", names, want)
 	}

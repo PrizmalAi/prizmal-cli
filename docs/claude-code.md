@@ -17,6 +17,8 @@ A launch states the model twice, in the inline settings JSON and as the `--model
 
 Subagents run the session model by default. `--subagent-model` gives them a different one; there is no settings-JSON equivalent, so that variable is the only channel.
 
+The Switch refuses a model name that is not one of your tenant's router configs or an alias, so every name Claude Code can send has to be one of those. The launch refuses a `--model`, a saved default or a `--subagent-model` that your tenant does not route, and it lists only the tier aliases your tenant holds. Claude Code also turns a tier word (`/model sonnet`, a built-in agent's model, the small model behind background calls) into its own model id. For a tier your tenant holds, `modelOverrides` maps those ids to the alias. For a tier it does not hold, the launch sets `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL` or `ANTHROPIC_DEFAULT_FABLE_MODEL` to the launch model, so the word resolves to a name your tenant routes. `ANTHROPIC_DEFAULT_OPUS_MODEL` is always the launch model.
+
 ## Device login
 
 Claude Code can refresh a device token during a session, so a `prizmal claude` launch runs in device mode on a machine signed in with a device key. The launch adds an `apiKeyHelper` to its inline settings: a command that runs `prizmal auth token`, which prints a fresh device token on stdout. Claude Code re-runs it on the interval `CLAUDE_CODE_API_KEY_HELPER_TTL_MS` sets, four minutes, so a background refresh always starts with at least six minutes left on the token in hand. That margin covers a laptop sleep.
@@ -65,7 +67,7 @@ Pass the model with `--model` and append `[1m]`, so Claude Code budgets the 1M-t
 claude --model 'claude-tier-haiku[1m]'
 ```
 
-Use the alias for the haiku tier, and avoid `--model haiku`. Claude Code reads `haiku` as Claude Haiku 4.5, and it turns auto mode off for every model released before Claude Opus 4.6, Haiku 4.5 among them.
+A tier alias routes only when your tenant assigned a router config to that tier. Without that, the Switch refuses the name. Use the alias for the haiku tier, and avoid `--model haiku`. Claude Code reads `haiku` as Claude Haiku 4.5, and it turns auto mode off for every model released before Claude Opus 4.6, Haiku 4.5 among them.
 
 To get the tier rows in `/model` with the window and model profile `prizmal claude` gives them, save these settings as `prizmal-claude.json`:
 
@@ -83,7 +85,7 @@ To get the tier rows in `/model` with the window and model profile `prizmal clau
 }
 ```
 
-Then add `--settings prizmal-claude.json` to the command. A row's `behavesAs` sets the prompt profile and effort defaults Claude Code applies, and its `description` is the row's text. The haiku row behaves as Sonnet 5 so that auto mode stays on. The Switch routes each request by the row's own model name.
+Include a row only for a tier your tenant holds. Then add `--settings prizmal-claude.json` to the command. A row's `behavesAs` sets the prompt profile and effort defaults Claude Code applies, and its `description` is the row's text. The haiku row behaves as Sonnet 5 so that auto mode stays on. The Switch routes each request by the row's own model name.
 
 ### Auto-compaction
 
@@ -102,5 +104,6 @@ An HTTP 400 `invalid_request_error` whose message reads `prompt is too long: N t
 `prizmal claude` adds a few things this command leaves out:
 
 - The `/model` menu lists every model your switch key routes to. Without the CLI, it lists the rows in your settings file, or Claude Code's built-in list.
+- It sets `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL` and `ANTHROPIC_DEFAULT_FABLE_MODEL` to your model for each tier your tenant does not hold, so a tier word never sends a name the Switch refuses.
 - It removes model variables such as `ANTHROPIC_MODEL` that your shell exports, so they can't change the model a launch runs. It keeps a `CLAUDE_CODE_AUTO_COMPACT_WINDOW` you export when the value is a positive number under 1000000, and sets 1000000 otherwise.
 - It installs Claude Code when the `claude` binary is missing.

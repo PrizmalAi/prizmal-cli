@@ -82,7 +82,7 @@ func TestNoAuthReturns401(t *testing.T) {
 	defer srv.Close()
 
 	// Use a raw client that strips auth headers.
-	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/chat/completions", bytes.NewBufferString(`{"model":"x","messages":[{"role":"user","content":"hi"}]}`))
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/chat/completions", bytes.NewBufferString(`{"model":"prizmal/stub","messages":[{"role":"user","content":"hi"}]}`))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -148,7 +148,7 @@ func TestCountTokensEndpoint(t *testing.T) {
 	srv := New()
 	defer srv.Close()
 
-	resp := postWithAuth(t, srv.URL+"/v1/messages/count_tokens", `{"model":"x","messages":[{"role":"user","content":"hi"}]}`)
+	resp := postWithAuth(t, srv.URL+"/v1/messages/count_tokens", `{"model":"prizmal/stub","messages":[{"role":"user","content":"hi"}]}`)
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("got %d, want 200", resp.StatusCode)
@@ -164,7 +164,7 @@ func TestAuthWithBearer(t *testing.T) {
 	srv := New()
 	defer srv.Close()
 
-	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/chat/completions", bytes.NewBufferString(`{"model":"x","messages":[{"role":"user","content":"hi"}]}`))
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/chat/completions", bytes.NewBufferString(`{"model":"prizmal/stub","messages":[{"role":"user","content":"hi"}]}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+StubKey)
 	resp, err := http.DefaultClient.Do(req)
@@ -181,7 +181,7 @@ func TestAuthWithXAPIKey(t *testing.T) {
 	srv := New()
 	defer srv.Close()
 
-	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/messages", bytes.NewBufferString(`{"model":"x","max_tokens":8,"messages":[{"role":"user","content":"hi"}]}`))
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/messages", bytes.NewBufferString(`{"model":"prizmal/stub","max_tokens":8,"messages":[{"role":"user","content":"hi"}]}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", StubKey)
 	resp, err := http.DefaultClient.Do(req)
@@ -198,7 +198,7 @@ func TestStreamingChatCompletions(t *testing.T) {
 	srv := New()
 	defer srv.Close()
 
-	resp := postWithAuth(t, srv.URL+"/v1/chat/completions", `{"model":"x","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+	resp := postWithAuth(t, srv.URL+"/v1/chat/completions", `{"model":"prizmal/stub","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("got %d, want 200", resp.StatusCode)
@@ -213,7 +213,7 @@ func TestStreamingMessages(t *testing.T) {
 	srv := New()
 	defer srv.Close()
 
-	resp := postWithAuth(t, srv.URL+"/v1/messages", `{"model":"x","max_tokens":8,"stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+	resp := postWithAuth(t, srv.URL+"/v1/messages", `{"model":"prizmal/stub","max_tokens":8,"stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("got %d, want 200", resp.StatusCode)
@@ -287,7 +287,7 @@ func TestResponsesStreamEndsWithCompleted(t *testing.T) {
 	srv := New()
 	defer srv.Close()
 
-	events, data := sseEvents(t, srv.URL+"/v1/responses", `{"model":"smart","input":"hi","stream":true}`)
+	events, data := sseEvents(t, srv.URL+"/v1/responses", `{"model":"prizmal/stub","input":"hi","stream":true}`)
 	if len(events) == 0 || events[len(events)-1] != "response.completed" {
 		t.Fatalf("events = %v, want a stream ending in response.completed", events)
 	}
@@ -300,7 +300,7 @@ func TestMessagesStreamFramesTheTextBlock(t *testing.T) {
 	srv := New()
 	defer srv.Close()
 
-	events, data := sseEvents(t, srv.URL+"/v1/messages", `{"model":"smart","max_tokens":10,"stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+	events, data := sseEvents(t, srv.URL+"/v1/messages", `{"model":"prizmal/stub","max_tokens":10,"stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 	want := []string{"message_start", "content_block_start", "content_block_delta", "content_block_stop", "message_delta", "message_stop"}
 	if len(events) != len(want) {
 		t.Fatalf("events = %v, want %v", events, want)
@@ -319,7 +319,7 @@ func TestChatCompletionsStreamSendsFinishReason(t *testing.T) {
 	srv := New()
 	defer srv.Close()
 
-	_, data := sseEvents(t, srv.URL+"/v1/chat/completions", `{"model":"smart","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+	_, data := sseEvents(t, srv.URL+"/v1/chat/completions", `{"model":"prizmal/stub","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 	if !bytes.Contains([]byte(data), []byte(`"finish_reason":"stop"`)) {
 		t.Fatalf("stream has no finish_reason stop:\n%s", data)
 	}
@@ -692,7 +692,7 @@ func TestUsagePlanRefusesARequestPastTheOverflowLimit(t *testing.T) {
 	statuses := []int{}
 	var refusal map[string]any
 	for range 3 {
-		resp := postWithAuth(t, srv.URL+"/v1/messages", `{"model":"m","messages":[{"role":"user","content":"hi"}]}`)
+		resp := postWithAuth(t, srv.URL+"/v1/messages", `{"model":"prizmal/stub","messages":[{"role":"user","content":"hi"}]}`)
 		statuses = append(statuses, resp.StatusCode)
 		if resp.StatusCode == http.StatusBadRequest {
 			_ = json.NewDecoder(resp.Body).Decode(&refusal)
@@ -707,7 +707,7 @@ func TestUsagePlanRefusesARequestPastTheOverflowLimit(t *testing.T) {
 		t.Fatalf("refusal = %v", refusal)
 	}
 
-	resp := postWithAuth(t, srv.URL+"/v1/messages", `{"model":"m","messages":[{"role":"user","content":"CRITICAL: Respond with TEXT ONLY."}]}`)
+	resp := postWithAuth(t, srv.URL+"/v1/messages", `{"model":"prizmal/stub","messages":[{"role":"user","content":"CRITICAL: Respond with TEXT ONLY."}]}`)
 	_ = resp.Body.Close()
 	if resp.StatusCode != 200 {
 		t.Fatalf("a compaction request got %d, want 200", resp.StatusCode)
@@ -807,12 +807,12 @@ func TestRejectFirstResponseAnswers401Once(t *testing.T) {
 	srv := NewServer(WithRejectFirstResponse())
 	defer srv.Close()
 
-	first := postWithAuth(t, srv.URL+"/v1/responses", `{"model":"m"}`)
+	first := postWithAuth(t, srv.URL+"/v1/responses", `{"model":"prizmal/stub"}`)
 	_ = first.Body.Close()
 	if first.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("first turn = %d, want 401", first.StatusCode)
 	}
-	second := postWithAuth(t, srv.URL+"/v1/responses", `{"model":"m"}`)
+	second := postWithAuth(t, srv.URL+"/v1/responses", `{"model":"prizmal/stub"}`)
 	_ = second.Body.Close()
 	if second.StatusCode != http.StatusOK {
 		t.Fatalf("second turn = %d, want 200", second.StatusCode)
