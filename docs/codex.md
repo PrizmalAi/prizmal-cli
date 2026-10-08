@@ -32,7 +32,7 @@ Codex sends its freeform `apply_patch` edit tool only for a model whose catalog 
 
 ## Catalog entry
 
-Codex reads a model's window, prompt and tools from the catalog that `model_catalog_json` names, and it rejects an entry that lacks a field it requires, with an error such as "missing field `shell_type`". An entry needs `slug`, `display_name`, `description`, `shell_type`, `visibility`, `supported_in_api`, `priority`, `context_window`, `truncation_policy`, `input_modalities`, `supported_reasoning_levels`, `support_verbosity` and `experimental_supported_tools`, and it needs `base_instructions` or `model_messages`.
+Codex reads a model's window, prompt and tools from the catalog that `model_catalog_json` names, and it rejects an entry that lacks a field it requires, with an error such as "missing field `shell_type`". An entry needs `slug`, `display_name`, `shell_type`, `visibility`, `supported_in_api`, `priority`, `truncation_policy`, `supported_reasoning_levels`, `support_verbosity` and `experimental_supported_tools`, and it needs `base_instructions` or `model_messages`. `description`, `context_window`, `input_modalities`, `default_reasoning_level`, `apply_patch_tool_type` and `supports_search_tool` are optional, and a launch writes all of them.
 
 This is the entry a launch writes for one model. The text in `base_instructions` is a note: copy the real prompt from `codex debug models --bundled`, which prints it under the same key for each model.
 
