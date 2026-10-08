@@ -46,10 +46,11 @@ func TestPiReferencesAPIKeyEnv(t *testing.T) {
 }
 
 func TestPiEmptyKeyIsEmptyNotPlaceholder(t *testing.T) {
+	internaltest.ClearCredentialEnv(t)
 	envconfig.SetAPIKey("")
 	key, ollama := piModelsAPIKey(t)
 	if key != piAPIKeyReference {
-		t.Fatalf("empty key: pi provider.prizmal.apiKey = %q, want %q", key, piAPIKeyReference)
+		t.Fatalf("empty key: pi provider.prizmal.apiKey is not the reference %q", piAPIKeyReference)
 	}
 	for field, v := range ollama {
 		if s, ok := v.(string); ok && (s == "ollama" || s == "harness-launch" || s == "ollama-local") {

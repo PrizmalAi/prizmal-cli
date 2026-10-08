@@ -3,6 +3,7 @@ package launch
 import (
 	"context"
 	"errors"
+	"github.com/PrizmalAi/prizmal-cli/internal/internaltest"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -45,6 +46,7 @@ func switchTestServer(t *testing.T, body string, status int) (*httptest.Server, 
 // useSwitch points envconfig at srv with the given key for one test.
 func useSwitch(t *testing.T, url, key string) {
 	t.Helper()
+	internaltest.ClearCredentialEnv(t)
 	envconfig.SetBaseURL(url)
 	envconfig.SetAPIKey(key)
 	t.Cleanup(func() {
