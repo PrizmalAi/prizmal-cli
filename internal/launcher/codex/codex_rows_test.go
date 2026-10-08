@@ -11,8 +11,8 @@ import (
 )
 
 // codexTierCatalog is a catalog as the launch holds it after the tier rows are
-// added: four tier aliases, the router configs folded into them, and one
-// config with no tier.
+// added: four tier aliases, the models folded into them, and one
+// model with no tier.
 var codexTierCatalog = []launch.LaunchModel{
 	{Name: "claude-tier-opus", Description: "A"},
 	{Name: "claude-tier-sonnet"},
@@ -58,7 +58,7 @@ func codexCatalogEntries(t *testing.T, chosen string, models []launch.LaunchMode
 
 // TestCodexCatalogListsTheRowsThePrizmalPickerLists pins one list for both
 // pickers: Codex's /model shows the same rows, in the same order, as the
-// prizmal picker. A tier alias is a row, and the router config folded into it
+// prizmal picker. A tier alias is a row, and the model folded into it
 // is not a second one.
 func TestCodexCatalogListsTheRowsThePrizmalPickerLists(t *testing.T) {
 	models := launch.LaunchModels("claude-tier-opus", codexTierCatalog, true)
@@ -95,7 +95,7 @@ func TestCodexCatalogLabelsRowsLikeThePrizmalPicker(t *testing.T) {
 }
 
 // TestCodexCatalogKeepsTheLaunchedModelWhenNoRowShowsIt covers -m naming a
-// router config that a tier row folds away. Codex reads the launched model's
+// model that a tier row folds away. Codex reads the launched model's
 // entry for its window and prompt, so the entry stays even without a row.
 func TestCodexCatalogKeepsTheLaunchedModelWhenNoRowShowsIt(t *testing.T) {
 	models := launch.LaunchModels("alpha", codexTierCatalog, true)
