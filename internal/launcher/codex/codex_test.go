@@ -28,69 +28,6 @@ func sandboxCodexHome(t *testing.T) string {
 	return d
 }
 
-// TestCodexProfileConfigSourcesKeyFromEnvNotDisk pins the credential channel
-// for codex: the generated profile names the environment variable codex must
-// read (env_key), and carries no literal api_key. prizmal sets that variable
-// on the child at exec, so the key lives for one process instead of forever.
-func TestCodexProfileConfigSourcesKeyFromEnvNotDisk(t *testing.T) {
-	sandboxCodexHome(t)
-	envconfig.SetAPIKey("not-a-real-key-codex-probe")
-	t.Cleanup(func() { envconfig.SetAPIKey("") })
-
-	profilePath := filepath.Join(t.TempDir(), "prizmal.config.toml")
-	if err := writeCodexNamedProfileConfig(profilePath, codexProfileName, "gpt-test", "", ""); err != nil {
-		t.Fatalf("writeCodexNamedProfileConfig: %v", err)
-	}
-
-	data, err := os.ReadFile(profilePath)
-	if err != nil {
-		t.Fatalf("read config: %v", err)
-	}
-	text := string(data)
-	parsed, err := codexParseConfig(text)
-	if err != nil {
-		t.Fatalf("parse config: %v", err)
-	}
-
-	if got, ok := parsed.String("model_providers", codexProfileName, "env_key"); !ok || got != "OPENAI_API_KEY" {
-		t.Fatalf("env_key = %q (ok=%v), want OPENAI_API_KEY", got, ok)
-	}
-	if got, ok := parsed.String("model_providers", codexProfileName, "api_key"); ok {
-		t.Fatalf("api_key = %q is present; the profile must carry no credential at rest", got)
-	}
-	if strings.Contains(text, "not-a-real-key-codex-probe") {
-		t.Fatalf("the provider key appears in the generated profile:\n%s", text)
-	}
-}
-
-// TestCodexProfileConfigNeverWritesPlaceholderKey guards against regressing to
-// the old placeholder credential, and against api_key coming back at all.
-func TestCodexProfileConfigNeverWritesPlaceholderKey(t *testing.T) {
-	sandboxCodexHome(t)
-	envconfig.SetAPIKey("")
-	t.Cleanup(func() { envconfig.SetAPIKey("") })
-
-	profilePath := filepath.Join(t.TempDir(), "prizmal.config.toml")
-	if err := writeCodexNamedProfileConfig(profilePath, codexProfileName, "gpt-test", "", ""); err != nil {
-		t.Fatalf("writeCodexNamedProfileConfig: %v", err)
-	}
-	data, err := os.ReadFile(profilePath)
-	if err != nil {
-		t.Fatalf("read config: %v", err)
-	}
-	text := string(data)
-
-	for _, bad := range []string{
-		"api_key",
-		"OPENAI_API_KEY=harness-launch",
-		"OPENAI_API_KEY=ollama",
-	} {
-		if strings.Contains(text, bad) {
-			t.Fatalf("found %q in config:\n%s", bad, text)
-		}
-	}
-}
-
 // codexContextWindow pulls context_window off a codex catalog entry.
 func codexContextWindow(t *testing.T, entry map[string]any) int {
 	t.Helper()
@@ -383,29 +320,6 @@ func TestCodexKeyModeOverridesKeepEnvKeyAndNoAuth(t *testing.T) {
 	}
 	if strings.Contains(overrides, ".auth.") {
 		t.Errorf("key-mode overrides carry command auth:\n%s", overrides)
-	}
-}
-
-// TestCodexDeviceModeProfileHasCommandAuthAndNoEnvKey: the profile file and
-// the -c overrides merge key by key, so a profile that kept env_key would
-// combine with the command and fail Codex's config validation.
-func TestCodexDeviceModeProfileHasCommandAuthAndNoEnvKey(t *testing.T) {
-	sandboxCodexHome(t)
-	internaltest.WithDeviceMode(t)
-	profilePath := filepath.Join(t.TempDir(), "prizmal.config.toml")
-	if err := writeCodexNamedProfileConfig(profilePath, codexProfileName, "gpt-test", "", ""); err != nil {
-		t.Fatalf("writeCodexNamedProfileConfig: %v", err)
-	}
-	data, _ := os.ReadFile(profilePath)
-	parsed, err := codexParseConfig(string(data))
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	if _, ok := parsed.String("model_providers", codexProfileName, "env_key"); ok {
-		t.Errorf("profile keeps env_key in device mode:\n%s", data)
-	}
-	if got, ok := parsed.String("model_providers", codexProfileName, "auth", "command"); !ok || !filepath.IsAbs(got) {
-		t.Errorf("auth.command = %q (ok=%v), want an absolute executable path:\n%s", got, ok, data)
 	}
 }
 

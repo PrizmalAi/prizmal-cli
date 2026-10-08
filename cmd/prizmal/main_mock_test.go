@@ -644,8 +644,8 @@ func TestMockHarnessRegistryCompleteness(t *testing.T) {
 // TestMockHarnessBareCodexLaunchUsesTheSavedDefault pins the precedence on a
 // launch that names no model. Codex has no model of its own to fall back on,
 // and the reserved prizmal/default name is sunset, so a bare `prizmal codex`
-// must resolve the model the config saved and hand the child that model — both
-// on the command line and in the generated profile.
+// must resolve the model the config saved and hand the child that model on the
+// command line.
 func TestMockHarnessBareCodexLaunchUsesTheSavedDefault(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping subprocess test in short mode")
@@ -686,12 +686,8 @@ func TestMockHarnessBareCodexLaunchUsesTheSavedDefault(t *testing.T) {
 		t.Errorf("codex args = %q, want them to carry -m %s from the saved default", string(argsData), mockLaunchModel)
 	}
 
-	profile, err := os.ReadFile(filepath.Join(home, ".codex", "prizmal.config.toml"))
-	if err != nil {
-		t.Fatalf("generated codex profile missing: %v", err)
-	}
-	if !strings.Contains(string(profile), `model = "`+mockLaunchModel+`"`) {
-		t.Errorf("generated codex profile lacks model = %q:\n%s", mockLaunchModel, profile)
+	if _, err := os.Stat(filepath.Join(home, ".codex", "prizmal.config.toml")); !os.IsNotExist(err) {
+		t.Errorf("the launch left a profile under ~/.codex (stat err = %v)", err)
 	}
 }
 

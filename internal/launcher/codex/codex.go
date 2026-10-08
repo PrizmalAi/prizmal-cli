@@ -69,9 +69,9 @@ func (c *Codex) args(model, modelCatalogPath string, extra []string) ([]string, 
 		return nil, err
 	}
 
-	// Codex falls back to embedded mode for --profile and every -c override and
-	// warns about it in its footer. --no-daemon makes that choice explicit.
-	args := []string{"--no-daemon", "--profile", codexProfileName}
+	// Codex falls back to embedded mode for every -c override and warns about
+	// it in its footer. --no-daemon makes that choice explicit.
+	args := []string{"--no-daemon"}
 	for _, override := range codexManagedConfigOverrides(modelCatalogPath) {
 		args = append(args, "-c", override)
 	}
@@ -93,12 +93,16 @@ func (c *Codex) Run(model string, models []launch.LaunchModel, args []string) er
 		return err
 	}
 
-	if err := ensureCodexConfig(model, models); err != nil {
+	// The catalog is the one thing Codex needs as a file. It goes in a
+	// directory of its own that is removed when the launch returns, so a plain
+	// launch leaves nothing under ~/.codex. Everything else rides -c overrides.
+	catalogDir, err := os.MkdirTemp("", "prizmal-codex-")
+	if err != nil {
 		return fmt.Errorf("failed to configure codex: %w", err)
 	}
-
-	catalogPath, err := codexModelCatalogPath()
-	if err != nil {
+	defer func() { _ = os.RemoveAll(catalogDir) }()
+	catalogPath := filepath.Join(catalogDir, "model.json")
+	if err := writeCodexModelCatalog(catalogPath, codexCatalogModels(model, models)); err != nil {
 		return fmt.Errorf("failed to configure codex: %w", err)
 	}
 
@@ -333,10 +337,6 @@ func removeCodexFile(path string) (bool, error) {
 func codexValidateExtraArgs(args []string) error {
 	for i, arg := range args {
 		switch {
-		case arg == "-p", strings.HasPrefix(arg, "-p"):
-			return fmt.Errorf("conflicting extra argument %q: prizmal codex manages --profile", arg)
-		case arg == "--profile", strings.HasPrefix(arg, "--profile="):
-			return fmt.Errorf("conflicting extra argument %q: prizmal codex manages --profile", arg)
 		case arg == "-m", strings.HasPrefix(arg, "-m"):
 			return fmt.Errorf("conflicting extra argument %q: prizmal codex manages --model", arg)
 		case arg == "--model", strings.HasPrefix(arg, "--model="):
@@ -403,45 +403,12 @@ func codexConfigOverrideConflicts(value string) bool {
 	return false
 }
 
-// ensureCodexConfig writes a Codex profile file and model catalog so Codex uses
-// the launch endpoint without changing app-visible root config.
-func ensureCodexConfig(modelName string, models []launch.LaunchModel) error {
-	configPath, err := codexConfigPath()
-	if err != nil {
-		return err
-	}
-
-	codexDir := filepath.Dir(configPath)
-	if err := os.MkdirAll(codexDir, 0o755); err != nil {
-		return err
-	}
-	if err := cleanupCodexLegacyProfileConfig(configPath); err != nil {
-		return err
-	}
-
-	catalogPath := codexModelCatalogPathForConfig(configPath)
-	if err := writeCodexModelCatalog(catalogPath, codexCatalogModels(modelName, models)); err != nil {
-		return err
-	}
-
-	profilePath := codexProfileConfigPathForConfig(configPath)
-	return writeCodexProfileConfig(profilePath, modelName, catalogPath)
-}
-
 func codexConfigPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(home, ".codex", "config.toml"), nil
-}
-
-func codexModelCatalogPath() (string, error) {
-	configPath, err := codexConfigPath()
-	if err != nil {
-		return "", err
-	}
-	return codexModelCatalogPathForConfig(configPath), nil
 }
 
 func codexModelCatalogPathForConfig(configPath string) string {
@@ -464,154 +431,8 @@ func codexNamedProfileConfigPathForConfig(configPath, profileName string) string
 	return filepath.Join(filepath.Dir(configPath), profileName+".config.toml")
 }
 
-func cleanupCodexLegacyProfileConfig(configPath string) error {
-	content, err := os.ReadFile(configPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	text := string(content)
-	parsed, err := codexParseConfig(text)
-	if err != nil {
-		return err
-	}
-
-	updated := text
-	if profile, ok := parsed.RootStringOK(codexRootProfileKey); ok && profile == codexProfileName {
-		updated = codexRemoveRootValue(updated, codexRootProfileKey)
-	}
-	if parsed.Exists("profiles", codexProfileName) {
-		updated = codexRemoveSection(updated, codexProfileHeader())
-	}
-	if updated == text {
-		return nil
-	}
-	if err := codexValidateConfigText(updated); err != nil {
-		return err
-	}
-	return fileutil.WriteWithBackup(configPath, []byte(updated), "")
-}
-
-// writeCodexProfileConfig ensures ~/.codex/prizmal.config.toml selects
-// the launch provider and catalog for CLI launches without changing root config.
-// The file deliberately carries no api_key: it declares env_key, and Run sets
-// that variable on the child, so the credential never reaches the disk.
-func writeCodexProfileConfig(profilePath, model, modelCatalogPath string) error {
-	return writeCodexNamedProfileConfig(profilePath, codexProfileName, model, modelCatalogPath, "")
-}
-
-func writeCodexNamedProfileConfig(profilePath, profileName, model, modelCatalogPath, backupSubdir string) error {
-	baseURL := codexBaseURL()
-
-	var lines []string
-	if strings.TrimSpace(model) != "" {
-		lines = append(lines, fmt.Sprintf("%s = %q", codexRootModelKey, model))
-	}
-	lines = append(lines, fmt.Sprintf("%s = %q", codexRootModelProviderKey, profileName))
-	if strings.TrimSpace(modelCatalogPath) != "" {
-		lines = append(lines, fmt.Sprintf("%s = %q", codexRootModelCatalogJSONKey, modelCatalogPath))
-	}
-	text := strings.Join(lines, "\n") + "\n\n"
-	providerLines := []string{
-		codexProviderHeaderFor(profileName),
-		fmt.Sprintf("name = %q", codexProviderName),
-		fmt.Sprintf("base_url = %q", baseURL),
-		`wire_api = "responses"`,
-	}
-	if envconfig.DeviceMode() {
-		command, args, err := codexAuthCommand()
-		if err != nil {
-			return err
-		}
-		providerLines = append(providerLines,
-			"",
-			fmt.Sprintf("[model_providers.%s.auth]", profileName),
-			fmt.Sprintf("command = %q", command),
-			fmt.Sprintf("args = %s", codexAuthArgsTOML(args)),
-			fmt.Sprintf("refresh_interval_ms = %d", codexRefreshIntervalMs),
-		)
-	} else {
-		providerLines = append(providerLines, fmt.Sprintf("env_key = %q", "OPENAI_API_KEY"))
-	}
-	text += strings.Join(append(providerLines, ""), "\n")
-
-	parsed, err := codexParseConfig(text)
-	if err != nil {
-		return err
-	}
-	if err := codexValidateProfileConfigText(parsed, profileName, model, modelCatalogPath, baseURL); err != nil {
-		return err
-	}
-
-	if err := os.MkdirAll(filepath.Dir(profilePath), 0o755); err != nil {
-		return err
-	}
-	return fileutil.WriteWithBackup(profilePath, []byte(text), backupSubdir)
-}
-
 func codexBaseURL() string {
 	return strings.TrimRight(envconfig.ConnectableHost().String(), "/") + "/v1/"
-}
-
-func codexProfileHeader() string {
-	return codexProfileHeaderFor(codexProfileName)
-}
-
-func codexProfileHeaderFor(profileName string) string {
-	return fmt.Sprintf("[profiles.%s]", profileName)
-}
-
-func codexProviderHeaderFor(profileName string) string {
-	return fmt.Sprintf("[model_providers.%s]", profileName)
-}
-
-func codexValidateProfileConfigText(config codexParsedConfig, profileName, model, modelCatalogPath, baseURL string) error {
-	if config.Exists("profiles", profileName) {
-		return fmt.Errorf("generated Codex config still contains legacy profiles.%s table", profileName)
-	}
-	for _, check := range []struct {
-		path []string
-		want string
-	}{
-		{[]string{"model_providers", profileName, "name"}, codexProviderName},
-		{[]string{"model_providers", profileName, "base_url"}, baseURL},
-		{[]string{"model_providers", profileName, "wire_api"}, "responses"},
-	} {
-		if got, ok := config.String(check.path...); !ok || got != check.want {
-			return fmt.Errorf("generated Codex config missing %s = %q", strings.Join(check.path, "."), check.want)
-		}
-	}
-	if got, ok := config.RootStringOK(codexRootProfileKey); ok {
-		return fmt.Errorf("generated Codex config still contains legacy profile = %q", got)
-	}
-	if got := config.RootString(codexRootModelProviderKey); got != profileName {
-		return fmt.Errorf("generated Codex config missing model_provider = %q", profileName)
-	}
-	if model != "" {
-		if got := config.RootString(codexRootModelKey); got != model {
-			return fmt.Errorf("generated Codex config missing model = %q", model)
-		}
-	}
-	if modelCatalogPath != "" {
-		if got := config.RootString(codexRootModelCatalogJSONKey); got != modelCatalogPath {
-			return fmt.Errorf("generated Codex config missing model_catalog_json = %q", modelCatalogPath)
-		}
-	}
-	return nil
-}
-
-func codexRemoveSection(text, header string) string {
-	targetPath, ok := codexTableHeaderPath(header)
-	if !ok {
-		return text
-	}
-	start, end, found := codexSectionRange(text, targetPath)
-	if !found {
-		return text
-	}
-	return text[:start] + text[end:]
 }
 
 type codexParsedConfig struct {
@@ -694,112 +515,6 @@ func codexParseConfigText(text string) (map[string]any, error) {
 		return nil, fmt.Errorf("invalid Codex config TOML: %w", err)
 	}
 	return cfg, nil
-}
-
-func codexValidateConfigText(text string) error {
-	_, err := codexParseConfig(text)
-	return err
-}
-
-func codexSectionRange(text string, targetPath []string) (int, int, bool) {
-	lines := strings.SplitAfter(text, "\n")
-	offset := 0
-	start := -1
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if !strings.HasPrefix(trimmed, "[") || strings.HasPrefix(trimmed, "#") {
-			offset += len(line)
-			continue
-		}
-		if start >= 0 {
-			return start, offset, true
-		}
-		if path, ok := codexTableHeaderPath(trimmed); ok && codexSamePath(path, targetPath) {
-			start = offset
-		}
-		offset += len(line)
-	}
-	if start >= 0 {
-		return start, len(text), true
-	}
-	return 0, 0, false
-}
-
-func codexTableHeaderPath(header string) ([]string, bool) {
-	trimmed := strings.TrimSpace(header)
-	if !strings.HasPrefix(trimmed, "[") || strings.HasPrefix(trimmed, "[[") {
-		return nil, false
-	}
-
-	const probeKey = "__prizmal_launch_probe"
-	cfg := map[string]any{}
-	if err := toml.Unmarshal([]byte(trimmed+"\n"+probeKey+" = true\n"), &cfg); err != nil {
-		return nil, false
-	}
-	return codexFindProbePath(cfg, probeKey, nil)
-}
-
-func codexFindProbePath(value any, probeKey string, path []string) ([]string, bool) {
-	table, ok := value.(map[string]any)
-	if !ok {
-		return nil, false
-	}
-	if probe, ok := table[probeKey].(bool); ok && probe {
-		return path, true
-	}
-	for key, child := range table {
-		if key == probeKey {
-			continue
-		}
-		if childPath, ok := codexFindProbePath(child, probeKey, append(path, key)); ok {
-			return childPath, true
-		}
-	}
-	return nil, false
-}
-
-func codexSamePath(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
-func codexRemoveRootValue(text, key string) string {
-	lines := strings.SplitAfter(text, "\n")
-	rootEnd := len(lines)
-	for i, line := range lines {
-		if strings.HasPrefix(strings.TrimSpace(line), "[") {
-			rootEnd = i
-			break
-		}
-	}
-
-	out := make([]string, 0, len(lines))
-	for i, line := range lines {
-		if i < rootEnd {
-			trimmed := strings.TrimSpace(line)
-			if trimmed != "" && !strings.HasPrefix(trimmed, "#") && codexRootLineHasKey(trimmed, key) {
-				continue
-			}
-		}
-		out = append(out, line)
-	}
-	return strings.Join(out, "")
-}
-
-func codexRootLineHasKey(line, key string) bool {
-	cfg := map[string]any{}
-	if err := toml.Unmarshal([]byte(line+"\n"), &cfg); err != nil {
-		return false
-	}
-	_, ok := cfg[key]
-	return ok
 }
 
 func codexCatalogModel(modelName string, models []launch.LaunchModel) launch.LaunchModel {
