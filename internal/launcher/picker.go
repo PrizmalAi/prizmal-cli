@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -30,10 +31,10 @@ const (
 	ModelTierFable  ModelTier = "fable"
 )
 
-// TierWords are the tier names a model can be recognised by, in the order they
+// tierWords are the tier names a model can be recognised by, in the order they
 // are tried. A name carrying more than one is pathological; the first match
 // wins and the row still routes by its own model id.
-var TierWords = []ModelTier{ModelTierOpus, ModelTierSonnet, ModelTierHaiku, ModelTierFable}
+var tierWords = []ModelTier{ModelTierOpus, ModelTierSonnet, ModelTierHaiku, ModelTierFable}
 
 // TierProfile is how Claude Code treats a model of one tier.
 type TierProfile struct {
@@ -57,8 +58,16 @@ type TierProfile struct {
 	Description string
 }
 
-// TierProfiles maps each tier to how Claude Code treats it.
-var TierProfiles = map[ModelTier]TierProfile{
+// TierWords returns the tier names in the order they are tried. The caller gets
+// a copy, so it cannot reorder the list the picker matches against.
+func TierWords() []ModelTier { return slices.Clone(tierWords) }
+
+// ProfileOf returns how Claude Code treats a tier, and the zero profile for a
+// name that is not a tier.
+func ProfileOf(tier ModelTier) TierProfile { return tierProfiles[tier] }
+
+// tierProfiles maps each tier to how Claude Code treats it.
+var tierProfiles = map[ModelTier]TierProfile{
 	ModelTierOpus:   {BehavesAs: "claude-opus-5", OneMillion: true, Description: "Opus tier"},
 	ModelTierSonnet: {BehavesAs: "claude-sonnet-5", OneMillion: true, Description: "Sonnet tier"},
 	ModelTierHaiku:  {BehavesAs: "claude-sonnet-5", OneMillion: true, Description: "Haiku tier"},
@@ -76,7 +85,7 @@ const ClaudeModelPrefix = "claude-"
 // which is the common case for a model the tenant named itself.
 func InferTier(name string) (ModelTier, bool) {
 	lower := strings.ToLower(name)
-	for _, tier := range TierWords {
+	for _, tier := range tierWords {
 		if strings.Contains(lower, string(tier)) {
 			return tier, true
 		}
@@ -130,8 +139,8 @@ const (
 	reservedModelNameLegacy = "prizmal/default"
 )
 
-// IsReservedModelName reports whether a catalog name is a placeholder row.
-func IsReservedModelName(name string) bool {
+// isReservedModelName reports whether a catalog name is a placeholder row.
+func isReservedModelName(name string) bool {
 	return name == reservedModelName || name == reservedModelNameLegacy
 }
 
@@ -155,7 +164,7 @@ func ModelRows(models []LaunchModel) []ModelRow {
 
 	for _, m := range models {
 		name := strings.TrimSuffix(m.Name, OneMillionSuffix)
-		if name == "" || seen[name] || IsReservedModelName(name) || m.FoldedInto != "" {
+		if name == "" || seen[name] || isReservedModelName(name) || m.FoldedInto != "" {
 			continue
 		}
 		seen[name] = true
@@ -167,9 +176,9 @@ func ModelRows(models []LaunchModel) []ModelRow {
 		}
 		if ok {
 			row.Tier = tier
-			row.BehavesAs = TierProfiles[tier].BehavesAs
+			row.BehavesAs = tierProfiles[tier].BehavesAs
 			if row.Description == "" {
-				row.Description = TierProfiles[tier].Description
+				row.Description = tierProfiles[tier].Description
 			}
 		}
 		rows = append(rows, row)

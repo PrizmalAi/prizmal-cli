@@ -225,7 +225,7 @@ func (c *Claude) envVars() []string {
 		// The helper refreshes the device token 4 minutes before it would
 		// otherwise expire, with 6 minutes still on the token in hand: enough
 		// for the background refresh a laptop sleep interrupts.
-		env = append(env, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS="+strconv.Itoa(launch.ClaudeHelperTTLMs))
+		env = append(env, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS="+strconv.Itoa(launch.DeviceTokenRefreshMs))
 	}
 	return env
 }
@@ -300,6 +300,43 @@ func claudeChildEnv(model string, rows []launch.ModelRow) []string {
 	return launch.ChildEnv(claudeInheritedModelVars, fixed)
 }
 
+// claudeFamilyIDs maps each Claude Code model family to the catalog ids a
+// request can resolve to for that family, newest first. The ids are the provider_ids
+// first_party strings from the installed Claude Code binary catalog.
+//
+// The mythos family is absent: it has no tier alias (a request for
+// claude-mythos-5 or -5-1 passes through unmapped, reaching the Switch as the
+// id itself), so no entry belongs here.
+var claudeFamilyIDs = map[launch.ModelTier][]string{
+	launch.ModelTierOpus: {
+		"claude-opus-5-5",
+		"claude-opus-5",
+		"claude-opus-4-8",
+		"claude-opus-4-7",
+		"claude-opus-4-6",
+		"claude-opus-4-5-20251101",
+		"claude-opus-4-20250514",
+		"claude-opus-4-1-20250805",
+	},
+	launch.ModelTierSonnet: {
+		"claude-sonnet-5-5",
+		"claude-sonnet-5",
+		"claude-sonnet-4-6",
+		"claude-sonnet-4-5-20250929",
+		"claude-sonnet-4-20250514",
+		"claude-3-7-sonnet-20250219",
+		"claude-3-5-sonnet-20241022",
+	},
+	launch.ModelTierHaiku: {
+		"claude-haiku-4-5-20251001",
+		"claude-3-5-haiku-20241022",
+	},
+	launch.ModelTierFable: {
+		"claude-fable-5-1",
+		"claude-fable-5",
+	},
+}
+
 // claudeModelName returns the model name to hand Claude Code: the switch's own
 // name with exactly one [1m] suffix, or none for a tier without a 1M window,
 // whatever the switch sent. Every trailing suffix is stripped first, so the result does not
@@ -329,7 +366,7 @@ func claudeModelName(model string) string {
 		}
 		bare = stripped
 	}
-	if tier, ok := launch.InferTier(bare); ok && !launch.TierProfiles[tier].OneMillion {
+	if tier, ok := launch.InferTier(bare); ok && !launch.ProfileOf(tier).OneMillion {
 		return bare
 	}
 	return bare + launch.OneMillionSuffix
@@ -342,7 +379,7 @@ func claudeRowModelName(row launch.ModelRow) string {
 		return claudeModelName(row.Model)
 	}
 	bare := strings.TrimSuffix(claudeModelName(row.Model), launch.OneMillionSuffix)
-	if launch.TierProfiles[row.Tier].OneMillion {
+	if launch.ProfileOf(row.Tier).OneMillion {
 		return bare + launch.OneMillionSuffix
 	}
 	return bare
@@ -439,7 +476,7 @@ func claudeSettingsJSON(model string, rows []launch.ModelRow) (string, error) {
 // resolves a tier to them either.
 func claudeModelOverrides() map[string]string {
 	overrides := make(map[string]string)
-	for tier, ids := range launch.ClaudeFamilyIDs {
+	for tier, ids := range claudeFamilyIDs {
 		if !profileInLineage(tier) {
 			continue
 		}
@@ -453,7 +490,7 @@ func claudeModelOverrides() map[string]string {
 // profileInLineage reports whether a tier's rows behave as a model of the
 // tier's own lineage.
 func profileInLineage(tier launch.ModelTier) bool {
-	return slices.Contains(launch.ClaudeFamilyIDs[tier], launch.TierProfiles[tier].BehavesAs)
+	return slices.Contains(claudeFamilyIDs[tier], launch.ProfileOf(tier).BehavesAs)
 }
 
 // modelOverride is one modelOverrides entry.
@@ -499,12 +536,12 @@ func (o orderedModelOverrides) MarshalJSON() ([]byte, error) {
 func claudeOrderedModelOverrides() orderedModelOverrides {
 	overrides := claudeModelOverrides()
 	ordered := make(orderedModelOverrides, 0, len(overrides))
-	for _, tier := range launch.TierWords {
+	for _, tier := range launch.TierWords() {
 		if !profileInLineage(tier) {
 			continue
 		}
-		profile := launch.TierProfiles[tier].BehavesAs
-		ids := append([]string{profile}, slices.DeleteFunc(slices.Clone(launch.ClaudeFamilyIDs[tier]), func(id string) bool {
+		profile := launch.ProfileOf(tier).BehavesAs
+		ids := append([]string{profile}, slices.DeleteFunc(slices.Clone(claudeFamilyIDs[tier]), func(id string) bool {
 			return id == profile
 		})...)
 		for _, id := range ids {
