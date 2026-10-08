@@ -60,17 +60,34 @@ func BestEffortOpenBrowser(url string) error {
 }
 
 // readConfirm waits for the operator to press Enter, after Login has printed
-// the prompt. It returns true to continue (the browser should open) and false
+// the prompt, until done closes. It returns true to continue (the browser should open) and false
 // when the input is not a terminal or the answer is anything but a bare Enter,
 // so a script that runs the CLI without a person never has a browser opened on
 // its behalf.
 //
 // It reads the terminal the way the CLI's readSecret does: a TTY reads a line,
 // and a non-TTY is treated as "no" without blocking.
-func readConfirm() (bool, error) {
+func readConfirm(done <-chan struct{}) (bool, error) {
 	fd := int(os.Stdin.Fd())
 	if !term.IsTerminal(fd) {
 		return false, nil
+	}
+	// Wait for input in short slices so a login that was approved elsewhere
+	// can stop the wait without leaving a read pending on the terminal, where
+	// it would swallow the first line the harness reads.
+	for {
+		select {
+		case <-done:
+			return false, nil
+		default:
+		}
+		ready, err := stdinReady()
+		if err != nil {
+			return false, err
+		}
+		if ready {
+			break
+		}
 	}
 	r := bufio.NewReader(os.Stdin)
 	line, err := r.ReadString('\n')

@@ -5,7 +5,11 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"os"
+	"sync"
 	"time"
+
+	"golang.org/x/term"
 )
 
 // Enrollment defaults, from the design: poll every 2 seconds for at most 10
@@ -38,9 +42,10 @@ type LoginOptions struct {
 	// Confirm returns whether the operator pressed Enter to open the browser.
 	// It reads one line and reports true on a bare Enter; false when the input
 	// is not a terminal or the answer is anything else, so a script never has a
-	// browser opened for it. Nil means a real terminal read (readConfirm), so
-	// the login always pauses in production.
-	Confirm func() (bool, error)
+	// browser opened for it. It runs beside the approval poll and must return
+	// once done closes, which happens when the approval lands first. Nil means
+	// a real terminal read (readConfirm).
+	Confirm func(done <-chan struct{}) (bool, error)
 	// Out receives the URL, fingerprint and progress, os.Stderr when nil.
 	Out io.Writer
 }
@@ -89,8 +94,8 @@ func trimTrailingSlash(s string) string {
 }
 
 // Login enrolls (or re-approves) the device: it prints the consent URL and the
-// fingerprint, opens the browser, and polls the refresh endpoint until the
-// operator approves. A 404 means the approval has not landed yet, so it keeps
+// fingerprint, polls the refresh endpoint until the operator approves, and
+// opens the browser if they press Enter meanwhile. A 404 means the approval has not landed yet, so it keeps
 // polling; the first token that comes back is the result.
 //
 // Enrollment needs no localhost listener — the CLI only makes outbound
@@ -105,33 +110,71 @@ func Login(client *Client, key *Key, opts LoginOptions) (*Token, error) {
 	// need to read it here before a window covers the terminal, and a browser
 	// must not take over the screen unasked.
 	//
+	// Polling starts now, not at Enter. Enter only decides whether a browser
+	// opens; an approval from any browser ends the wait without a keypress.
+	//
 	// Explicit discards: these write progress to the operator's terminal, and a
 	// failure (a closed pipe) is not a reason to abandon an enrollment already
 	// in flight.
-	_, _ = fmt.Fprintf(opts.Out, "\nTo approve this device, open:\n\n  %s\n\n", authURL)
-	_, _ = fmt.Fprintf(opts.Out, "Device fingerprint: %s\n", key.Fingerprint())
-	_, _ = fmt.Fprintf(opts.Out, "Confirm this matches the fingerprint shown in your browser.\n")
-	_, _ = fmt.Fprintf(opts.Out, "Press Enter to open the browser (or open the URL above yourself)...")
+	out := &lockedWriter{w: opts.Out}
+	_, _ = fmt.Fprintf(out, "\nTo approve this device, open:\n\n  %s\n\n", authURL)
+	_, _ = fmt.Fprintf(out, "Device fingerprint: %s\n", key.Fingerprint())
+	_, _ = fmt.Fprintf(out, "Confirm this matches the fingerprint shown in your browser.\n")
+	_, _ = fmt.Fprintf(out, "Waiting for approval...\n")
+	_, _ = fmt.Fprintf(out, "Press Enter to open the browser (or open the URL above yourself)...")
 
-	open, err := opts.Confirm()
-	_, _ = fmt.Fprintln(opts.Out)
-	if err != nil {
-		return nil, err
-	}
-	if open {
-		if err := opts.OpenBrowser(authURL); err != nil {
-			_, _ = fmt.Fprintf(opts.Out, "Could not open a browser automatically (%v).\nOpen the URL above on any machine with a browser.\n", err)
+	// The Enter wait runs beside the poll. It stops when the poll ends, and
+	// Login does not return until it has, so no read is left pending on the
+	// terminal for the harness to lose a keystroke to.
+	done := make(chan struct{})
+	finished := make(chan struct{})
+	enterErr := make(chan error, 1)
+	answered := false
+	go func() {
+		defer close(finished)
+		open, err := opts.Confirm(done)
+		select {
+		case <-done:
+			return
+		default:
 		}
-	} else {
-		_, _ = fmt.Fprintf(opts.Out, "Not opening a browser. Open the URL above on any machine with a browser.\n")
+		answered = true
+		_, _ = fmt.Fprintln(out)
+		if err != nil {
+			enterErr <- err
+			return
+		}
+		if open {
+			if err := opts.OpenBrowser(authURL); err != nil {
+				_, _ = fmt.Fprintf(out, "Could not open a browser automatically (%v).\nOpen the URL above on any machine with a browser.\n", err)
+			}
+		} else {
+			_, _ = fmt.Fprintf(out, "Not opening a browser. Open the URL above on any machine with a browser.\n")
+		}
+	}()
+	stop := func() {
+		close(done)
+		<-finished
 	}
-	_, _ = fmt.Fprintf(opts.Out, "Waiting for approval...\n")
 
 	deadline := opts.Now().Add(opts.Timeout)
 	for {
+		select {
+		case err := <-enterErr:
+			stop()
+			return nil, err
+		default:
+		}
+
 		tok, err := client.Refresh(key, opts.Now())
 		switch {
 		case err == nil:
+			stop()
+			if !answered {
+				// The prompt is still on screen: take it off the line.
+				clearPrompt(out, opts.Out)
+				_, _ = fmt.Fprintf(out, "Approved in your browser.\n")
+			}
 			return tok, nil
 		case errors.Is(err, ErrDeviceUnknown):
 			// Not approved yet. Keep waiting.
@@ -141,14 +184,39 @@ func Login(client *Client, key *Key, opts LoginOptions) (*Token, error) {
 			opts.Sleep(time.Second)
 			continue
 		default:
+			stop()
 			return nil, loginError(err)
 		}
 
 		if !opts.Now().Before(deadline) {
+			stop()
 			return nil, fmt.Errorf("timed out waiting for approval; run prizmal login again to retry")
 		}
 		opts.Sleep(opts.Interval)
 	}
+}
+
+// clearPrompt removes the unanswered Enter prompt. On a terminal it erases the
+// line; anywhere else it ends the line, since an escape code would land in a
+// log as noise.
+func clearPrompt(w io.Writer, raw io.Writer) {
+	if f, ok := raw.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
+		_, _ = fmt.Fprint(w, "\r\x1b[2K")
+		return
+	}
+	_, _ = fmt.Fprintln(w)
+}
+
+// lockedWriter serializes writes from the poll and the Enter wait.
+type lockedWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (l *lockedWriter) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.w.Write(p)
 }
 
 // loginError turns a refresh failure during enrollment into a message with the

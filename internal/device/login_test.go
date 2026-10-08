@@ -34,16 +34,25 @@ func TestLoginPollsUntilApproved(t *testing.T) {
 	}))
 	defer srv.Close()
 
+	// Enter is pressed during the first wait; the poll holds there until the
+	// browser has opened, so the assertion below does not race the keypress.
 	var opened string
+	openedCh := make(chan struct{})
 	var out strings.Builder
 	tok, err := Login(NewClient(srv.URL), key, LoginOptions{
 		AuthorizeBaseURL: "https://app.prizmal.ai",
 		DeviceName:       "test-mac",
-		Sleep:            clk.sleep,
-		Now:              clk.now,
-		OpenBrowser:      func(u string) error { opened = u; return nil },
-		Confirm:          confirmYes,
-		Out:              &out,
+		Sleep: func(d time.Duration) {
+			select {
+			case <-openedCh:
+			case <-time.After(5 * time.Second):
+			}
+			clk.sleep(d)
+		},
+		Now:         clk.now,
+		OpenBrowser: func(u string) error { opened = u; close(openedCh); return nil },
+		Confirm:     confirmYes,
+		Out:         &out,
 	})
 	if err != nil {
 		t.Fatalf("Login: %v", err)
@@ -120,7 +129,14 @@ func TestAuthorizeURLTrimsTrailingSlash(t *testing.T) {
 
 // confirmYes is the Confirm seam that always answers "open the browser", so a
 // test drives the pause without a terminal.
-func confirmYes() (bool, error) { return true, nil }
+func confirmYes(<-chan struct{}) (bool, error) { return true, nil }
+
+// confirmNever is the Confirm seam for an operator who never presses Enter: it
+// blocks until the login stops the wait.
+func confirmNever(done <-chan struct{}) (bool, error) {
+	<-done
+	return false, nil
+}
 
 // The login shows the URL and fingerprint and waits for Enter before it opens
 // the browser: the operator approves the fingerprint on the page, so they read
@@ -138,15 +154,22 @@ func TestLoginShowsTheCodeBeforeOpeningTheBrowser(t *testing.T) {
 	var out strings.Builder
 	confirmed := false
 	opened := false
+	openedCh := make(chan struct{})
 	_, _ = Login(NewClient(srv.URL), key, LoginOptions{
 		AuthorizeBaseURL: "https://app.prizmal.ai",
 		Interval:         time.Second,
 		Timeout:          2 * time.Second,
-		Sleep:            clk.sleep,
-		Now:              clk.now,
-		Confirm:          func() (bool, error) { confirmed = true; return true, nil },
-		OpenBrowser:      func(string) error { opened = true; return nil },
-		Out:              &out,
+		Sleep: func(d time.Duration) {
+			select {
+			case <-openedCh:
+			case <-time.After(5 * time.Second):
+			}
+			clk.sleep(d)
+		},
+		Now:         clk.now,
+		Confirm:     func(<-chan struct{}) (bool, error) { confirmed = true; return true, nil },
+		OpenBrowser: func(string) error { opened = true; close(openedCh); return nil },
+		Out:         &out,
 	})
 
 	if !confirmed {
@@ -191,7 +214,7 @@ func TestLoginDecliningTheConfirmDoesNotOpenTheBrowser(t *testing.T) {
 		AuthorizeBaseURL: "https://app.prizmal.ai",
 		Sleep:            clk.sleep,
 		Now:              clk.now,
-		Confirm:          func() (bool, error) { return false, nil },
+		Confirm:          func(<-chan struct{}) (bool, error) { return false, nil },
 		OpenBrowser:      func(string) error { opened = true; return nil },
 		Out:              &out,
 	})
@@ -206,5 +229,56 @@ func TestLoginDecliningTheConfirmDoesNotOpenTheBrowser(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Not opening a browser") {
 		t.Fatalf("output does not say the browser stayed shut:\n%s", out.String())
+	}
+}
+
+// Polling starts when the URL prints, not when Enter is pressed. An approval
+// from another browser ends the login with nobody at the keyboard: no browser
+// opens, and the Enter wait is released so it cannot swallow a later keystroke.
+func TestLoginApprovedElsewhereNeedsNoEnter(t *testing.T) {
+	key, _ := GenerateKey()
+	clk := &fakeClock{t: time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)}
+
+	var polls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&polls, 1) < 2 {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"error":{"code":"NOT_FOUND"}}`))
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"device_token": "pz-d-dt-token", "expires_in": 600})
+	}))
+	defer srv.Close()
+
+	var opened atomic.Bool
+	released := make(chan struct{})
+	var out strings.Builder
+	tok, err := Login(NewClient(srv.URL), key, LoginOptions{
+		AuthorizeBaseURL: "https://app.prizmal.ai",
+		Sleep:            clk.sleep,
+		Now:              clk.now,
+		Confirm: func(done <-chan struct{}) (bool, error) {
+			defer close(released)
+			return confirmNever(done)
+		},
+		OpenBrowser: func(string) error { opened.Store(true); return nil },
+		Out:         &out,
+	})
+	if err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	if tok.Value != "pz-d-dt-token" {
+		t.Fatalf("token = %q", tok.Value)
+	}
+	if opened.Load() {
+		t.Fatal("an approval from another browser still opened a browser")
+	}
+	select {
+	case <-released:
+	default:
+		t.Fatal("Login returned with the Enter wait still pending")
+	}
+	if !strings.Contains(out.String(), "Approved in your browser") {
+		t.Fatalf("output does not say the approval was seen:\n%s", out.String())
 	}
 }
