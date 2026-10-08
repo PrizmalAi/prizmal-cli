@@ -131,8 +131,13 @@ func buildMockBinary(t *testing.T) string {
 // server binds 127.0.0.1, while the Switch endpoint is always handed to a
 // harness under the name it dials, so a launch pointed at this stub is
 // expected to carry the rewritten form.
+//
+// Every occurrence is replaced, not just the first, because that is what the
+// shape does: ConnectableHost rewrites the host wherever it appears in the
+// base, and a base carrying it twice would otherwise compare against a
+// half-rewritten URL.
 func stubEndpointName(raw string) string {
-	return strings.Replace(raw, "127.0.0.1", "localhost", 1)
+	return strings.ReplaceAll(raw, "127.0.0.1", "localhost")
 }
 
 // setupMockEnv creates a temp HOME, temp PATH with mock harness binaries, a
