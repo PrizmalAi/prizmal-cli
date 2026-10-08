@@ -7,10 +7,12 @@ import (
 	launch "github.com/PrizmalAi/prizmal-cli/internal/launcher"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	"github.com/PrizmalAi/prizmal-cli/internal/fileutil"
@@ -130,28 +132,43 @@ func (c *Codex) Run(model string, models []launch.LaunchModel, args []string) er
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Env = codexChildEnv()
-	return cmd.Run()
+	return runPassingOnTermination(cmd)
 }
 
-// codexChildEnv returns the environment Codex is launched with.
-//
-// With a switch key, the key travels on OPENAI_API_KEY: the generated profile
-// names that variable via env_key rather than embedding the key, so nothing
-// credential-shaped outlives the launched process.
-//
-// In device mode no credential travels on the environment at all. Codex runs
-// `prizmal auth token` for its bearer token, and an OPENAI_API_KEY the operator
-// exported for OpenAI itself is removed so it can neither reach the Switch nor
-// be mistaken for the provider's key. The Switch URL this launch resolved is
-// pinned for the helper, which resolves its own (see EnsureHelperBaseURL).
+// runPassingOnTermination runs cmd and waits for it, passing SIGHUP and SIGTERM
+// on to it. Without the handler either signal ends prizmal at once, before the
+// deferred removal of the catalog directory in Run, and the directory stays
+// behind. With it, Codex gets the signal, exits, and Run cleans up.
+func runPassingOnTermination(cmd *exec.Cmd) error {
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGHUP, syscall.SIGTERM)
+	defer signal.Stop(signals)
+
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	for {
+		select {
+		case sig := <-signals:
+			_ = cmd.Process.Signal(sig) // fails on Windows, where the child ends with the console
+		case err := <-done:
+			return err
+		}
+	}
+}
+
 // envVars returns the child environment that carries the provider credential.
-// This is the only channel the key travels on: the generated profile names
+// This is the only channel the key travels on: the provider settings name
 // OPENAI_API_KEY via env_key rather than embedding the key, so nothing
 // credential-shaped outlives the launched process.
 //
-// In device mode it carries nothing. The profile names Codex's command-backed
-// provider auth instead, and Codex runs `prizmal auth token` for its bearer
-// token rather than reading a fixed key from the environment.
+// In device mode it carries nothing. The provider settings name Codex's
+// command-backed provider auth instead, and Codex runs `prizmal auth token` for
+// its bearer token rather than reading a fixed key from the environment. An
+// OPENAI_API_KEY the operator exported for OpenAI itself is removed, so it can
+// neither reach the Switch nor be mistaken for the provider's key.
 func (c *Codex) envVars() []string {
 	if envconfig.DeviceMode() {
 		return nil
@@ -576,6 +593,13 @@ var codexReasoningLevels = []any{
 // writeCodexModelCatalog writes one entry per model. The first model is the
 // launch's own: it gets the lowest priority number, which Codex sorts first
 // and offers as the default.
+// WriteModelCatalog writes the model catalog a launch of model hands Codex to
+// catalogPath, built the way Run builds it. It reads Codex's own system prompt
+// from the installed binary, so Codex must be installed.
+func WriteModelCatalog(catalogPath, model string, models []launch.LaunchModel) error {
+	return writeCodexModelCatalog(catalogPath, codexCatalogModels(model, models))
+}
+
 func writeCodexModelCatalog(catalogPath string, models []launch.LaunchModel) error {
 	prompt, err := readCodexSystemPrompt()
 	if err != nil {
