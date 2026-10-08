@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -525,23 +524,31 @@ func codexCatalogModel(modelName string, models []launch.LaunchModel) launch.Lau
 	return launch.FallbackLaunchModel(modelName)
 }
 
-// codexCatalogModels returns the models Codex's /model picker lists: the
-// launched model first, then the rest of the catalog the launch was handed.
+// codexCatalogModels returns the models Codex's /model picker lists: the rows
+// the prizmal picker lists, in its order, each with the row's text. A tier alias
+// is a row and the router config folded into it is not, so the two pickers show
+// one list.
+//
+// The launched model gets an entry even when no row shows it, such as -m naming
+// a config a tier row folds away. Codex reads that entry for the model's
+// window and prompt.
 func codexCatalogModels(modelName string, models []launch.LaunchModel) []launch.LaunchModel {
-	out := []launch.LaunchModel{codexCatalogModel(modelName, models)}
-	for _, m := range models {
-		// The Claude tier aliases are rows for Claude Code's picker. A folded
-		// model is shown by its tier alias there, so Codex gets the model.
-		if launch.LaunchModelMatches(m.Name, modelName) || isClaudeTierModel(m.Name) || launch.IsReservedModelName(m.Name) {
-			continue
-		}
-		out = append(out, m.WithCloudLimits())
+	rows := launch.ModelRows(models)
+	out := make([]launch.LaunchModel, 0, len(rows)+1)
+	launched := false
+	for _, row := range rows {
+		entry := codexCatalogModel(row.Model, models)
+		entry.Description = row.Description
+		entry.FoldedInto = ""
+		out = append(out, entry)
+		launched = launched || launch.LaunchModelMatches(row.Model, modelName)
+	}
+	if !launched {
+		entry := codexCatalogModel(modelName, models)
+		entry.FoldedInto = ""
+		out = append(out, entry)
 	}
 	return out
-}
-
-func isClaudeTierModel(name string) bool {
-	return slices.ContainsFunc(launch.TierWords, func(t launch.ModelTier) bool { return name == launch.ClaudeTierModel(t) })
 }
 
 // ShowsModelList reports that a launch hands Codex the whole catalog, because
@@ -564,9 +571,16 @@ func writeCodexModelCatalog(catalogPath string, models []launch.LaunchModel) err
 	if err != nil {
 		return err
 	}
+	labels := make(map[string]string, len(models))
+	for _, row := range launch.ModelRows(models) {
+		labels[row.Model] = row.Label
+	}
 	entries := make([]any, 0, len(models))
 	for i, model := range models {
 		entry := buildCodexModelEntry(model)
+		if label := labels[model.Name]; label != "" {
+			entry["display_name"] = label
+		}
 		entry["priority"] = i
 		entry["base_instructions"] = prompt.baseInstructions
 		if len(prompt.modelMessages) > 0 {

@@ -246,11 +246,11 @@ func TestCodexCatalogListsTheTenantCatalogWithEffortLevels(t *testing.T) {
 			t.Errorf("%s has no effort levels: %+v", m.Slug, m)
 		}
 	}
-	if strings.Join(slugs, ",") != "prizmal-flash,prizmal-core,prizmal-frontier,folded" {
-		t.Fatalf("slugs = %v, want the launched model first, then the rest, without Claude tier alias rows", slugs)
+	if strings.Join(slugs, ",") != "prizmal-core,prizmal-flash,prizmal-frontier,claude-tier-opus" {
+		t.Fatalf("slugs = %v, want the picker's rows in its order, with the tier alias and without the folded config", slugs)
 	}
-	if got.Models[0].Description != "Fast" {
-		t.Errorf("description = %q, want the catalog's text", got.Models[0].Description)
+	if got.Models[1].Description != "Fast" {
+		t.Errorf("description = %q, want the catalog's text", got.Models[1].Description)
 	}
 }
 
