@@ -37,26 +37,27 @@ type codexSetting struct {
 // `prizmal auth token` instead of a fixed key.
 func (c *Codex) SupportsDeviceMode() bool { return true }
 
+// codexFallbackContextWindow is the context window a catalog entry declares
+// when neither the operator nor the catalog states one. It is the 1M window
+// every model the Switch serves has today, stated rather than learned.
+// GET /v1/models marks a 1M model by decorating its id with [1m] and carries no
+// other context length, so a model without the mark has no window to learn, and
+// no model name is mapped to a window because such a table would be guesswork
+// about an endpoint prizmal knows nothing else about.
+//
+// Codex derives auto-compaction from this number: 90% of context_window
+// unless the entry says otherwise (ModelInfo::auto_compact_token_limit in
+// codex-rs/protocol). Declaring too small a window makes Codex discard
+// conversation history the Switch would have accepted. Revisit this when the
+// Switch serves a model with a smaller window. $HARNESS_CONTEXT_LENGTH
+// overrides it for an operator who knows better. It is a variable so a test
+// can set a window no model has.
+var codexFallbackContextWindow = 1_000_000
+
 const (
 	codexProfileName    = "prizmal"
 	codexProviderName   = "prizmal"
 	codexRestoreSuccess = "Codex launch configuration removed."
-
-	// codexFallbackContextWindow is the context window every Codex catalog
-	// entry declares, and it is the 1M window every model the Switch serves
-	// has today, stated rather than learned. GET /v1/models carries no context length (the
-	// Switch sends id, input_modalities, tier and description), so nothing here
-	// can learn the real one, and no model name is mapped to a window because
-	// such a table would be guesswork about an endpoint prizmal knows nothing
-	// else about.
-	//
-	// Codex derives auto-compaction from this number — 90% of context_window
-	// unless the entry says otherwise (ModelInfo::auto_compact_token_limit in
-	// codex-rs/protocol) — so declaring too small a window makes Codex discard
-	// conversation history the Switch would have accepted. Revisit this when the
-	// Switch serves a model with a smaller window. $HARNESS_CONTEXT_LENGTH
-	// overrides it for an operator who knows better.
-	codexFallbackContextWindow = 1_000_000
 
 	// codexRefreshIntervalMs is how long Codex keeps a token from the auth
 	// command before running it again. It is the Claude Code interval for the
@@ -161,15 +162,15 @@ func (c *Codex) envVars() []string {
 	return []string{"OPENAI_API_KEY=" + envconfig.APIKey()}
 }
 
-// codexExecutable is os.Executable behind a variable, so a test can exercise
-// the launch that cannot resolve its own path.
-var codexExecutable = os.Executable
+// executablePath finds the running binary. It is a variable so a test can make
+// the lookup fail.
+var executablePath = os.Executable
 
 // codexAuthCommand is the command Codex runs for a device token: this binary,
 // and the arguments that select its helper subcommand. Codex executes it
 // directly, not through a shell, so the path needs no quoting.
 func codexAuthCommand() (string, []string, error) {
-	exe, err := codexExecutable()
+	exe, err := executablePath()
 	if err != nil {
 		return "", nil, fmt.Errorf("find the prizmal executable: %w", err)
 	}
