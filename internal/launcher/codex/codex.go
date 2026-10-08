@@ -135,13 +135,18 @@ func (c *Codex) Run(model string, models []launch.LaunchModel, args []string) er
 	return runPassingOnTermination(cmd)
 }
 
-// runPassingOnTermination runs cmd and waits for it, passing SIGHUP and SIGTERM
-// on to it. Without the handler either signal ends prizmal at once, before the
-// deferred removal of the catalog directory in Run, and the directory stays
-// behind. With it, Codex gets the signal, exits, and Run cleans up.
+// runPassingOnTermination runs cmd and waits for it. SIGHUP and SIGTERM go on to
+// it, and SIGINT is ignored. Without the handler any of the three ends prizmal
+// at once, before the deferred removal of the catalog directory in Run, and the
+// directory stays behind. With it, prizmal waits for Codex to exit and Run
+// cleans up.
+//
+// Codex handles Ctrl-C itself: the terminal sends SIGINT to the whole
+// foreground process group, so Codex has it already, and passing it on would
+// deliver it twice.
 func runPassingOnTermination(cmd *exec.Cmd) error {
 	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, syscall.SIGHUP, syscall.SIGTERM)
+	signal.Notify(signals, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGINT)
 	defer signal.Stop(signals)
 
 	if err := cmd.Start(); err != nil {
@@ -152,6 +157,9 @@ func runPassingOnTermination(cmd *exec.Cmd) error {
 	for {
 		select {
 		case sig := <-signals:
+			if sig == syscall.SIGINT {
+				continue
+			}
 			_ = cmd.Process.Signal(sig) // fails on Windows, where the child ends with the console
 		case err := <-done:
 			return err

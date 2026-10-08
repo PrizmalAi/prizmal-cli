@@ -80,3 +80,64 @@ func waitFor(t *testing.T, what string, ok func() bool) {
 	}
 	t.Fatalf("timed out waiting for %s", what)
 }
+
+// Ctrl-C reaches Codex through the terminal, and Codex handles it itself: it
+// interrupts a turn, or exits when the operator asks. Prizmal ignores SIGINT
+// while it waits, so it neither dies first nor stops Codex, and removes the
+// catalog directory once Codex has gone.
+func TestCodexLaunchIgnoresSIGINTAndCleansUpAfterCodexExits(t *testing.T) {
+	skipWithoutShell(t)
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	started := filepath.Join(t.TempDir(), "started")
+	stop := filepath.Join(t.TempDir(), "stop")
+	bundle := filepath.Join(t.TempDir(), "bundle.json")
+	if err := os.WriteFile(bundle, []byte(fakeCodexCatalog), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The fake Codex keeps running until the test creates the stop file, which
+	// stands in for the operator quitting Codex after the interrupt.
+	fakeBin(t, map[string]string{"codex": `case "$1" in
+--version) echo "codex-cli ` + codexMinVersion + `"; exit 0;;
+debug) /bin/cat '` + bundle + `'; exit 0;;
+esac
+: > '` + started + `'
+while [ ! -e '` + stop + `' ]; do /bin/sleep 0.05; done`})
+
+	done := make(chan error, 1)
+	go func() { done <- (&Codex{}).Run("smart", []launch.LaunchModel{{Name: "smart"}}, nil) }()
+
+	waitFor(t, "the fake codex to start", func() bool {
+		select {
+		case err := <-done:
+			t.Fatalf("the launch returned before codex started: %v", err)
+		default:
+		}
+		_, err := os.Stat(started)
+		return err == nil
+	})
+
+	if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("the launch returned on SIGINT while codex was still running: %v", err)
+	case <-time.After(500 * time.Millisecond):
+	}
+	if dirs, _ := filepath.Glob(filepath.Join(tmp, "prizmal-codex-*")); len(dirs) != 1 {
+		t.Fatalf("catalog directories while codex runs = %v, want 1", dirs)
+	}
+
+	if err := os.WriteFile(stop, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the launch did not return after codex exited")
+	}
+	if dirs, _ := filepath.Glob(filepath.Join(tmp, "prizmal-codex-*")); len(dirs) != 0 {
+		t.Fatalf("the launch left %v behind after codex exited", dirs)
+	}
+}
