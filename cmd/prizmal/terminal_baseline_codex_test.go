@@ -18,7 +18,7 @@ import (
 const codexBaselineDir = "testdata/terminal/codex"
 
 var (
-	stepCodexPrompt      = baselineStep{waitFor: "for shortcuts"}
+	stepCodexPrompt      = baselineStep{waitFor: "default · ~/project"}
 	stepCodexOpenModel   = baselineStep{literal: "/model", waitFor: "/model"}
 	stepCodexModelPicker = baselineStep{key: "Enter", waitFor: "Select Model"}
 	stepCodexSendHi      = baselineStep{literal: "hi", waitFor: "hi"}
