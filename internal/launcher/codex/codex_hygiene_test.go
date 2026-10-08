@@ -33,7 +33,7 @@ func TestEnsureCodexInstalledRunsNpmWhenMissing(t *testing.T) {
 	skipWithoutShell(t)
 	dir := fakeBin(t, nil)
 	log := filepath.Join(dir, "npm.log")
-	script := `echo "$@" > ` + log + "\n" + `printf '#!/bin/sh\necho codex-cli 0.160.0\n' > ` + filepath.Join(dir, "codex") + "\n" + `/bin/chmod +x ` + filepath.Join(dir, "codex")
+	script := `echo "$@" > ` + log + "\n" + `printf '#!/bin/sh\necho codex-cli 0.163.0\n' > ` + filepath.Join(dir, "codex") + "\n" + `/bin/chmod +x ` + filepath.Join(dir, "codex")
 	if err := os.WriteFile(filepath.Join(dir, "npm"), []byte("#!/bin/sh\n"+script+"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}

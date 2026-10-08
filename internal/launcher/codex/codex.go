@@ -211,28 +211,10 @@ var codexInheritedVars = []string{
 // URL this launch resolved is pinned for the helper, which resolves its own
 // (see ensureHelperBaseURL).
 func codexChildEnv() []string {
-	drop := make(map[string]bool, len(codexInheritedVars))
-	for _, name := range codexInheritedVars {
-		drop[name] = true
-	}
 	// An OPENAI_API_KEY from the operator's shell never reaches Codex: with a
 	// switch key the launch sets its own, and in device mode there is none.
-	drop["OPENAI_API_KEY"] = true
-	fixed := (&Codex{}).envVars()
-	for _, kv := range fixed {
-		name, _, _ := strings.Cut(kv, "=")
-		drop[name] = true
-	}
-
-	env := make([]string, 0, len(os.Environ())+len(fixed))
-	for _, kv := range os.Environ() {
-		name, _, _ := strings.Cut(kv, "=")
-		if drop[name] {
-			continue
-		}
-		env = append(env, kv)
-	}
-	env = append(env, fixed...)
+	drop := append(slices.Clone(codexInheritedVars), "OPENAI_API_KEY")
+	env := launch.ChildEnv(drop, (&Codex{}).envVars())
 	// The helper is a separate prizmal process that resolves the Switch URL from
 	// scratch, so this launch's resolved host is pinned for it.
 	if envconfig.DeviceMode() {
@@ -775,7 +757,7 @@ func buildCodexModelEntry(launchModel launch.LaunchModel) map[string]any {
 // --bundled`, and writes supports_search_tool, apply_patch_tool_type and
 // agents.default_subagent_model, which earlier releases do not know. It is the
 // release the terminal baselines pin, and a test keeps the two equal.
-const codexMinVersion = "0.160.0"
+const codexMinVersion = "0.163.0"
 
 func checkCodexVersion() error {
 	if _, err := exec.LookPath("codex"); err != nil {
