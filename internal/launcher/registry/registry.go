@@ -18,8 +18,12 @@ import (
 type IntegrationInstallSpec struct {
 	CheckInstalled  func() bool
 	EnsureInstalled func() error
-	URL             string
-	Command         []string
+	// CheckUsable, when set, runs for an integration that is installed. It
+	// returns an error when the installed binary cannot serve a launch, such as
+	// a release that is too old, and may offer to fix it.
+	CheckUsable func() error
+	URL         string
+	Command     []string
 }
 
 // IntegrationSpec is the canonical registry entry for one integration.
@@ -84,6 +88,7 @@ var integrationSpecs = []*IntegrationSpec{
 				return err == nil
 			},
 			EnsureInstalled: codex.EnsureInstalled,
+			CheckUsable:     codex.CheckUsable,
 			URL:             "https://developers.openai.com/codex/cli/",
 			Command:         []string{"npm", "install", "-g", "@openai/codex"},
 		},
@@ -329,6 +334,9 @@ func EnsureIntegrationInstalled(name string, runner launch.Runner) error {
 	}
 
 	if integration.installed {
+		if check := integration.spec.Install.CheckUsable; check != nil {
+			return check()
+		}
 		return nil
 	}
 	if integration.autoInstallable {

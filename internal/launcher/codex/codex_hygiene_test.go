@@ -57,7 +57,7 @@ func TestEnsureCodexInstalledWithoutNpmNamesTheDependency(t *testing.T) {
 
 func TestEnsureCodexInstalledSkipsNpmWhenPresent(t *testing.T) {
 	skipWithoutShell(t)
-	fakeBin(t, map[string]string{"codex": "exit 0", "npm": "exit 1"})
+	fakeBin(t, map[string]string{"codex": `echo "codex-cli ` + codexMinVersion + `"`, "npm": "exit 1"})
 	if err := EnsureInstalled(); err != nil {
 		t.Fatalf("EnsureInstalled: %v", err)
 	}
@@ -90,10 +90,28 @@ func TestCodexChildEnvDropsInheritedVariables(t *testing.T) {
 }
 
 func TestCodexInheritedVarsCoverTheRedirectingOnes(t *testing.T) {
-	for _, want := range []string{"OPENAI_BASE_URL", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN", "CODEX_HOME"} {
+	for _, want := range []string{"OPENAI_BASE_URL", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN"} {
 		if !slices.Contains(codexInheritedVars, want) {
 			t.Errorf("codexInheritedVars lacks %s", want)
 		}
+	}
+}
+
+// An operator's own CODEX_HOME holds their config, MCP servers, sessions and
+// authentication. The launch passes everything it needs as -c overrides, so it
+// leaves the directory the operator chose alone.
+func TestCodexChildEnvKeepsTheOperatorsCodexHome(t *testing.T) {
+	envconfig.SetAPIKey("sk-switch")
+	t.Cleanup(func() { envconfig.SetAPIKey("") })
+	t.Setenv("CODEX_HOME", "/home/me/my-codex")
+
+	env := codexChildEnv()
+
+	if got := internaltest.EnvValue(env, "CODEX_HOME="); got != "/home/me/my-codex" {
+		t.Fatalf("CODEX_HOME in the child = %q, want the operator's directory", got)
+	}
+	if n := countEnv(env, "CODEX_HOME="); n != 1 {
+		t.Fatalf("CODEX_HOME appears %d times", n)
 	}
 }
 

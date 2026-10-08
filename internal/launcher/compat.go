@@ -215,9 +215,9 @@ type Runner interface {
 // name. The CLI consumes such an argument before dispatch and hands the runner
 // the resolved model instead.
 //
-// A runner opts in when it has no other meaning for --model. pi uses a
-// provider-qualified --model to choose a provider, and codex already refuses
-// the flag as one it manages, so neither is an owner.
+// A runner opts in when it has no other meaning for --model. Claude Code and
+// Codex do: the launch states the model itself. pi uses a provider-qualified
+// --model to choose a provider, so it is not an owner.
 type OwningModelFlag interface {
 	OwnsModelFlag() bool
 }

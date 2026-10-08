@@ -76,6 +76,11 @@ const (
 	codexAgentsSubagentModelKey = "agents.default_subagent_model"
 )
 
+// OwnsModelFlag reports that prizmal owns Codex's model decision. A --model or
+// -m the operator types after the integration name is consumed by the CLI as
+// prizmal's own flag, and the launch states the one model itself with -m.
+func (c *Codex) OwnsModelFlag() bool { return true }
+
 func (c *Codex) args(model, modelCatalogPath string, extra []string) ([]string, error) {
 	if err := codexValidateExtraArgs(extra); err != nil {
 		return nil, err
@@ -103,9 +108,6 @@ func (c *Codex) args(model, modelCatalogPath string, extra []string) ([]string, 
 
 func (c *Codex) Run(model string, models []launch.LaunchModel, args []string) error {
 	if err := EnsureInstalled(); err != nil {
-		return err
-	}
-	if err := checkCodexVersion(); err != nil {
 		return err
 	}
 
@@ -212,14 +214,18 @@ func codexAuthArgsTOML(args []string) string {
 //
 // Each one would send the session somewhere other than the Switch, or sign it
 // in as someone other than the Switch key: CODEX_API_KEY and CODEX_ACCESS_TOKEN
-// override the credential Codex resolves, OPENAI_BASE_URL names another
-// endpoint for the tools that read it, and CODEX_HOME moves Codex to a
-// configuration directory that holds none of the files a launch writes.
+// override the credential Codex resolves, and OPENAI_BASE_URL names another
+// endpoint for the tools that read it.
+//
+// CODEX_HOME is not in the list. It moves Codex to the operator's own
+// configuration directory, with their config, MCP servers, sessions and
+// authentication, and the launch needs nothing from it: it passes the provider
+// and the catalog as -c overrides, so the directory the operator chose works
+// as it always does.
 var codexInheritedVars = []string{
 	"OPENAI_BASE_URL",
 	"CODEX_API_KEY",
 	"CODEX_ACCESS_TOKEN",
-	"CODEX_HOME",
 }
 
 // codexChildEnv builds Codex's environment: the inherited environment minus
@@ -258,10 +264,12 @@ func codexHygieneOverrides() []string {
 }
 
 // EnsureInstalled installs Codex with npm when it is missing, after the
-// operator confirms.
+// operator confirms. An installed Codex older than codexMinVersion gets an
+// upgrade offer for the package manager that installed it. The launch runs this
+// before sign-in and the model pick, so an unusable Codex stops it early.
 func EnsureInstalled() error {
 	if _, err := exec.LookPath("codex"); err == nil {
-		return nil
+		return ensureCodexNewEnough()
 	}
 	if _, err := exec.LookPath("npm"); err != nil {
 		return fmt.Errorf("codex is not installed and required dependencies are missing\n\nInstall the following first:\n  npm (Node.js): https://nodejs.org/\n\nThen re-run:\n  prizmal codex")
@@ -365,10 +373,6 @@ func removeCodexFile(path string) (bool, error) {
 func codexValidateExtraArgs(args []string) error {
 	for i, arg := range args {
 		switch {
-		case arg == "-m", strings.HasPrefix(arg, "-m"):
-			return fmt.Errorf("conflicting extra argument %q: prizmal codex manages --model", arg)
-		case arg == "--model", strings.HasPrefix(arg, "--model="):
-			return fmt.Errorf("conflicting extra argument %q: prizmal codex manages --model", arg)
 		case arg == "-c", arg == "--config":
 			if i+1 < len(args) && codexConfigOverrideConflicts(args[i+1]) {
 				return fmt.Errorf("conflicting extra config %q: prizmal codex manages provider and model catalog config", args[i+1])
@@ -747,12 +751,118 @@ func buildCodexModelEntry(launchModel launch.LaunchModel) map[string]any {
 	}
 }
 
+// CheckUsable reports whether the installed Codex can serve a launch. An old
+// release gets an upgrade offer. The launch runs it before sign-in.
+func CheckUsable() error { return ensureCodexNewEnough() }
+
 // codexMinVersion is the oldest Codex the launch supports. The launch passes
 // --no-daemon and command-backed provider auth, reads `codex debug models
 // --bundled`, and writes supports_search_tool, apply_patch_tool_type and
 // agents.default_subagent_model, which earlier releases do not know. It is the
 // release the terminal baselines pin, and a test keeps the two equal.
 const codexMinVersion = "0.160.0"
+
+// codexInstallSource is the package manager that installed the Codex on PATH.
+type codexInstallSource int
+
+const (
+	codexSourceUnknown codexInstallSource = iota
+	codexSourceNpm
+	codexSourceBrewCask
+	codexSourceBrewFormula
+)
+
+// upgradeCommand is the command that upgrades a Codex from this source, and
+// nil when prizmal does not know one.
+func (s codexInstallSource) upgradeCommand() []string {
+	switch s {
+	case codexSourceNpm:
+		return []string{"npm", "update", "-g", "@openai/codex"}
+	case codexSourceBrewCask:
+		return []string{"brew", "upgrade", "--cask", "codex"}
+	case codexSourceBrewFormula:
+		return []string{"brew", "upgrade", "codex"}
+	}
+	return nil
+}
+
+// detectCodexInstallSource reads the install source from where the codex on
+// PATH really lives: Homebrew links its binaries from Caskroom or Cellar, and
+// npm's global binaries link into a node_modules tree.
+func detectCodexInstallSource() codexInstallSource {
+	path, err := exec.LookPath("codex")
+	if err != nil {
+		return codexSourceUnknown
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	}
+	path = filepath.ToSlash(path)
+	switch {
+	case strings.Contains(path, "/Caskroom/"):
+		return codexSourceBrewCask
+	case strings.Contains(path, "/Cellar/"):
+		return codexSourceBrewFormula
+	case strings.Contains(path, "/node_modules/"):
+		return codexSourceNpm
+	}
+	return codexSourceUnknown
+}
+
+// codexTooOldError says what version was found and how to upgrade it.
+type codexTooOldError struct {
+	found  string
+	source codexInstallSource
+}
+
+func (e *codexTooOldError) Error() string {
+	msg := fmt.Sprintf("codex version %s is too old, minimum required is %s", e.found, codexMinVersion)
+	if cmd := e.source.upgradeCommand(); cmd != nil {
+		return msg + ", update with: " + strings.Join(cmd, " ")
+	}
+	return msg + ", update Codex with the package manager that installed it"
+}
+
+// ensureCodexNewEnough checks the installed Codex and, when it is too old and
+// prizmal knows how it was installed, offers the upgrade the way a missing
+// binary gets an install offer.
+func ensureCodexNewEnough() error {
+	err := checkCodexVersion()
+	var tooOld *codexTooOldError
+	if !errors.As(err, &tooOld) {
+		return err
+	}
+	upgrade := tooOld.source.upgradeCommand()
+	if upgrade == nil {
+		return err
+	}
+	if _, lookErr := exec.LookPath(upgrade[0]); lookErr != nil {
+		return err
+	}
+
+	ok, promptErr := launch.ConfirmPrompt(fmt.Sprintf("Codex %s is older than the %s prizmal needs. Upgrade with `%s`?",
+		tooOld.found, codexMinVersion, strings.Join(upgrade, " ")))
+	if promptErr != nil {
+		return promptErr
+	}
+	if !ok {
+		return err
+	}
+
+	fmt.Fprintf(os.Stderr, "\nUpgrading Codex...\n")
+	cmd := exec.Command(upgrade[0], upgrade[1:]...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if runErr := cmd.Run(); runErr != nil {
+		return fmt.Errorf("failed to upgrade codex: %w", runErr)
+	}
+	if err := checkCodexVersion(); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "%sCodex upgraded successfully%s\n\n", launch.AnsiGreen, launch.AnsiReset)
+	return nil
+}
 
 func checkCodexVersion() error {
 	if _, err := exec.LookPath("codex"); err != nil {
@@ -770,10 +880,9 @@ func checkCodexVersion() error {
 		return fmt.Errorf("unexpected codex version output: %s", string(out))
 	}
 
-	version := "v" + fields[len(fields)-1]
-
-	if semver.Compare(version, "v"+codexMinVersion) < 0 {
-		return fmt.Errorf("codex version %s is too old, minimum required is %s, update with: npm update -g @openai/codex", fields[len(fields)-1], codexMinVersion)
+	found := fields[len(fields)-1]
+	if semver.Compare("v"+found, "v"+codexMinVersion) < 0 {
+		return &codexTooOldError{found: found, source: detectCodexInstallSource()}
 	}
 
 	return nil

@@ -232,6 +232,16 @@ func runPrizmalSubprocessArgs(t *testing.T, prizmalBin, home, expDir, harness st
 	return runPrizmalLaunch(t, prizmalBin, home, expDir, harness, flags, nil)
 }
 
+// mockLaunchExtraEnv is added to the environment of the next launches a test
+// runs. A test sets it with setMockLaunchEnv, which clears it afterwards.
+var mockLaunchExtraEnv []string
+
+func setMockLaunchEnv(t *testing.T, env ...string) {
+	t.Helper()
+	mockLaunchExtraEnv = env
+	t.Cleanup(func() { mockLaunchExtraEnv = nil })
+}
+
 // runPrizmalLaunch is runPrizmalSubprocessArgs with a separate harnessArgs
 // list that is passed after the integration name, exercising the passthrough
 // half of the positional grammar.
@@ -256,6 +266,7 @@ func runPrizmalLaunch(t *testing.T, prizmalBin, home, expDir, harness string, pr
 	if runtime.GOOS == "windows" {
 		env = append(env, "USERPROFILE="+home)
 	}
+	env = append(env, mockLaunchExtraEnv...)
 	cmd.Env = env
 
 	var stdout, stderr strings.Builder
