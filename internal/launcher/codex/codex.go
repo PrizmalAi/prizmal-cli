@@ -69,7 +69,9 @@ func (c *Codex) args(model, modelCatalogPath string, extra []string) ([]string, 
 		return nil, err
 	}
 
-	args := []string{"--profile", codexProfileName}
+	// Codex falls back to embedded mode for --profile and every -c override and
+	// warns about it in its footer. --no-daemon makes that choice explicit.
+	args := []string{"--no-daemon", "--profile", codexProfileName}
 	for _, override := range codexManagedConfigOverrides(modelCatalogPath) {
 		args = append(args, "-c", override)
 	}
