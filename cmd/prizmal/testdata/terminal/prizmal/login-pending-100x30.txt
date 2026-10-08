@@ -8,8 +8,8 @@ To approve this device, open:
 
 Device fingerprint: <fp>
 Confirm this matches the fingerprint shown in your browser.
+Waiting for approval...
 Press Enter to open the browser (or open the URL above yourself)...
 
 Could not open a browser automatically.
 Open the URL above on any machine with a browser.
-Waiting for approval...

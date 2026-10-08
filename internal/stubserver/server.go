@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -79,10 +80,14 @@ type Entry struct {
 type serverConfig struct {
 	models         []map[string]any
 	deviceApproved bool
-	deviceOnly     bool
-	issuer         *DeviceTokenIssuer
-	toolLoop       *piToolLoop
-	usagePlan      *UsagePlan
+	// approveAfter, when above zero, keeps the device pending until that many
+	// refresh requests have arrived. refreshes counts them.
+	approveAfter int32
+	refreshes    atomic.Int32
+	deviceOnly   bool
+	issuer       *DeviceTokenIssuer
+	toolLoop     *piToolLoop
+	usagePlan    *UsagePlan
 }
 
 // ServerOption configures a stub server.
@@ -314,6 +319,16 @@ func WithDeviceApproval() ServerOption {
 	return func(c *serverConfig) { c.deviceApproved = true }
 }
 
+// WithDeviceApprovalAfter approves the device on the nth refresh request and
+// answers 404 before it. It gives a login time to show its pending screen and
+// take a keypress before the approval lands.
+func WithDeviceApprovalAfter(n int) ServerOption {
+	return func(c *serverConfig) {
+		c.deviceApproved = true
+		c.approveAfter = int32(n)
+	}
+}
+
 // UsagePlan is a test knob that makes the stub report usage, /v1/messages
 // by /v1/messages, the way Claude Code reads it. A plan that starts a
 // conversation near a compaction window makes Claude Code's next turn cross
@@ -511,7 +526,7 @@ func handler(c *serverConfig) http.HandlerFunc {
 // short-lived tokens, otherwise a fresh short-lived one. The 600-second expiry
 // and fixed reauth_by mirror the shape the Switch forwards from the Config API.
 func handleCLIToken(w http.ResponseWriter, c *serverConfig) {
-	if !c.deviceApproved {
+	if !c.deviceApproved || (c.approveAfter > 0 && c.refreshes.Add(1) < c.approveAfter) {
 		writeJSON(w, http.StatusNotFound, map[string]any{
 			"error": map[string]any{"code": "NOT_FOUND", "message": "unknown device"},
 		})
