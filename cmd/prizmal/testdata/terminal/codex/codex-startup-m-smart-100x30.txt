@@ -26,5 +26,5 @@
 
 › Ask Codex to do anything
 
-
+  smart default · ~/project
   ? for shortcuts
