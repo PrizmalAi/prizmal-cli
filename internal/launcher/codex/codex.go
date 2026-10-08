@@ -615,9 +615,6 @@ var codexReasoningLevels = []any{
 	map[string]any{"effort": "high", "description": "Greater reasoning depth for complex problems"},
 }
 
-// writeCodexModelCatalog writes one entry per model. The first model is the
-// launch's own: it gets the lowest priority number, which Codex sorts first
-// and offers as the default.
 // WriteModelCatalog writes the model catalog a launch of model hands Codex to
 // catalogPath, built the way Run builds it. It reads Codex's own system prompt
 // from the installed binary, so Codex must be installed.
@@ -625,6 +622,9 @@ func WriteModelCatalog(catalogPath, model string, models []launch.LaunchModel) e
 	return writeCodexModelCatalog(catalogPath, codexCatalogModels(model, models))
 }
 
+// writeCodexModelCatalog writes one entry per model. The first model is the
+// launch's own: it gets the lowest priority number, which Codex sorts first
+// and offers as the default.
 func writeCodexModelCatalog(catalogPath string, models []launch.LaunchModel) error {
 	prompt, err := readCodexSystemPrompt()
 	if err != nil {
