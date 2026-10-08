@@ -64,7 +64,7 @@ const (
 	// same reason: the device token lives 10 minutes, and a refresh every 4
 	// leaves at least 6 on the token in hand. Codex's own default of 5
 	// minutes would refresh with only 5 left.
-	codexRefreshIntervalMs = claude.ClaudeHelperTTLMs
+	codexRefreshIntervalMs = launch.DeviceTokenRefreshMs
 
 	// codexApplyPatchToolType is the only value Codex 0.160 defines for
 	// apply_patch_tool_type (ApplyPatchToolType::Freeform in codex-rs protocol).

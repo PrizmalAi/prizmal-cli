@@ -183,13 +183,6 @@ func EnsureHelperBaseURL(env []string, baseURL string) []string {
 	return append(env, envconfig.EnvVar+"="+baseURL)
 }
 
-// ClaudeHelperTTLMs is the interval Claude Code re-runs the apiKeyHelper on, in
-// milliseconds: 4 minutes. The device token expires 10 minutes after issue, so
-// a background refresh starts with at least 6 minutes still on the token in
-// hand. Claude Code's own default is 5 minutes, which would refresh with only
-// 5 minutes left; 4 minutes buys the margin a laptop sleep spends.
-const ClaudeHelperTTLMs = 240000
-
 // apiKeyHelperCommand is the settings value that tells Claude Code to fetch its
 // credential from this binary: the quoted executable path followed by the
 // helper subcommand. The path is quoted because Claude Code runs the string
@@ -294,7 +287,7 @@ func (c *Claude) envVars() []string {
 		// The helper refreshes the device token 4 minutes before it would
 		// otherwise expire, with 6 minutes still on the token in hand: enough
 		// for the background refresh a laptop sleep interrupts.
-		env = append(env, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS="+strconv.Itoa(ClaudeHelperTTLMs))
+		env = append(env, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS="+strconv.Itoa(launch.DeviceTokenRefreshMs))
 	}
 	return env
 }

@@ -212,8 +212,8 @@ func TestClaudeChildEnvDeviceModeHasNoAuthToken(t *testing.T) {
 	if got := launchtest.EnvValue(env, "ANTHROPIC_API_KEY="); got != "" {
 		t.Fatalf("ANTHROPIC_API_KEY = %q, want empty in device mode", got)
 	}
-	if got := launchtest.EnvValue(env, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS="); got != strconv.Itoa(ClaudeHelperTTLMs) {
-		t.Fatalf("CLAUDE_CODE_API_KEY_HELPER_TTL_MS = %q, want %d", got, ClaudeHelperTTLMs)
+	if got := launchtest.EnvValue(env, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS="); got != strconv.Itoa(launch.DeviceTokenRefreshMs) {
+		t.Fatalf("CLAUDE_CODE_API_KEY_HELPER_TTL_MS = %q, want %d", got, launch.DeviceTokenRefreshMs)
 	}
 }
 
