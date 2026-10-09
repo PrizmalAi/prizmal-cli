@@ -27,4 +27,4 @@
 › Ask Codex to do anything
 
   smart default · ~/project
-  ? for shortcuts                                                          ⚠ 1 warning · f2 to view
+  ? for shortcuts

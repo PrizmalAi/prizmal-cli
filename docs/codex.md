@@ -10,7 +10,7 @@
 | Model metadata, context window | `~/.codex/model.json`, named by the profile's `model_catalog_json` |
 | Credential | `model_providers.<profile>.auth` runs `prizmal auth token` in device mode; otherwise `OPENAI_API_KEY`, which the profile names with `env_key` |
 
-The launch selects the profile with `--profile prizmal` and also passes the provider settings and the catalog path as `-c` overrides on the command line, so nothing app-visible in `~/.codex/config.toml` changes. It states the model with `-m`, so Codex runs the model prizmal resolved rather than one of its own.
+The launch selects the profile with `--profile prizmal` and `--no-daemon`, and also passes the provider settings and the catalog path as `-c` overrides on the command line, so nothing app-visible in `~/.codex/config.toml` changes. It states the model with `-m`, so Codex runs the model prizmal resolved rather than one of its own.
 
 Codex derives auto-compaction from the context window the catalog declares, 90% of it unless the entry sets `auto_compact_token_limit`, which prizmal doesn't emit. Every model the Switch serves has a 1M window, so the entry declares 1,000,000. Declaring a smaller window makes Codex discard conversation history the Switch would have accepted. `HARNESS_CONTEXT_LENGTH` overrides it for an operator who knows better.
 
@@ -47,8 +47,10 @@ env_key = "OPENAI_API_KEY"
 
 ```bash
 export PRIZMAL_SWITCH_KEY=sk-...
-OPENAI_API_KEY="$PRIZMAL_SWITCH_KEY" codex --profile prizmal -m your-model
+OPENAI_API_KEY="$PRIZMAL_SWITCH_KEY" codex --no-daemon --profile prizmal -m your-model
 ```
+
+Codex runs without its shared background server whenever a launch passes `--profile` or `-c`, and it shows "1 warning" in its footer for that. `--no-daemon` states the choice, so the warning goes away.
 
 `env_key` names the variable Codex reads the key from, so the key itself never enters the file.
 
