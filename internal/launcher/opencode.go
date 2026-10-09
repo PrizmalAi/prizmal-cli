@@ -27,34 +27,56 @@ type OpenCode struct {
 
 func (o *OpenCode) String() string { return "OpenCode" }
 
+// openCodeInstaller is OpenCode's install story. Its curl installer writes the
+// binary to ~/.opencode/bin, which is not on PATH on a machine that ran it and
+// never added it, so that directory is read before the CLI will believe
+// OpenCode is missing. Windows installs through npm instead of the script,
+// and so needs Node.js rather than curl and bash.
+var openCodeInstaller = Installer{
+	Name:         "opencode",
+	DisplayName:  "OpenCode",
+	GOOS:         func() string { return openCodeGOOS },
+	Locate:       findOpenCode,
+	Dependencies: openCodeInstallerDependencies,
+	Command:      openCodeInstallerCommand,
+}
+
 // findOpenCode returns the opencode binary path, checking PATH first then the
-// curl installer location (~/.opencode/bin) which may not be on PATH yet.
-func findOpenCode() (string, bool) {
+// curl installer location (~/.opencode/bin) which may not be on PATH yet. The
+// goos parameter is the installer's OS seam, because the name on disk differs
+// on Windows and the package var is what a test overrides.
+//
+// An absent binary is errHarnessAbsent and nothing else: it means "install it",
+// so the install pipeline goes on to the dependency probe instead of reporting
+// the lookup that already found nothing. A home directory that cannot be read
+// is absent rather than a failure, for the same reason as in Claude's locate:
+// PATH came up empty first, so the installer is the answer, and the operator
+// never set the variable the error would name.
+func findOpenCode(goos string) (string, error) {
 	if p, err := exec.LookPath("opencode"); err == nil {
-		return p, true
+		return p, nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", false
+		return "", errHarnessAbsent
 	}
 	name := "opencode"
-	if openCodeGOOS == "windows" {
+	if goos == "windows" {
 		name = "opencode.exe"
 	}
 	fallback := filepath.Join(home, ".opencode", "bin", name)
 	if _, err := os.Stat(fallback); err == nil {
-		return fallback, true
+		return fallback, nil
 	}
-	return "", false
+	return "", errHarnessAbsent
 }
 
 func (o *OpenCode) Installed() bool {
-	_, ok := findOpenCode()
-	return ok
+	return openCodeInstaller.Installed()
 }
 
 func (o *OpenCode) Run(model string, models []LaunchModel, args []string) error {
-	opencodePath, err := ensureOpenCodeInstalled()
+	opencodePath, err := openCodeInstaller.EnsureInstalled()
 	if err != nil {
 		return err
 	}
@@ -105,65 +127,14 @@ func (o *OpenCode) envVars(model string, models []LaunchModel) []string {
 	)
 }
 
-func ensureOpenCodeInstalled() (string, error) {
-	if opencodePath, ok := findOpenCode(); ok {
-		return opencodePath, nil
+// openCodeInstallerDependencies lists what OpenCode's installer needs to run.
+// Windows installs the npm package and so needs Node.js; the other platforms
+// pipe the install script through bash and need curl to fetch it.
+func openCodeInstallerDependencies(goos string) []Dependency {
+	if goos == "windows" {
+		return []Dependency{npmDependency}
 	}
-
-	if err := checkOpenCodeInstallerDependencies(); err != nil {
-		return "", err
-	}
-
-	ok, err := ConfirmPrompt("OpenCode is not installed. Install now?")
-	if err != nil {
-		return "", err
-	}
-	if !ok {
-		return "", fmt.Errorf("opencode installation cancelled")
-	}
-
-	bin, args, err := openCodeInstallerCommand(openCodeGOOS)
-	if err != nil {
-		return "", err
-	}
-
-	fmt.Fprintf(os.Stderr, "\nInstalling OpenCode...\n")
-	cmd := exec.Command(bin, args...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("failed to install opencode: %w", err)
-	}
-
-	opencodePath, ok := findOpenCode()
-	if !ok {
-		return "", fmt.Errorf("opencode was installed but the binary was not found on PATH\n\nYou may need to restart your shell")
-	}
-
-	fmt.Fprintf(os.Stderr, "%sOpenCode installed successfully%s\n\n", ansiGreen, ansiReset)
-	return opencodePath, nil
-}
-
-func checkOpenCodeInstallerDependencies() error {
-	switch openCodeGOOS {
-	case "windows":
-		if _, err := exec.LookPath("npm"); err != nil {
-			return fmt.Errorf("opencode is not installed and required dependencies are missing\n\nInstall the following first:\n  npm (Node.js): https://nodejs.org/\n\nThen re-run:\n  prizmal opencode")
-		}
-	default:
-		var missing []string
-		if _, err := exec.LookPath("curl"); err != nil {
-			missing = append(missing, "curl: https://curl.se/")
-		}
-		if _, err := exec.LookPath("bash"); err != nil {
-			missing = append(missing, "bash: https://www.gnu.org/software/bash/")
-		}
-		if len(missing) > 0 {
-			return fmt.Errorf("opencode is not installed and required dependencies are missing\n\nInstall the following first:\n  %s\n\nThen re-run:\n  prizmal opencode", strings.Join(missing, "\n  "))
-		}
-	}
-	return nil
+	return []Dependency{curlDependency, bashDependency}
 }
 
 func openCodeInstallerCommand(goos string) (string, []string, error) {
