@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"github.com/PrizmalAi/prizmal-cli/internal/internaltest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -365,7 +366,7 @@ func TestMockHarnessLaunch(t *testing.T) {
 					envDump := string(data)
 					for _, envVar := range exp.requiredEnv {
 						if !envDumpHasNonEmpty(envDump, envVar) {
-							t.Errorf("mock did not see non-empty env %s\nenv dump:\n%s", envVar, envDump)
+							t.Errorf("mock did not see non-empty env %s\nenv dump:\n%s", envVar, internaltest.RedactEnvDump(envDump))
 						}
 					}
 				} else {
@@ -498,7 +499,7 @@ func TestClaudeCodeE2EWithStubRequest(t *testing.T) {
 		{"ANTHROPIC_AUTH_TOKEN", stubserver.StubKey},
 	} {
 		if !envDumpHasNonEmpty(envDump, check.name) {
-			t.Errorf("claude env missing %s\nenv dump:\n%s", check.name, envDump)
+			t.Errorf("claude env missing %s\nenv dump:\n%s", check.name, internaltest.RedactEnvDump(envDump))
 			continue
 		}
 		if got := envDumpValue(envDump, check.name); got != check.want {
@@ -506,7 +507,7 @@ func TestClaudeCodeE2EWithStubRequest(t *testing.T) {
 		}
 	}
 	if got := envDumpValue(envDump, "ANTHROPIC_DEFAULT_OPUS_MODEL"); got != mockLaunchModel+"[1m]" {
-		t.Errorf("claude env ANTHROPIC_DEFAULT_OPUS_MODEL = %q, want %q; the /model Default row reads it\nenv dump:\n%s", got, mockLaunchModel+"[1m]", envDump)
+		t.Errorf("claude env ANTHROPIC_DEFAULT_OPUS_MODEL = %q, want %q; the /model Default row reads it\nenv dump:\n%s", got, mockLaunchModel+"[1m]", internaltest.RedactEnvDump(envDump))
 	}
 	for _, name := range []string{
 		"ANTHROPIC_DEFAULT_SONNET_MODEL",
@@ -515,7 +516,7 @@ func TestClaudeCodeE2EWithStubRequest(t *testing.T) {
 		"CLAUDE_CODE_SUBAGENT_MODEL",
 	} {
 		if strings.Contains(envDump, name+"=") {
-			t.Errorf("claude env carries %s; only the Opus tier follows the launch model, and the launch picked no subagent model\nenv dump:\n%s", name, envDump)
+			t.Errorf("claude env carries %s; only the Opus tier follows the launch model, and the launch picked no subagent model\nenv dump:\n%s", name, internaltest.RedactEnvDump(envDump))
 		}
 	}
 

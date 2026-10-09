@@ -152,7 +152,7 @@ func TestPiDeviceEnvCarriesTheCredentialCommand(t *testing.T) {
 		t.Errorf("%s = %q, want a command ending in \"auth token\"", piCredentialCommandEnv, command)
 	}
 	if got := internaltest.EnvValue(env, envconfig.KeyEnvVar+"="); got != "" {
-		t.Errorf("%s = %q, want no key in a device-mode environment", envconfig.KeyEnvVar, got)
+		t.Errorf("%s is set in a device-mode environment, want no key", envconfig.KeyEnvVar)
 	}
 }
 

@@ -20,7 +20,7 @@ import (
 func resetAPIKey(t *testing.T) {
 	t.Helper()
 	envconfig.SetAPIKey("")
-	t.Setenv(envconfig.KeyEnvVar, "")
+	internaltest.ClearCredentialEnv(t)
 }
 
 // envNames returns every variable name in an environment.
@@ -50,7 +50,7 @@ func TestClaudeEnvVarsCarryAPIKey(t *testing.T) {
 		t.Fatalf("ANTHROPIC_API_KEY = %q, want empty", got)
 	}
 	if !strings.Contains(strings.Join(env, "\n"), "ANTHROPIC_API_KEY=") {
-		t.Fatalf("ANTHROPIC_API_KEY is absent from the child env, so a shell export would be inherited: %v", env)
+		t.Fatalf("ANTHROPIC_API_KEY is absent from the child env, so a shell export would be inherited: %v", internaltest.RedactEnv(env))
 	}
 }
 
@@ -69,7 +69,7 @@ func TestClaudeEnvVarsEmptyAPIKeyIsVerbatimEmpty(t *testing.T) {
 	// The old placeholder must never reappear.
 	for _, bad := range []string{"harness-launch", "ollama", "ollama-local"} {
 		if strings.Contains(strings.Join(env, "\n"), bad) {
-			t.Fatalf("placeholder %q leaked into env: %v", bad, env)
+			t.Fatalf("placeholder %q leaked into env: %v", bad, internaltest.RedactEnv(env))
 		}
 	}
 }
@@ -122,7 +122,7 @@ func TestClaudeEnvVarsDoNotEnableGatewayModelDiscovery(t *testing.T) {
 
 	env := strings.Join((&Claude{}).envVars(), "\n")
 	if strings.Contains(env, "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY") {
-		t.Fatalf("gateway discovery variable is present; the settings JSON defines every row:\n%s", env)
+		t.Fatalf("gateway discovery variable is present; the settings JSON defines every row:\n%s", internaltest.RedactEnvDump(env))
 	}
 }
 
@@ -216,7 +216,7 @@ func TestClaudeChildEnvDeviceModeHasNoAuthToken(t *testing.T) {
 	env := claudeChildEnv("", nil)
 
 	if strings.Contains(strings.Join(env, "\n"), "ANTHROPIC_AUTH_TOKEN=") {
-		t.Fatalf("ANTHROPIC_AUTH_TOKEN is present in device mode:\n%v", env)
+		t.Fatalf("ANTHROPIC_AUTH_TOKEN is present in device mode:\n%v", internaltest.RedactEnv(env))
 	}
 	if got := internaltest.EnvValue(env, "ANTHROPIC_API_KEY="); got != "" {
 		t.Fatalf("ANTHROPIC_API_KEY = %q, want empty in device mode", got)
@@ -316,7 +316,7 @@ func TestClaudeChildEnvSetsSubagentModelOnlyWhenPicked(t *testing.T) {
 	t.Cleanup(func() { launch.SetSubagentModel("") })
 
 	if env := claudeChildEnv("", nil); strings.Contains(strings.Join(env, "\n"), "CLAUDE_CODE_SUBAGENT_MODEL=") {
-		t.Fatalf("CLAUDE_CODE_SUBAGENT_MODEL is set with no subagent model picked:\n%v", env)
+		t.Fatalf("CLAUDE_CODE_SUBAGENT_MODEL is set with no subagent model picked:\n%v", internaltest.RedactEnv(env))
 	}
 
 	// Subagents produce most of the token traffic, so this variable is the one

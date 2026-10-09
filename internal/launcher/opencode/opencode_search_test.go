@@ -110,7 +110,7 @@ func TestOpenCodeEnvVarsWireSearchToolToSwitch(t *testing.T) {
 		t.Fatalf("%s = %q, want https://switch.example/v1", openCodeSearchURLEnv, url)
 	}
 	if key, _ := envLookup(env, openCodeSearchKeyEnv); key != "sk-search" {
-		t.Fatalf("%s = %q, want sk-search", openCodeSearchKeyEnv, key)
+		t.Fatalf("%s is not the launch key", openCodeSearchKeyEnv)
 	}
 	if model, _ := envLookup(env, openCodeSearchModelEnv); model != "wire-test-model" {
 		t.Fatalf("%s = %q, want wire-test-model", openCodeSearchModelEnv, model)
