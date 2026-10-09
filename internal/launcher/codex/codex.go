@@ -58,6 +58,10 @@ const (
 	// minutes would refresh with only 5 left.
 	codexRefreshIntervalMs = launch.ClaudeHelperTTLMs
 
+	// codexApplyPatchToolType is the only value Codex 0.160 defines for
+	// apply_patch_tool_type (ApplyPatchToolType::Freeform in codex-rs protocol).
+	codexApplyPatchToolType = "freeform"
+
 	codexRootProfileKey          = "profile"
 	codexRootModelKey            = "model"
 	codexRootModelProviderKey    = "model_provider"
@@ -703,6 +707,11 @@ func buildCodexModelEntry(launchModel launch.LaunchModel) map[string]any {
 		"default_verbosity":            "low",
 		"supported_reasoning_levels":   codexReasoningLevels,
 		"experimental_supported_tools": []any{},
+		// Codex sends its freeform apply_patch edit tool only for a model whose
+		// entry sets this (codex-rs core/src/tools/spec_plan.rs). Without it
+		// Codex edits files through shell commands. The Switch translates the
+		// tool for routes that have no freeform tools.
+		"apply_patch_tool_type": codexApplyPatchToolType,
 	}
 }
 

@@ -357,3 +357,14 @@ func TestCodexKeyModeChildEnvCarriesSwitchKey(t *testing.T) {
 		t.Errorf("key-mode env lacks the switch key: %v", env)
 	}
 }
+
+// Codex sends its freeform apply_patch tool only for a model whose catalog
+// entry sets apply_patch_tool_type. Without it Codex edits files through shell
+// commands.
+func TestCodexEntryDeclaresTheFreeformApplyPatchTool(t *testing.T) {
+	entry := buildCodexModelEntry(launch.LaunchModel{Name: "smart"})
+
+	if got := entry["apply_patch_tool_type"]; got != "freeform" {
+		t.Fatalf("apply_patch_tool_type = %v, want freeform", got)
+	}
+}
