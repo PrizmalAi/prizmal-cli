@@ -198,6 +198,10 @@ type baselineCase struct {
 	deviceKey bool
 	// env is extra environment for the child, on top of the fixed set.
 	env []string
+	// standIns names executables written to the case's bin directory, each
+	// one a script that exits 0. A case that needs a tool on PATH without the
+	// real one, such as the npm an install prompt checks for, lists it here.
+	standIns []string
 	// update poses prizmal as release 0.1.2 and serves a newer release.
 	update *updateScenario
 	// updateOld and updateNew are set by the runner: prizmal built as releases
@@ -478,6 +482,14 @@ var prizmalBaselineCases = []baselineCase{
 		deviceApproved: true,
 		env:            []string{"PRIZMAL_APP_URL=" + nonRoutableAppURL},
 		steps:          []baselineStep{{waitFor: "This device is approved"}},
+	},
+	// Codex missing from PATH with npm present: the launch offers to install
+	// it, as it does for the other npm-installed harnesses.
+	{
+		name: "codex-install-prompt-100x30", cols: 100, rows: 30,
+		args:     []string{"--model", "smart", "codex"},
+		standIns: []string{"npm"},
+		steps:    []baselineStep{{waitFor: "Install with npm?"}},
 	},
 	// `auth token` with no device key is the only screen it draws: its success
 	// path prints the token to stdout and nothing else.
@@ -830,6 +842,11 @@ func renderBaseline(t *testing.T, tmuxPath, prizmalBin, claudeDir string, tc bas
 		seedClaudeState(t, home, project)
 	} else if err := os.WriteFile(filepath.Join(binDir, "claude"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
+	}
+	for _, name := range tc.standIns {
+		if err := os.WriteFile(filepath.Join(binDir, name), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 	path += ":/usr/bin:/bin"
 

@@ -58,6 +58,9 @@ func (c *Codex) args(model, modelCatalogPath string, extra []string) ([]string, 
 	for _, override := range codexManagedConfigOverrides(modelCatalogPath) {
 		args = append(args, "-c", override)
 	}
+	for _, override := range codexHygieneOverrides() {
+		args = append(args, "-c", override)
+	}
 	if model != "" {
 		args = append(args, "-m", model)
 	}
@@ -66,6 +69,9 @@ func (c *Codex) args(model, modelCatalogPath string, extra []string) ([]string, 
 }
 
 func (c *Codex) Run(model string, models []LaunchModel, args []string) error {
+	if err := ensureCodexInstalled(); err != nil {
+		return err
+	}
 	if err := checkCodexVersion(); err != nil {
 		return err
 	}
@@ -88,7 +94,7 @@ func (c *Codex) Run(model string, models []LaunchModel, args []string) error {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Env = append(os.Environ(), c.envVars()...)
+	cmd.Env = codexChildEnv()
 	return cmd.Run()
 }
 
@@ -98,6 +104,94 @@ func (c *Codex) Run(model string, models []LaunchModel, args []string) error {
 // credential-shaped outlives the launched process.
 func (c *Codex) envVars() []string {
 	return []string{"OPENAI_API_KEY=" + envconfig.APIKey()}
+}
+
+// codexInheritedVars are the variables the CLI never passes on to Codex.
+//
+// Each one would send the session somewhere other than the Switch, or sign it
+// in as someone other than the Switch key: CODEX_API_KEY and CODEX_ACCESS_TOKEN
+// override the credential Codex resolves, OPENAI_BASE_URL names another
+// endpoint for the tools that read it, and CODEX_HOME moves Codex to a
+// configuration directory that holds none of the files a launch writes.
+var codexInheritedVars = []string{
+	"OPENAI_BASE_URL",
+	"CODEX_API_KEY",
+	"CODEX_ACCESS_TOKEN",
+	"CODEX_HOME",
+}
+
+// codexChildEnv builds Codex's environment: the inherited environment minus
+// codexInheritedVars, then the variables the launch sets. The launch's own
+// names are skipped in the inherited pass, so each appears once and the
+// launch value wins.
+func codexChildEnv() []string {
+	drop := make(map[string]bool, len(codexInheritedVars))
+	for _, name := range codexInheritedVars {
+		drop[name] = true
+	}
+	fixed := (&Codex{}).envVars()
+	for _, kv := range fixed {
+		name, _, _ := strings.Cut(kv, "=")
+		drop[name] = true
+	}
+
+	env := make([]string, 0, len(os.Environ())+len(fixed))
+	for _, kv := range os.Environ() {
+		name, _, _ := strings.Cut(kv, "=")
+		if drop[name] {
+			continue
+		}
+		env = append(env, kv)
+	}
+	return append(env, fixed...)
+}
+
+// codexHygieneOverrides are the -c settings that keep a launch quiet: Codex
+// analytics and the feedback upload are off, and --subagent-model, when given,
+// becomes the model Codex uses for /review. They travel on the command line, so
+// nothing is written to disk.
+func codexHygieneOverrides() []string {
+	overrides := []string{
+		"analytics.enabled=false",
+		"feedback.enabled=false",
+	}
+	if sub := selectedSubagentModel(); sub != "" {
+		overrides = append(overrides, fmt.Sprintf("review_model=%q", sub))
+	}
+	return overrides
+}
+
+// ensureCodexInstalled installs Codex with npm when it is missing, after the
+// operator confirms.
+func ensureCodexInstalled() error {
+	if _, err := exec.LookPath("codex"); err == nil {
+		return nil
+	}
+	if _, err := exec.LookPath("npm"); err != nil {
+		return fmt.Errorf("codex is not installed and required dependencies are missing\n\nInstall the following first:\n  npm (Node.js): https://nodejs.org/\n\nThen re-run:\n  prizmal codex")
+	}
+
+	ok, err := ConfirmPrompt("Codex is not installed. Install with npm?")
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("codex installation cancelled")
+	}
+
+	fmt.Fprintf(os.Stderr, "\nInstalling Codex...\n")
+	cmd := exec.Command("npm", "install", "-g", "@openai/codex")
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to install codex: %w", err)
+	}
+	if _, err := exec.LookPath("codex"); err != nil {
+		return fmt.Errorf("codex was installed but the binary was not found on PATH\n\nYou may need to restart your shell")
+	}
+	fmt.Fprintf(os.Stderr, "%sCodex installed successfully%s\n\n", ansiGreen, ansiReset)
+	return nil
 }
 
 func (c *Codex) Restore() (RestoreOutcome, error) {
