@@ -21,23 +21,23 @@ const (
 	ansiBold   = "\x1b[1m"
 )
 
-// LaunchModel is minimal model metadata passed to integration config writers.
-// The server-backed inventory from the original launcher is gone; models come
-// from the --model flag, so most fields stay zero and adapters fall back to
-// their defaults.
+// LaunchModel is model metadata passed to integration config writers, and it
+// carries only what prizmal can actually learn about a model.
+//
+// Every field here has exactly one writer: the Switch's GET /v1/models
+// catalog fills Name, Capabilities, Tier and Description (parseSwitchCatalog),
+// and withClaudeTiers fills FoldedInto. The server-backed inventory of the
+// original launcher is gone, so a field with no writer is a field nothing can
+// read meaningfully — a context window, an output-token limit or a format that
+// no writer supplies would make every adapter branch on a permanent zero and
+// pick a default every time, which is indistinguishable from deleting the
+// branch while reading as if it did something.
+//
+// TestLaunchModelCarriesOnlyCatalogFacts pins the field set, so adding a field
+// back means adding its writer in the same change.
 type LaunchModel struct {
 	Name         string
-	Remote       bool
-	ToolCapable  bool
 	Capabilities []model.Capability
-	Details      struct {
-		ContextLength int
-		Format        string
-		Family        string
-		Families      []string
-	}
-	ContextLength   int
-	MaxOutputTokens int
 
 	// Tier is the Claude tier the Switch says this model serves, one of
 	// opus, sonnet, haiku or fable, and empty when it said none.
@@ -59,16 +59,9 @@ func (m LaunchModel) HasCapability(capability model.Capability) bool {
 	return false
 }
 
-func (m LaunchModel) WithCloudLimits() LaunchModel { return m }
-
 // fallbackLaunchModel builds a bare LaunchModel for a model name.
 func fallbackLaunchModel(name string) LaunchModel {
 	return LaunchModel{Name: name}
-}
-
-// lookupCloudModelLimit always reports no limit known.
-func lookupCloudModelLimit(string) (struct{ Context, Output int }, bool) {
-	return struct{ Context, Output int }{}, false
 }
 
 // confirmReader is where the confirmation gate reads an answer, and confirmOut
