@@ -164,13 +164,20 @@ Examples:
 				return listTenantModels()
 			}
 
+			// ask is how this launch reaches the operator: the real terminal
+			// probe and the real picker menu. It is stated once, where the
+			// launch is made, so the two interactive decisions a launch can
+			// take are readable together and neither is left implicit in a
+			// package variable a caller may already have replaced.
+			ask := launcher.AskOperator()
+
 			// --pick alone is a mode: it chooses a model, saves it, and exits
 			// without launching, because no integration was named to launch.
 			// With an integration named it is a launch flag instead, so
 			// `prizmal --pick claude` chooses a model and starts Claude Code
 			// with it.
 			if pickFlag && len(args) == 0 {
-				return pickDefaultModel(cfg)
+				return pickDefaultModel(cfg, ask)
 			}
 
 			if len(args) == 0 {
@@ -179,7 +186,7 @@ Examples:
 			launcher.SetConfirmPolicy(yes)
 			launcher.SetSubagentModel(subagentModel)
 			integration, extraArgs := splitLaunchInvocation(args)
-			return launch(integration, extraArgs, cfg)
+			return launch(integration, extraArgs, cfg, ask)
 		},
 	}
 
@@ -339,7 +346,12 @@ func runnerShowsModelList(runner launcher.Runner) bool {
 // name, which is empty for a runner that does not own that flag. It ranks with
 // the --model flag: it is consulted first and overrides the saved default
 // exactly as the flag does.
-func resolveLaunchModel(cfg *config.Config, harnessModel string) (string, []launcher.LaunchModel, error) {
+//
+// ask is how the launch reaches the operator when nothing else names a model:
+// whether a person is there to answer, and the menu that asks them. It is a
+// parameter rather than a package variable so the launch says which it uses,
+// and so a test states its own without restoring anything afterwards.
+func resolveLaunchModel(cfg *config.Config, harnessModel string, ask launcher.Asking) (string, []launcher.LaunchModel, error) {
 	ctx := context.Background()
 
 	switch {
@@ -356,7 +368,7 @@ func resolveLaunchModel(cfg *config.Config, harnessModel string) (string, []laun
 	// The operator is choosing: either they asked with --pick, or nothing
 	// names a model and a terminal is there to ask on. Both need a person and
 	// a list, so both are refused before a menu could open empty.
-	if !launcher.StdinIsTerminal() {
+	if !ask.CanAsk() {
 		if pickFlag {
 			return "", nil, fmt.Errorf(
 				"--pick needs an interactive terminal: pass --model MODEL instead, or run it on a terminal")
@@ -381,7 +393,7 @@ func resolveLaunchModel(cfg *config.Config, harnessModel string) (string, []laun
 		return "", nil, launcher.CatalogError(err)
 	}
 
-	chosen, err := launcher.PickModel(launcher.ModelRows(catalog))
+	chosen, err := ask.Pick(launcher.ModelRows(catalog))
 	if err != nil {
 		return "", nil, err
 	}
@@ -410,13 +422,17 @@ func resolveLaunchModel(cfg *config.Config, harnessModel string) (string, []laun
 // refused rather than silently doing nothing. Unlike a pick during a launch,
 // where the model in hand is the point, this mode exists only to set the
 // default; a run that cannot set it has not done what was asked.
-func pickDefaultModel(cfg *config.Config) error {
+//
+// ask is the launch's way of reaching the operator, carried from the command
+// that started it: whether a person is there to answer, and the menu that asks
+// them.
+func pickDefaultModel(cfg *config.Config, ask launcher.Asking) error {
 	if cfg == nil {
 		return fmt.Errorf("no config file to save a default model in; run a launch once to create one")
 	}
 	// The menu needs a person. Refusing up front beats opening a full-screen list on a
 	// pipe, which would read whatever arrives on stdin as keystrokes.
-	if !launcher.StdinIsTerminal() {
+	if !ask.CanAsk() {
 		return fmt.Errorf("--pick needs an interactive terminal: pass --model MODEL instead, or run it on a terminal")
 	}
 
@@ -430,7 +446,7 @@ func pickDefaultModel(cfg *config.Config) error {
 		return launcher.CatalogError(err)
 	}
 
-	chosen, err := launcher.PickModel(launcher.ModelRows(catalog))
+	chosen, err := ask.Pick(launcher.ModelRows(catalog))
 	if err != nil {
 		return err
 	}
@@ -564,7 +580,12 @@ func reconcileModel(flagModel string, harnessModels []string) (string, error) {
 	return harness, nil
 }
 
-func launch(name string, extraArgs []string, cfg *config.Config) error {
+// launch configures the named integration and hands it to the harness.
+//
+// ask is how it reaches the operator when nothing else names a model. It is
+// threaded from the command that started the launch so the launch names the way
+// it asks, rather than reaching for a package variable.
+func launch(name string, extraArgs []string, cfg *config.Config, ask launcher.Asking) error {
 	spec, err := launcher.LookupIntegrationSpec(name)
 	if err != nil {
 		return fmt.Errorf("%w\nRun `prizmal` to see available integrations", err)
@@ -647,7 +668,7 @@ func launch(name string, extraArgs []string, cfg *config.Config) error {
 	// saved default, or a choice the operator makes here. Nothing falls back to
 	// a placeholder name, so an empty model is a stopped launch rather than a
 	// request the switch has to interpret.
-	chosen, catalog, err := resolveLaunchModel(cfg, harnessModel)
+	chosen, catalog, err := resolveLaunchModel(cfg, harnessModel, ask)
 	if err != nil {
 		return err
 	}
