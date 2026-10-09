@@ -1,26 +1,26 @@
 # OpenAI Codex CLI
 
-`prizmal codex` launches Codex against the Prizmal Switch. Codex takes its provider from a named profile in `~/.codex/config.toml`, so the launch writes that profile and a model catalog beside it, and puts the key on the child environment.
+`prizmal codex` launches Codex against the Prizmal Switch. The launch passes the provider as `-c` overrides, writes a model catalog to a temporary file for the length of the session, and puts the key on the child environment. It writes nothing to `~/.codex`.
 
 ## Provider wiring
 
 | What | Where |
 |---|---|
-| Profile, model, provider, catalog | `~/.codex/prizmal.config.toml`, written with a backup |
-| Model metadata, context window | `~/.codex/model.json`, named by the profile's `model_catalog_json` |
-| Credential | `model_providers.<profile>.auth` runs `prizmal auth token` in device mode; otherwise `OPENAI_API_KEY`, which the profile names with `env_key` |
+| Model, provider, endpoint | `-c` overrides and `-m` on the command line |
+| Model metadata, context window | a `model.json` in a temporary directory, named by `-c model_catalog_json=...` and removed when Codex exits |
+| Credential | `model_providers.prizmal.auth` runs `prizmal auth token` in device mode. Otherwise `OPENAI_API_KEY`, which `-c model_providers.prizmal.env_key` names |
 
-The launch selects the profile with `--profile prizmal` and `--no-daemon`, and also passes the provider settings and the catalog path as `-c` overrides on the command line, so nothing app-visible in `~/.codex/config.toml` changes. It states the model with `-m`, so Codex runs the model prizmal resolved rather than one of its own.
+The launch passes `--no-daemon` and the provider settings as `-c` overrides. Nothing app-visible in `~/.codex/config.toml` changes, and `CODEX_HOME` makes no difference to the launch. It states the model with `-m`, so Codex runs the model prizmal resolved rather than one of its own.
 
 Codex derives auto-compaction from the context window the catalog declares, 90% of it unless the entry sets `auto_compact_token_limit`, which prizmal doesn't emit. Every model the Switch serves has a 1M window, so the entry declares 1,000,000. Declaring a smaller window makes Codex discard conversation history the Switch would have accepted. `HARNESS_CONTEXT_LENGTH` overrides it for an operator who knows better.
 
 ## Device login
 
-Codex refreshes a device token through its command-backed provider auth. On a machine signed in with a device key the launch writes a `[model_providers.<profile>.auth]` table naming this binary as the command, so Codex runs `prizmal auth token` for its bearer token instead of reading a fixed key. The table carries no credential, and the launch writes no `env_key` beside it: Codex rejects a provider that names both a key and a command.
+Codex refreshes a device token through its command-backed provider auth. On a machine signed in with a device key the launch passes `model_providers.prizmal.auth` overrides naming this binary as the command, so Codex runs `prizmal auth token` for its bearer token instead of reading a fixed key. The overrides carry no credential, and the launch passes no `env_key` beside them: Codex rejects a provider that names both a key and a command.
 
 Codex re-runs the command every four minutes, the interval prizmal sets. A device token expires ten minutes after issue and Codex's own default refresh is five, which would refresh with only five minutes still in hand; four keeps the margin a laptop sleep spends.
 
-Launched without a device key, the profile names `OPENAI_API_KEY` with `env_key` and the launch sets that variable to the switch key, so nothing credential-shaped outlives the launched process. With no switch key, prizmal asks for one, as any unauthenticated launch does.
+Launched without a device key, the launch names `OPENAI_API_KEY` with `env_key` and the launch sets that variable to the switch key, so nothing credential-shaped outlives the launched process. With no switch key, prizmal asks for one, as any unauthenticated launch does.
 
 ## Restore
 
@@ -28,7 +28,7 @@ Launched without a device key, the profile names `OPENAI_API_KEY` with `env_key`
 prizmal --restore codex
 ```
 
-Codex's restore removes the profile file and catalog the launch wrote and puts back any root config it touched. On a machine prizmal never configured, `--restore` reports that there is nothing to restore.
+A launch writes no files, so there is nothing new to restore. Codex's restore removes the profile file and catalog that an older prizmal wrote to `~/.codex`. On a machine prizmal never configured, `--restore` reports that there is nothing to restore.
 
 ## Run Codex without the Prizmal CLI
 
@@ -54,4 +54,4 @@ Codex runs without its shared background server whenever a launch passes `--prof
 
 `env_key` names the variable Codex reads the key from, so the key itself never enters the file.
 
-`prizmal codex` writes this profile and a model catalog beside it, and passes the provider settings and catalog path as `-c` overrides so your root `config.toml` stays as it was. The catalog makes Codex budget the 1M window the Switch serves instead of a default. It also installs Codex when the `codex` binary is missing.
+`prizmal codex` writes no profile. It passes the same provider settings as `-c` overrides and a model catalog from a temporary file, so your `~/.codex` stays as it was. The catalog makes Codex budget the 1M window the Switch serves instead of a default. It also installs Codex when the `codex` binary is missing.

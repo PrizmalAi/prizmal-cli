@@ -327,15 +327,8 @@ func TestCodexDeviceLaunchRunsOnTheDeviceToken(t *testing.T) {
 			t.Errorf("%s %s carried the switch key", req.Method, req.Path)
 		}
 	}
-	// The generated profile names the command and holds no credential.
-	profile, err := os.ReadFile(filepath.Join(sb.home, ".codex", "prizmal.config.toml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(profile), "[model_providers.prizmal.auth]") || strings.Contains(string(profile), "env_key") {
-		t.Errorf("the profile does not use command auth:\n%s", profile)
-	}
-	if strings.Contains(string(profile), stubserver.DeviceToken) || strings.Contains(string(profile), stubserver.StubKey) {
-		t.Errorf("the profile holds a credential:\n%s", profile)
+	// The launch writes no profile file: the command auth rides -c overrides.
+	if _, err := os.Stat(filepath.Join(sb.home, ".codex", "prizmal.config.toml")); !os.IsNotExist(err) {
+		t.Errorf("the launch left a profile under ~/.codex (stat err = %v)", err)
 	}
 }
