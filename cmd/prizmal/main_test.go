@@ -280,6 +280,24 @@ func TestTakeModelFlagConsumesTheHarnessModelArgument(t *testing.T) {
 			wantRest: []string{"--verbose"},
 		},
 		{
+			name:     "-m is prizmal's short form of --model",
+			extra:    []string{"-m", "smart", "--verbose"},
+			want:     []string{"smart"},
+			wantRest: []string{"--verbose"},
+		},
+		{
+			name:     "-m after the separator is harness text",
+			extra:    []string{"exec", "--", "-m", "smart"},
+			want:     nil,
+			wantRest: []string{"exec", "--", "-m", "smart"},
+		},
+		{
+			name:     "a trailing -m with no value is left for the harness to reject",
+			extra:    []string{"-m"},
+			want:     nil,
+			wantRest: []string{"-m"},
+		},
+		{
 			name:     "a trailing --model with no value is left for the harness to reject",
 			extra:    []string{"--model"},
 			want:     nil,

@@ -215,11 +215,18 @@ type Runner interface {
 // name. The CLI consumes such an argument before dispatch and hands the runner
 // the resolved model instead.
 //
-// A runner opts in when it has no other meaning for --model. pi uses a
-// provider-qualified --model to choose a provider, and codex already refuses
-// the flag as one it manages, so neither is an owner.
+// A runner opts in when it has no other meaning for --model. Claude Code and
+// Codex do: the launch states the model itself. pi uses a provider-qualified
+// --model to choose a provider, so it is not an owner.
 type OwningModelFlag interface {
 	OwnsModelFlag() bool
+}
+
+// SubagentModelRunner is a runner that gives subagents the model --subagent-model
+// names. Claude Code and Codex do. The other harnesses have no such setting, so
+// the CLI refuses the flag for them rather than ignoring it.
+type SubagentModelRunner interface {
+	TakesSubagentModel() bool
 }
 
 // DeviceModeRunner is a runner that can refresh its own credential from an

@@ -89,7 +89,11 @@ func Run() int {
 
 	// codex install discovery calls `codex --version`.
 	if len(args) == 1 && args[0] == "--version" {
-		fmt.Println("codex-cli 0.160.0")
+		version := os.Getenv("MOCKBIN_CODEX_VERSION")
+		if version == "" {
+			version = "0.160.0"
+		}
+		fmt.Println("codex-cli " + version)
 		return 0
 	}
 
