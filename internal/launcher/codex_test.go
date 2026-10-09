@@ -208,7 +208,7 @@ const fakeCodexCatalog = `{"models":[
 func TestCodexCatalogCarriesCodexsOwnSystemPrompt(t *testing.T) {
 	fakeCodexBundle(t, fakeCodexCatalog)
 	path := filepath.Join(t.TempDir(), "catalog.json")
-	if err := writeCodexModelCatalog(path, LaunchModel{Name: "prizmal-flash"}); err != nil {
+	if err := writeCodexModelCatalog(path, []LaunchModel{{Name: "prizmal-flash"}}); err != nil {
 		t.Fatalf("writeCodexModelCatalog: %v", err)
 	}
 	raw, err := os.ReadFile(path)
@@ -255,12 +255,98 @@ func TestCodexCatalogFailsWhenThePromptIsUnreadable(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			fakeCodexBundle(t, catalog)
 			path := filepath.Join(t.TempDir(), "catalog.json")
-			if err := writeCodexModelCatalog(path, LaunchModel{Name: "prizmal-flash"}); err == nil {
+			if err := writeCodexModelCatalog(path, []LaunchModel{{Name: "prizmal-flash"}}); err == nil {
 				t.Fatal("want an error, got none")
 			}
 			if _, err := os.Stat(path); err == nil {
 				t.Fatal("a catalog was written without a prompt")
 			}
 		})
+	}
+}
+
+// TestCodexCatalogListsTheTenantCatalogWithEffortLevels pins what Codex's
+// /model picker shows: every catalog model with its description, the launched
+// model first, and the effort levels that turn on the effort picker.
+func TestCodexCatalogListsTheTenantCatalogWithEffortLevels(t *testing.T) {
+	fakeCodexBundle(t, fakeCodexCatalog)
+	catalog := []LaunchModel{
+		{Name: "prizmal-core", Description: "Core"},
+		{Name: "prizmal-flash", Description: "Fast"},
+		{Name: "prizmal-frontier", Description: "Best"},
+		{Name: "claude-tier-opus", Description: "alias row"},
+		{Name: "folded", FoldedInto: "claude-tier-opus"},
+	}
+	path := filepath.Join(t.TempDir(), "catalog.json")
+	if err := writeCodexModelCatalog(path, codexCatalogModels("prizmal-flash", catalog)); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(path)
+	var got struct {
+		Models []struct {
+			Slug        string `json:"slug"`
+			Description string `json:"description"`
+			Priority    int    `json:"priority"`
+			Default     string `json:"default_reasoning_level"`
+			Levels      []struct {
+				Effort string `json:"effort"`
+			} `json:"supported_reasoning_levels"`
+		} `json:"models"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	var slugs []string
+	for i, m := range got.Models {
+		slugs = append(slugs, m.Slug)
+		if m.Priority != i {
+			t.Errorf("%s priority = %d, want %d", m.Slug, m.Priority, i)
+		}
+		if len(m.Levels) < 2 || m.Default == "" {
+			t.Errorf("%s has no effort levels: %+v", m.Slug, m)
+		}
+	}
+	if strings.Join(slugs, ",") != "prizmal-flash,prizmal-core,prizmal-frontier,folded" {
+		t.Fatalf("slugs = %v, want the launched model first, then the rest, without Claude tier alias rows", slugs)
+	}
+	if got.Models[0].Description != "Fast" {
+		t.Errorf("description = %q, want the catalog's text", got.Models[0].Description)
+	}
+}
+
+// TestCodexCatalogDeclaresTheWindowTheSwitchPublishes pins the 1M window: an
+// id the Switch decorates with [1m] becomes a bare slug whose entry declares
+// 1000000, and an undecorated id keeps the fallback window.
+func TestCodexCatalogDeclaresTheWindowTheSwitchPublishes(t *testing.T) {
+	fakeCodexBundle(t, fakeCodexCatalog)
+	t.Setenv("HARNESS_CONTEXT_LENGTH", "")
+	body := `{"data":[{"id":"prizmal-flash[1m]"},{"id":"prizmal-core"}]}`
+	catalog, err := parseSwitchCatalog([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	models := LaunchModels("prizmal-flash", catalog, true)
+	path := filepath.Join(t.TempDir(), "catalog.json")
+	if err := writeCodexModelCatalog(path, codexCatalogModels("prizmal-flash", models)); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(path)
+	var got struct {
+		Models []struct {
+			Slug   string `json:"slug"`
+			Window int    `json:"context_window"`
+		} `json:"models"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]int{"prizmal-flash": 1_000_000, "prizmal-core": codexFallbackContextWindow}
+	if len(got.Models) != 2 {
+		t.Fatalf("entries = %+v", got.Models)
+	}
+	for _, m := range got.Models {
+		if want[m.Slug] != m.Window {
+			t.Errorf("%s context_window = %d, want %d", m.Slug, m.Window, want[m.Slug])
+		}
 	}
 }

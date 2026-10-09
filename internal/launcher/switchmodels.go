@@ -62,6 +62,18 @@ func (e switchCatalogEntry) routableName() string {
 	return strings.TrimSuffix(e.ID, oneMillionSuffix)
 }
 
+// oneMillionContext is the window a [1m] id declares.
+const oneMillionContext = 1_000_000
+
+// contextLength is the 1M window the Switch publishes by decorating the id
+// with [1m], and zero when the id carries no suffix.
+func (e switchCatalogEntry) contextLength() int {
+	if strings.HasSuffix(e.ID, oneMillionSuffix) {
+		return oneMillionContext
+	}
+	return 0
+}
+
 type switchCatalogResponse struct {
 	Data []switchCatalogEntry `json:"data"`
 }
@@ -141,10 +153,11 @@ func parseSwitchCatalog(data []byte) ([]LaunchModel, error) {
 			continue
 		}
 		models = append(models, LaunchModel{
-			Name:         name,
-			Capabilities: capabilitiesFromModalities(entry.InputModalities),
-			Tier:         knownTier(entry.Tier),
-			Description:  cleanDescription(entry.Description),
+			Name:          name,
+			Capabilities:  capabilitiesFromModalities(entry.InputModalities),
+			Tier:          knownTier(entry.Tier),
+			Description:   cleanDescription(entry.Description),
+			ContextLength: entry.contextLength(),
 		})
 	}
 	return models, nil

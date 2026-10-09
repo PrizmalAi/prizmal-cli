@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
@@ -249,7 +250,7 @@ func ensureCodexConfig(modelName string, models []LaunchModel) error {
 	}
 
 	catalogPath := codexModelCatalogPathForConfig(configPath)
-	if err := writeCodexModelCatalog(catalogPath, codexCatalogModel(modelName, models)); err != nil {
+	if err := writeCodexModelCatalog(catalogPath, codexCatalogModels(modelName, models)); err != nil {
 		return err
 	}
 
@@ -625,20 +626,57 @@ func codexCatalogModel(modelName string, models []LaunchModel) LaunchModel {
 	return fallbackLaunchModel(modelName)
 }
 
-func writeCodexModelCatalog(catalogPath string, model LaunchModel) error {
+// codexCatalogModels returns the models Codex's /model picker lists: the
+// launched model first, then the rest of the catalog the launch was handed.
+func codexCatalogModels(modelName string, models []LaunchModel) []LaunchModel {
+	out := []LaunchModel{codexCatalogModel(modelName, models)}
+	for _, m := range models {
+		// The Claude tier aliases are rows for Claude Code's picker. A folded
+		// model is shown by its tier alias there, so Codex gets the model.
+		if launchModelMatches(m.Name, modelName) || isClaudeTierModel(m.Name) || isReservedModelName(m.Name) {
+			continue
+		}
+		out = append(out, m.WithCloudLimits())
+	}
+	return out
+}
+
+func isClaudeTierModel(name string) bool {
+	return slices.ContainsFunc(tierWords, func(t modelTier) bool { return name == claudeTierModel(t) })
+}
+
+// ShowsModelList reports that a launch hands Codex the whole catalog, because
+// Codex lists the catalog's entries in its own /model picker.
+func (c *Codex) ShowsModelList() bool { return true }
+
+// codexReasoningLevels are the efforts a Codex entry offers. The Switch
+// accepts a reasoning effort on every route, so each model gets the picker.
+var codexReasoningLevels = []any{
+	map[string]any{"effort": "low", "description": "Fast responses with lighter reasoning"},
+	map[string]any{"effort": "medium", "description": "Balances speed and reasoning depth for everyday tasks"},
+	map[string]any{"effort": "high", "description": "Greater reasoning depth for complex problems"},
+}
+
+// writeCodexModelCatalog writes one entry per model. The first model is the
+// launch's own: it gets the lowest priority number, which Codex sorts first
+// and offers as the default.
+func writeCodexModelCatalog(catalogPath string, models []LaunchModel) error {
 	prompt, err := readCodexSystemPrompt()
 	if err != nil {
 		return err
 	}
-	entry := buildCodexModelEntry(model)
-	entry["base_instructions"] = prompt.baseInstructions
-	if len(prompt.modelMessages) > 0 {
-		entry["model_messages"] = prompt.modelMessages
+	entries := make([]any, 0, len(models))
+	for i, model := range models {
+		entry := buildCodexModelEntry(model)
+		entry["priority"] = i
+		entry["base_instructions"] = prompt.baseInstructions
+		if len(prompt.modelMessages) > 0 {
+			entry["model_messages"] = prompt.modelMessages
+		}
+		entries = append(entries, entry)
 	}
 
-	catalog := map[string]any{
-		"models": []any{entry},
-	}
+	catalog := map[string]any{"models": entries}
 
 	data, err := json.MarshalIndent(catalog, "", "  ")
 	if err != nil {
@@ -712,13 +750,15 @@ func buildCodexModelEntry(launchModel LaunchModel) map[string]any {
 	}
 
 	return map[string]any{
-		"slug":             modelName,
-		"display_name":     modelName,
-		"context_window":   contextWindow,
-		"shell_type":       "default",
-		"visibility":       "list",
-		"supported_in_api": true,
-		"priority":         0,
+		"slug":                    modelName,
+		"display_name":            modelName,
+		"description":             launchModel.Description,
+		"default_reasoning_level": "medium",
+		"context_window":          contextWindow,
+		"shell_type":              "default",
+		"visibility":              "list",
+		"supported_in_api":        true,
+		"priority":                0,
 		// Truncation in tokens, as Codex's own catalog uses for every model it
 		// ships: codex-rs reads a bytes-mode limit as bytes (a token limit is
 		// converted with approx_bytes_for_tokens only when a user configures
@@ -735,9 +775,7 @@ func buildCodexModelEntry(launchModel LaunchModel) map[string]any {
 		"base_instructions":            "",
 		"support_verbosity":            true,
 		"default_verbosity":            "low",
-		"supports_parallel_tool_calls": false,
-		"supports_reasoning_summaries": false,
-		"supported_reasoning_levels":   []any{},
+		"supported_reasoning_levels":   codexReasoningLevels,
 		"experimental_supported_tools": []any{},
 	}
 }
