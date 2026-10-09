@@ -145,9 +145,33 @@ func TestFetchCatalogErrorNamesNoKey(t *testing.T) {
 	}
 }
 
-// The catalog offers every Claude tier first, then the router configs the
-// switch lists, so an operator can pick a tier or a named model.
-func TestFetchCatalogOffersEveryClaudeTierFirst(t *testing.T) {
+// The catalog offers a Claude tier alias only for a tier some config holds,
+// first, then the router configs the switch lists. An alias nothing holds names
+// no router config, so a row for it would send the Switch a name it refuses.
+func TestFetchCatalogOffersOnlyTheTiersATenantHolds(t *testing.T) {
+	calls := 0
+	srv := newCountingSwitch(t, `{"data":[{"id":"team-opus-blend[1m]"},{"id":"smart[1m]","tier":"opus"},{"id":"flash[1m]","tier":"haiku"}]}`, &calls)
+	useSwitch(t, srv, "test-switch-key")
+	ResetModelCatalog()
+	t.Cleanup(ResetModelCatalog)
+
+	catalog, err := FetchCatalog(context.Background())
+	if err != nil {
+		t.Fatalf("FetchCatalog: %v", err)
+	}
+	var names []string
+	for _, m := range catalog {
+		names = append(names, m.Name)
+	}
+	want := []string{"claude-tier-opus", "claude-tier-haiku", "team-opus-blend", "smart", "flash"}
+	if !slices.Equal(names, want) {
+		t.Fatalf("catalog = %v, want %v", names, want)
+	}
+}
+
+// A tenant that holds no tier gets no tier row: the picker and the harnesses
+// list the router configs and nothing else.
+func TestFetchCatalogOffersNoTierATenantHoldsNone(t *testing.T) {
 	calls := 0
 	srv := newCountingSwitch(t, `{"data":[{"id":"team-opus-blend[1m]"},{"id":"smart[1m]"}]}`, &calls)
 	useSwitch(t, srv, "test-switch-key")
@@ -162,16 +186,12 @@ func TestFetchCatalogOffersEveryClaudeTierFirst(t *testing.T) {
 	for _, m := range catalog {
 		names = append(names, m.Name)
 	}
-	want := []string{
-		"claude-tier-opus", "claude-tier-sonnet", "claude-tier-haiku", "claude-tier-fable",
-		"team-opus-blend", "smart",
-	}
-	if !slices.Equal(names, want) {
+	if want := []string{"team-opus-blend", "smart"}; !slices.Equal(names, want) {
 		t.Fatalf("catalog = %v, want %v", names, want)
 	}
 }
 
-// A switch that still lists a tier alias yields one entry for it, in the
+// A switch that lists a tier alias itself yields one entry for it, in the
 // tier's place, carrying the capabilities the switch gave it.
 func TestFetchCatalogListsATierOnceWhenTheSwitchListsItToo(t *testing.T) {
 	calls := 0
@@ -188,12 +208,12 @@ func TestFetchCatalogListsATierOnceWhenTheSwitchListsItToo(t *testing.T) {
 	for _, m := range catalog {
 		names = append(names, m.Name)
 	}
-	want := []string{"claude-tier-opus", "claude-tier-sonnet", "claude-tier-haiku", "claude-tier-fable", "smart"}
+	want := []string{"claude-tier-sonnet", "smart"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("catalog = %v, want %v", names, want)
 	}
-	if !slices.Contains(catalog[1].Capabilities, model.CapabilityVision) {
-		t.Fatalf("claude-tier-sonnet capabilities = %v, want the switch's image modality kept", catalog[1].Capabilities)
+	if !slices.Contains(catalog[0].Capabilities, model.CapabilityVision) {
+		t.Fatalf("claude-tier-sonnet capabilities = %v, want the switch's image modality kept", catalog[0].Capabilities)
 	}
 }
 
@@ -212,6 +232,7 @@ func TestLaunchModelsCarryTheChosenModelsTier(t *testing.T) {
 func TestClaudeTiersFoldTheConfigThatHoldsEachTier(t *testing.T) {
 	catalog := withClaudeTiers([]LaunchModel{
 		{Name: "smart", Tier: "opus", Description: "Smart blend", Capabilities: []model.Capability{model.CapabilityVision}},
+		{Name: "fast", Tier: "haiku"},
 		{Name: "team-opus-blend", Description: "Team blend"},
 		{Name: "experimental"},
 	})
@@ -221,7 +242,7 @@ func TestClaudeTiersFoldTheConfigThatHoldsEachTier(t *testing.T) {
 		got = append(got, row.Label+"="+row.Description)
 	}
 	want := []string{
-		"tier-opus=Smart blend", "tier-sonnet=Sonnet tier", "tier-haiku=Haiku tier", "tier-fable=Fable tier",
+		"tier-opus=Smart blend", "tier-haiku=Haiku tier",
 		"team-opus-blend=Team blend", "experimental=",
 	}
 	if !slices.Equal(got, want) {
@@ -237,8 +258,8 @@ func TestClaudeTiersFoldTheConfigThatHoldsEachTier(t *testing.T) {
 func TestLaunchModelsKeepAFoldedConfigLaunchedByName(t *testing.T) {
 	catalog := withClaudeTiers([]LaunchModel{{Name: "smart", Tier: "opus", Description: "Smart blend"}})
 	rows := ModelRows(LaunchModels("smart", catalog, true))
-	if len(rows) != 5 {
-		t.Fatalf("rows = %+v, want smart then the four tiers", rows)
+	if len(rows) != 2 {
+		t.Fatalf("rows = %+v, want smart then the opus tier it holds", rows)
 	}
 	if rows[0].Model != "smart" || rows[0].BehavesAs != "claude-opus-5" || rows[0].Description != "Smart blend" {
 		t.Fatalf("row 0 = %+v, want smart on the opus profile with its description", rows[0])
@@ -280,5 +301,49 @@ func TestClaudeTiersFoldOnlyTheFirstHolderOfATier(t *testing.T) {
 	}
 	if folded["second"] != "" {
 		t.Errorf("second holder folded into %q, want its own row", folded["second"])
+	}
+}
+
+// A launch sends the Switch the model it names, and the Switch refuses a name
+// that is not a router config or an alias. When the catalog was read, the
+// launch refuses it first, with the way to see the names.
+func TestCheckRoutableAcceptsAListedNameAndItsSpellings(t *testing.T) {
+	catalog := []LaunchModel{{Name: "smart"}, {Name: "claude-tier-opus"}, {Name: "local:latest"}}
+	for _, name := range []string{"smart", "smart[1m]", "claude-tier-opus", "local"} {
+		if err := CheckRoutable(name, catalog); err != nil {
+			t.Errorf("CheckRoutable(%q) = %v, want nil", name, err)
+		}
+	}
+}
+
+func TestCheckRoutableRefusesANameTheCatalogLacks(t *testing.T) {
+	catalog := []LaunchModel{{Name: "smart"}}
+	for _, name := range []string{"gpt-5.6-luna", "claude-tier-haiku", "smrat"} {
+		err := CheckRoutable(name, catalog)
+		if err == nil {
+			t.Fatalf("CheckRoutable(%q) = nil, want an error", name)
+		}
+		if !strings.Contains(err.Error(), name) || !strings.Contains(err.Error(), "--list") {
+			t.Errorf("error %q does not name the model and the way to list the names", err)
+		}
+	}
+}
+
+// `default` names the router config the key is bound to. The Switch drops that
+// binding, so the name routes nothing, whatever the catalog lists.
+func TestCheckRoutableRefusesDefault(t *testing.T) {
+	catalog := []LaunchModel{{Name: "default"}, {Name: "smart"}}
+	for _, name := range []string{"default", "default[1m]", "prizmal/default"} {
+		if err := CheckRoutable(name, catalog); err == nil {
+			t.Errorf("CheckRoutable(%q) = nil, want an error", name)
+		}
+	}
+}
+
+// With no catalog, the launch cannot tell, so it goes on: an endpoint that
+// serves no model list is a supported target.
+func TestCheckRoutableLetsAnUnreadCatalogThrough(t *testing.T) {
+	if err := CheckRoutable("anything", nil); err != nil {
+		t.Fatalf("CheckRoutable with no catalog = %v, want nil", err)
 	}
 }

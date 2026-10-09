@@ -80,6 +80,43 @@ type Entry struct {
 type Recorder struct {
 	mu     sync.Mutex
 	bodies []map[string]any
+	calls  []ModelCall
+}
+
+// ModelCall is the model name one inference request carried and whether the
+// stub served it. A refused call is the Switch's refusal of a name that is not
+// a router config or an alias.
+type ModelCall struct {
+	Path   string
+	Model  string
+	Served bool
+	// Body is the decoded request body, nil when it was not JSON.
+	Body map[string]any
+}
+
+// ModelCalls returns every inference request the stub received, oldest first,
+// with the model it named and whether it served it.
+func (r *Recorder) ModelCalls() []ModelCall {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]ModelCall(nil), r.calls...)
+}
+
+// RefusedModels returns the model names the stub refused, oldest first.
+func (r *Recorder) RefusedModels() []string {
+	var refused []string
+	for _, call := range r.ModelCalls() {
+		if !call.Served {
+			refused = append(refused, call.Model)
+		}
+	}
+	return refused
+}
+
+func (r *Recorder) noteModel(call ModelCall) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.calls = append(r.calls, call)
 }
 
 // ResponsesBodies returns a copy of the recorded request bodies, oldest first.
@@ -582,6 +619,10 @@ func handler(c *serverConfig) http.HandlerFunc {
 		path := r.URL.Path
 		method := r.Method
 
+		if method == http.MethodPost && inferencePaths[path] && !serveModel(w, r, c) {
+			return
+		}
+
 		switch {
 		case method == http.MethodGet && path == "/v1/models":
 			if c.modelsStatus != 0 {
@@ -689,6 +730,70 @@ func hasAcceptedAuth(r *http.Request, c *serverConfig) bool {
 	return r.Header.Get("x-api-key") == DeviceToken
 }
 
+// SpawnTrigger is the text that makes the stub answer a Codex turn with a call
+// to its spawn_agent tool, and SpawnedTask is the message that call hands the
+// subagent. The stub calls the tool once: the turn that follows its output gets
+// the plain reply.
+const (
+	SpawnTrigger = "stub-spawn-agent"
+	SpawnedTask  = "stub-child-task"
+
+	// SpawnGeneralTrigger asks Claude Code for a general-purpose subagent,
+	// which has no model of its own, where SpawnTrigger asks for Explore, whose
+	// model is the small one.
+	SpawnGeneralTrigger = "stub-spawn-general-agent"
+)
+
+// wantsSpawnAgent reports whether a Responses request is the one that asks the
+// stub to spawn a subagent: its input holds the trigger and no tool call has
+// been made yet, so the stub spawns once and the subagent's own request, which
+// carries only the spawned task, gets the plain reply.
+func wantsSpawnAgent(body map[string]any) bool {
+	input, _ := body["input"].([]any)
+	triggered := false
+	for _, raw := range input {
+		item, _ := raw.(map[string]any)
+		switch kind, _ := item["type"].(string); kind {
+		case "function_call", "function_call_output":
+			return false
+		}
+		if role, _ := item["role"].(string); role == "user" && messageContains(item, SpawnTrigger) {
+			triggered = true
+		}
+	}
+	return triggered
+}
+
+// spawnedAgentToWaitFor returns the id of the subagent the stub spawned, when
+// the request holds the spawn's output and no wait yet. The stub then waits for
+// the subagent, so a codex exec run lasts until the subagent has made its own
+// request.
+func spawnedAgentToWaitFor(body map[string]any) string {
+	input, _ := body["input"].([]any)
+	var agentID string
+	for _, raw := range input {
+		item, _ := raw.(map[string]any)
+		switch kind, _ := item["type"].(string); kind {
+		case "function_call":
+			if name, _ := item["name"].(string); name == "wait_agent" {
+				return ""
+			}
+		case "function_call_output":
+			if id, _ := item["call_id"].(string); id != "call_stub_spawn" {
+				continue
+			}
+			output, _ := item["output"].(string)
+			var spawned struct {
+				AgentID string `json:"agent_id"`
+			}
+			if json.Unmarshal([]byte(output), &spawned) == nil {
+				agentID = spawned.AgentID
+			}
+		}
+	}
+	return agentID
+}
+
 // requestBody reads and JSON-decodes the request body into a map.
 // Returns nil if the body is empty or not valid JSON (callers handle nil).
 func requestBody(r *http.Request) map[string]any {
@@ -790,33 +895,35 @@ func handleModels(w http.ResponseWriter, models []map[string]any) {
 		return
 	}
 
-	// The Switch reports per-entry input modalities here, and omits the field
-	// on some entries. Both shapes are in the fixture on purpose: an entry
-	// without input_modalities is unknown, not text-only, and the launcher's
-	// capability parse has to keep telling the two apart. "file" is the
-	// Switch's document modality, separate from "image", so it gets its own
-	// entry.
-	writeJSON(w, http.StatusOK, map[string]any{
-		"object": "list",
-		"data": []map[string]any{
-			{
-				"id":                "prizmal/stub",
-				"input_modalities":  []string{"text"},
-				"output_modalities": []string{"text"},
-			},
-			{
-				"id":                "prizmal/stub-vision",
-				"input_modalities":  []string{"text", "image"},
-				"output_modalities": []string{"text"},
-			},
-			{
-				"id":                "prizmal/stub-file",
-				"input_modalities":  []string{"text", "file"},
-				"output_modalities": []string{"text"},
-			},
-			{"id": "prizmal/stub-unknown"},
+	writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": defaultModels()})
+}
+
+// defaultModels is the fixture a stub without its own list serves.
+//
+// The Switch reports per-entry input modalities here, and omits the field on
+// some entries. Both shapes are in the fixture on purpose: an entry without
+// input_modalities is unknown, not text-only, and the launcher's capability
+// parse has to keep telling the two apart. "file" is the Switch's document
+// modality, separate from "image", so it gets its own entry.
+func defaultModels() []map[string]any {
+	return []map[string]any{
+		{
+			"id":                "prizmal/stub",
+			"input_modalities":  []string{"text"},
+			"output_modalities": []string{"text"},
 		},
-	})
+		{
+			"id":                "prizmal/stub-vision",
+			"input_modalities":  []string{"text", "image"},
+			"output_modalities": []string{"text"},
+		},
+		{
+			"id":                "prizmal/stub-file",
+			"input_modalities":  []string{"text", "file"},
+			"output_modalities": []string{"text"},
+		},
+		{"id": "prizmal/stub-unknown"},
+	}
 }
 
 func handleChatCompletions(w http.ResponseWriter, r *http.Request, loop *piToolLoop) {
@@ -904,6 +1011,7 @@ func handleChatCompletions(w http.ResponseWriter, r *http.Request, loop *piToolL
 func handleResponses(w http.ResponseWriter, r *http.Request) {
 	body := requestBody(r)
 	toolCall := wantsToolCall(body)
+	spawn := wantsSpawnAgent(body)
 
 	item := map[string]any{
 		"type":   "message",
@@ -925,6 +1033,31 @@ func handleResponses(w http.ResponseWriter, r *http.Request) {
 			"name":      "stub_tool",
 			"arguments": "{}",
 		}
+	}
+	if agentID := spawnedAgentToWaitFor(body); agentID != "" {
+		item = map[string]any{
+			"type":      "function_call",
+			"id":        "fc_stub_wait",
+			"call_id":   "call_stub_wait",
+			"status":    "completed",
+			"namespace": "multi_agent_v1",
+			"name":      "wait_agent",
+			"arguments": `{"targets":["` + agentID + `"],"timeout_ms":30000}`,
+		}
+		toolCall = true
+	}
+	if spawn {
+		// Codex's multi-agent tool: a function in the multi_agent_v1 namespace.
+		item = map[string]any{
+			"type":      "function_call",
+			"id":        "fc_stub_spawn",
+			"call_id":   "call_stub_spawn",
+			"status":    "completed",
+			"namespace": "multi_agent_v1",
+			"name":      "spawn_agent",
+			"arguments": `{"message":"` + SpawnedTask + `"}`,
+		}
+		toolCall = true
 	}
 	response := map[string]any{
 		"id":     "resp_stub",
@@ -986,7 +1119,8 @@ func startSSE(w http.ResponseWriter) (http.Flusher, bool) {
 // aims it.
 func handleMessages(w http.ResponseWriter, r *http.Request, plan *UsagePlan) {
 	body := requestBody(r)
-	toolCall := wantsToolCall(body)
+	tool := messagesToolUse(body)
+	toolCall := tool != nil
 	stream := wantsStream(body)
 
 	// The unified status header the real Switch sends, so a client that reads it
@@ -1036,9 +1170,9 @@ func handleMessages(w http.ResponseWriter, r *http.Request, plan *UsagePlan) {
 				"usage":         map[string]any{"input_tokens": 1, "output_tokens": 0},
 			},
 		})
-		start := contentBlockStart(toolCall)
+		start := contentBlockStart(tool)
 		writeSSEEvent(w, flusher, "content_block_start", start)
-		writeSSEEvent(w, flusher, "content_block_delta", contentBlockDelta(toolCall, replyText))
+		writeSSEEvent(w, flusher, "content_block_delta", contentBlockDelta(tool, replyText))
 		writeSSEEvent(w, flusher, "content_block_stop", map[string]any{"type": "content_block_stop", "index": 0})
 		writeSSEEvent(w, flusher, "message_delta", map[string]any{
 			"type":  "message_delta",
@@ -1059,7 +1193,7 @@ func handleMessages(w http.ResponseWriter, r *http.Request, plan *UsagePlan) {
 
 	content := []map[string]any{{"type": "text", "text": replyText}}
 	if toolCall {
-		content = []map[string]any{{"type": "tool_use", "id": "toolu_stub", "name": "stub_tool", "input": map[string]any{}}}
+		content = []map[string]any{{"type": "tool_use", "id": "toolu_stub", "name": tool.name, "input": tool.input}}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -1081,12 +1215,12 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 // contentBlockStart is the content_block_start event's value: a tool_use block
 // when the request asked for a tool, else the text block.
-func contentBlockStart(toolCall bool) map[string]any {
-	if toolCall {
+func contentBlockStart(tool *toolUse) map[string]any {
+	if tool != nil {
 		return map[string]any{
 			"type":          "content_block_start",
 			"index":         0,
-			"content_block": map[string]any{"type": "tool_use", "id": "toolu_stub", "name": "stub_tool", "input": map[string]any{}},
+			"content_block": map[string]any{"type": "tool_use", "id": "toolu_stub", "name": tool.name, "input": map[string]any{}},
 		}
 	}
 	return map[string]any{
@@ -1100,12 +1234,13 @@ func contentBlockStart(toolCall bool) map[string]any {
 // as a partial JSON delta when the request asked for a tool, else the reply
 // as a text delta. replyText replaces the default reply, which the summary
 // answer of a usage plan sets.
-func contentBlockDelta(toolCall bool, replyText string) map[string]any {
-	if toolCall {
+func contentBlockDelta(tool *toolUse, replyText string) map[string]any {
+	if tool != nil {
+		input, _ := json.Marshal(tool.input)
 		return map[string]any{
 			"type":  "content_block_delta",
 			"index": 0,
-			"delta": map[string]any{"type": "input_json_delta", "partial_json": "{}"},
+			"delta": map[string]any{"type": "input_json_delta", "partial_json": string(input)},
 		}
 	}
 	return map[string]any{
@@ -1113,6 +1248,58 @@ func contentBlockDelta(toolCall bool, replyText string) map[string]any {
 		"index": 0,
 		"delta": map[string]any{"type": "text_delta", "text": replyText},
 	}
+}
+
+// toolUse is the tool call the stub answers a Messages request with.
+type toolUse struct {
+	name  string
+	input map[string]any
+}
+
+// messagesToolUse returns the tool call the request asks the stub for, or nil
+// for a plain reply. "stub-tool" in a user message asks for a call to a tool
+// that does not exist. SpawnTrigger asks for Claude Code's Agent tool, once: a
+// request that already holds a tool call gets the plain reply, and so does the
+// subagent's own request, which carries only the spawned task.
+func messagesToolUse(body map[string]any) *toolUse {
+	if agent := messagesSpawn(body); agent != "" {
+		return &toolUse{name: "Agent", input: map[string]any{
+			"description":   "stub subagent",
+			"prompt":        SpawnedTask,
+			"subagent_type": agent,
+		}}
+	}
+	if wantsToolCall(body) {
+		return &toolUse{name: "stub_tool", input: map[string]any{}}
+	}
+	return nil
+}
+
+// messagesSpawn returns the subagent type the request asks the stub to spawn,
+// or "" when it asks for none.
+func messagesSpawn(body map[string]any) string {
+	msgs, _ := body["messages"].([]any)
+	agent := ""
+	for _, raw := range msgs {
+		m, _ := raw.(map[string]any)
+		if blocks, ok := m["content"].([]any); ok {
+			for _, block := range blocks {
+				b, _ := block.(map[string]any)
+				if kind, _ := b["type"].(string); kind == "tool_use" || kind == "tool_result" {
+					return ""
+				}
+			}
+		}
+		if role, _ := m["role"].(string); role == "user" {
+			switch {
+			case messageContains(m, SpawnGeneralTrigger):
+				agent = "general-purpose"
+			case messageContains(m, SpawnTrigger):
+				agent = "Explore"
+			}
+		}
+	}
+	return agent
 }
 
 func writeSSE(w http.ResponseWriter, flusher http.Flusher, v any) {
@@ -1125,4 +1312,95 @@ func writeSSEEvent(w http.ResponseWriter, flusher http.Flusher, eventType string
 	data, _ := json.Marshal(v)
 	_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, data)
 	flusher.Flush()
+}
+
+// inferencePaths are the routes that run a model, so the routes the stub
+// refuses an unknown model name on.
+var inferencePaths = map[string]bool{
+	"/v1/responses":             true,
+	"/v1/chat/completions":      true,
+	"/v1/messages":              true,
+	"/v1/messages/count_tokens": true,
+}
+
+// tierFamilies are the Claude tiers a router config can hold, the set the
+// Switch maps a Claude vendor id onto.
+var tierFamilies = []string{"opus", "sonnet", "haiku", "fable", "mythos"}
+
+// serveModel checks the model name of an inference request the way the Switch
+// will once it stops falling back to the key's bound config: the name must be
+// a router config the catalog lists, or an alias. `default` is not a name: the
+// Switch drops it with the binding. It records the
+// verdict, answers a refusal with HTTP 400 and a model_not_found error, and
+// reports whether the request may go on.
+//
+// The aliases are the ones the Switch resolves: claude-tier-<tier> for a tier
+// some catalog entry holds, and any claude-<tier>... vendor id of that tier.
+// The vendor-id prefix is deliberately broad: the Switch maps every
+// claude-<tier>... id to the tier's alias, so it serves any such id for a held
+// tier, and the stub does the same. A tier no entry holds has no alias, so its
+// names are refused.
+func serveModel(w http.ResponseWriter, r *http.Request, c *serverConfig) bool {
+	raw, _ := io.ReadAll(r.Body)
+	r.Body = io.NopCloser(bytes.NewReader(raw))
+	var body struct {
+		Model string `json:"model"`
+	}
+	_ = json.Unmarshal(raw, &body)
+
+	ok := c.routable(body.Model)
+	if c.recorder != nil {
+		var decoded map[string]any
+		_ = json.Unmarshal(raw, &decoded)
+		c.recorder.noteModel(ModelCall{Path: r.URL.Path, Model: body.Model, Served: ok, Body: decoded})
+	}
+	if ok {
+		return true
+	}
+	message := fmt.Sprintf("model_not_found: the model %q is not a router config or an alias", body.Model)
+	if body.Model == "" {
+		message = "model_not_found: the request names no model"
+	}
+	if strings.HasPrefix(r.URL.Path, "/v1/messages") {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"type":  "error",
+			"error": map[string]any{"type": "invalid_request_error", "code": "model_not_found", "message": message},
+		})
+		return false
+	}
+	writeJSON(w, http.StatusBadRequest, map[string]any{
+		"error": map[string]any{"type": "invalid_request_error", "code": "model_not_found", "param": "model", "message": message},
+	})
+	return false
+}
+
+// routable reports whether name resolves to a router config: with at most one
+// trailing [1m], it is a listed id or an alias of a held tier.
+func (c *serverConfig) routable(name string) bool {
+	if len(name) > len("[1m]") && strings.EqualFold(name[len(name)-len("[1m]"):], "[1m]") {
+		name = name[:len(name)-len("[1m]")]
+	}
+	if name == "" {
+		return false
+	}
+	models := c.models
+	if models == nil {
+		models = defaultModels()
+	}
+	held := map[string]bool{}
+	for _, m := range models {
+		id, _ := m["id"].(string)
+		if strings.TrimSuffix(id, "[1m]") == name {
+			return true
+		}
+		if tier, _ := m["tier"].(string); tier != "" {
+			held[tier] = true
+		}
+	}
+	for _, tier := range tierFamilies {
+		if held[tier] && (name == "claude-tier-"+tier || strings.HasPrefix(name, "claude-"+tier)) {
+			return true
+		}
+	}
+	return false
 }

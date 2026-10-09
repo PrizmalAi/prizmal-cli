@@ -1,6 +1,6 @@
 
  ▐▛███▛█   Claude Code v2.1.283
-▝▜██████▀  tier-opus · API Usage Billing
+▝▜██████▀  smart · API Usage Billing
  ▝▝   ▝▝   ~/project
 
 ▎ Auto mode is now Claude Code's default permission mode.

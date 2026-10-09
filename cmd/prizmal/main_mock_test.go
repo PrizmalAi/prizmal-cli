@@ -509,15 +509,19 @@ func TestClaudeCodeE2EWithStubRequest(t *testing.T) {
 	if got := envDumpValue(envDump, "ANTHROPIC_DEFAULT_OPUS_MODEL"); got != mockLaunchModel+"[1m]" {
 		t.Errorf("claude env ANTHROPIC_DEFAULT_OPUS_MODEL = %q, want %q; the /model Default row reads it\nenv dump:\n%s", got, mockLaunchModel+"[1m]", internaltest.RedactEnvDump(envDump))
 	}
+	// The stub tenant holds no Claude tier, so every tier word follows the
+	// launch model: a vendor id for it would be a name the Switch refuses.
 	for _, name := range []string{
 		"ANTHROPIC_DEFAULT_SONNET_MODEL",
 		"ANTHROPIC_DEFAULT_HAIKU_MODEL",
 		"ANTHROPIC_DEFAULT_FABLE_MODEL",
-		"CLAUDE_CODE_SUBAGENT_MODEL",
 	} {
-		if strings.Contains(envDump, name+"=") {
-			t.Errorf("claude env carries %s; only the Opus tier follows the launch model, and the launch picked no subagent model\nenv dump:\n%s", name, internaltest.RedactEnvDump(envDump))
+		if got := envDumpValue(envDump, name); got != mockLaunchModel+"[1m]" {
+			t.Errorf("claude env %s = %q, want the launch model %q, because the tenant holds no such tier\nenv dump:\n%s", name, got, mockLaunchModel+"[1m]", internaltest.RedactEnvDump(envDump))
 		}
+	}
+	if strings.Contains(envDump, "CLAUDE_CODE_SUBAGENT_MODEL=") {
+		t.Errorf("claude env carries CLAUDE_CODE_SUBAGENT_MODEL, and the launch picked no subagent model\nenv dump:\n%s", internaltest.RedactEnvDump(envDump))
 	}
 
 	// Observed effect 3: the stub server accepted the mock's authenticated
@@ -799,7 +803,7 @@ func TestMockHarnessCodexLaunchPassesTheSubagentModel(t *testing.T) {
 	}
 	home, expDir, _ := setupMockEnv(t, func() string { return mockBin }, exp)
 
-	const subagent = "prizmal-flash"
+	const subagent = "prizmal/stub-vision"
 	exitCode, stdout, stderr := runPrizmalSubprocessArgs(t, prizmalBin, home, expDir, exp.name, "--yes", "--subagent-model", subagent)
 	if exitCode != 0 {
 		t.Fatalf("prizmal codex --subagent-model exited %d\nstdout: %s\nstderr: %s", exitCode, stdout, stderr)

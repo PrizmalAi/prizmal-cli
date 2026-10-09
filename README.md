@@ -187,8 +187,8 @@ prizmal --restore codex
 
 # See which models your switch key can route to. The Switch resolves the list
 # from the key alone, so it holds your tenant's models and no other tenant's.
-# The four Claude tier aliases lead, because they route too even though the
-# Switch does not list them; the same four head the --pick menu.
+# The Claude tier aliases your tenant holds lead, because they route too even
+# though the Switch does not list them; the same aliases head the --pick menu.
 prizmal --list
 ```
 

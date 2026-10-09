@@ -19,8 +19,8 @@ const deployedCatalog = `{
   "object": "list",
   "data": [
     {"id": "default[1m]", "name": "default", "display_name": "default", "owned_by": "prizmal.ai"},
-    {"id": "cheap[1m]", "name": "cheap", "display_name": "cheap", "owned_by": "prizmal.ai"},
-    {"id": "opus[1m]", "name": "opus", "display_name": "opus", "owned_by": "prizmal.ai"}
+    {"id": "cheap[1m]", "name": "cheap", "display_name": "cheap", "owned_by": "prizmal.ai", "tier": "haiku"},
+    {"id": "opus[1m]", "name": "opus", "display_name": "opus", "owned_by": "prizmal.ai", "tier": "opus"}
   ],
   "extra_fields": {"request_type": "", "latency": 0}
 }`
@@ -100,12 +100,13 @@ func dirExists(path string) bool {
 // list them, then the Switch's own entries in its order. The alias lines are
 // the point of the expectation — a --list that dropped them would under-report
 // what `prizmal --model claude-tier-opus claude` launches.
-const deployedListing = "claude-tier-opus\nclaude-tier-sonnet\nclaude-tier-haiku\nclaude-tier-fable\ndefault\ncheap\nopus\n"
+const deployedListing = "claude-tier-opus\nclaude-tier-haiku\ndefault\ncheap\nopus\n"
 
 // claudeTiers are the alias names withClaudeTiers supplies, in tierWords order.
 // They are pinned here rather than imported because the point of the test is
-// what the operator sees, and the operator sees these four spellings.
-var claudeTiers = []string{"claude-tier-opus", "claude-tier-sonnet", "claude-tier-haiku", "claude-tier-fable"}
+// what the operator sees, and the operator sees these spellings. The tenant
+// holds the opus and haiku tiers.
+var claudeTiers = []string{"claude-tier-opus", "claude-tier-haiku"}
 
 // TestListFlagPrintsTheTenantsModels is the feature: `--list` answers with the
 // names the switch key's tenant can route by, one per line on stdout, so the

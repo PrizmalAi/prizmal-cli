@@ -96,7 +96,7 @@ func (c *Codex) args(model, modelCatalogPath string, extra []string) ([]string, 
 	for _, override := range managed {
 		args = append(args, "-c", override)
 	}
-	for _, override := range codexHygieneOverrides() {
+	for _, override := range codexHygieneOverrides(model, extra) {
 		args = append(args, "-c", override)
 	}
 	if model != "" {
@@ -258,14 +258,47 @@ func codexChildEnv() []string {
 	return env
 }
 
-// codexHygieneOverrides are the -c settings that keep a launch quiet: Codex
-// analytics and the feedback upload are off, and --subagent-model, when given,
-// becomes the model Codex uses for /review and for spawned subagents. They travel on the command line, so
-// nothing is written to disk.
-func codexHygieneOverrides() []string {
+// codexExtraSetsKey reports whether the operator's own arguments pass a -c
+// override for key.
+func codexExtraSetsKey(extra []string, key string) bool {
+	for i, arg := range extra {
+		value := ""
+		switch {
+		case (arg == "-c" || arg == "--config") && i+1 < len(extra):
+			value = extra[i+1]
+		case strings.HasPrefix(arg, "--config="):
+			value = strings.TrimPrefix(arg, "--config=")
+		case strings.HasPrefix(arg, "-c") && len(arg) > len("-c"):
+			value = strings.TrimPrefix(arg, "-c")
+		}
+		if name, _, ok := strings.Cut(value, "="); ok && strings.TrimSpace(name) == key {
+			return true
+		}
+	}
+	return false
+}
+
+// codexHygieneOverrides are the -c settings that keep a launch quiet and keep
+// every model slot on a name the Switch routes. Codex analytics and the
+// feedback upload are off. The memory pipeline's extraction and consolidation
+// models are the launch model: Codex defaults them to OpenAI ids and sends
+// those whether or not the catalog lists them, so an operator who turns
+// memories on would otherwise send the Switch two names it does not route.
+// --subagent-model, when given, becomes the model Codex uses for /review and
+// for spawned subagents. They travel on the command line, so nothing is
+// written to disk.
+func codexHygieneOverrides(model string, extra []string) []string {
 	overrides := []string{
 		"analytics.enabled=false",
 		"feedback.enabled=false",
+	}
+	// The launch pins a memory model only when the operator's own arguments
+	// leave that key alone, so an operator's -c for it is the only one Codex
+	// sees.
+	for _, key := range []string{"memories.extract_model", "memories.consolidation_model"} {
+		if model != "" && !codexExtraSetsKey(extra, key) {
+			overrides = append(overrides, fmt.Sprintf("%s=%q", key, model))
+		}
 	}
 	if sub := launch.SelectedSubagentModel(); sub != "" {
 		overrides = append(overrides,

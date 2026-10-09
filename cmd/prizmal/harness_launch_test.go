@@ -220,6 +220,7 @@ func runHarnessLaunch(t *testing.T, harness string, mode harnessLaunchKeyMode) {
 			}
 		}
 	}
+	assertServed(t, recorder)
 	if !strings.Contains(stdout, stubserver.Reply) {
 		t.Fatalf("%s did not print the stub's reply %q on stdout (run error: %v, timed out: %v)\n--- stdout ---\n%s\n--- stderr ---\n%s",
 			harness, stubserver.Reply, runErr, timedOut, tail(stdout, 50), tail(stderr, 50))

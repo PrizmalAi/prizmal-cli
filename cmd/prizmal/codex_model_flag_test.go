@@ -48,17 +48,17 @@ func TestMockHarnessCodexTakesTheModelFlagAfterTheIntegrationName(t *testing.T) 
 		name string
 		args []string
 	}{
-		{"--model", []string{"--model", "prizmal-flash"}},
-		{"--model=", []string{"--model=prizmal-flash"}},
-		{"-m", []string{"-m", "prizmal-flash"}},
+		{"--model", []string{"--model", "prizmal/stub"}},
+		{"--model=", []string{"--model=prizmal/stub"}},
+		{"-m", []string{"-m", "prizmal/stub"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			called, code, stdout, stderr := codexMockLaunch(t, nil, tc.args)
 			if code != 0 {
 				t.Fatalf("prizmal codex %v exited %d\nstdout: %s\nstderr: %s", tc.args, code, stdout, stderr)
 			}
-			if got := strings.Count(called, " -m "); got != 1 || !strings.Contains(called, "-m prizmal-flash") {
-				t.Errorf("codex args = %q, want exactly one -m prizmal-flash", called)
+			if got := strings.Count(called, " -m "); got != 1 || !strings.Contains(called, "-m prizmal/stub") {
+				t.Errorf("codex args = %q, want exactly one -m prizmal/stub", called)
 			}
 			if strings.Contains(called, "--model") {
 				t.Errorf("codex args = %q still carry the --model the CLI took", called)
@@ -84,7 +84,7 @@ func TestMockHarnessCodexLeavesTextAfterTheSeparatorAlone(t *testing.T) {
 
 // Two different models are one question answered twice, and the launch stops.
 func TestMockHarnessCodexRefusesTwoDifferentModels(t *testing.T) {
-	_, code, _, stderr := codexMockLaunch(t, []string{"--model", "prizmal-core"}, []string{"-m", "prizmal-flash"})
+	_, code, _, stderr := codexMockLaunch(t, []string{"--model", "prizmal-core"}, []string{"-m", "prizmal/stub"})
 	if code == 0 || !strings.Contains(stderr, "conflicting --model") {
 		t.Fatalf("exit %d, stderr %q, want a conflicting --model error", code, stderr)
 	}
@@ -119,7 +119,7 @@ func TestMockHarnessSubagentModelIsRefusedWhereItHasNoEffect(t *testing.T) {
 			exp := harnessExpectation{name: harness, binaryNames: []string{harness}}
 			home, expDir, _ := setupMockEnv(t, func() string { return mockBin }, exp)
 
-			code, _, stderr := runPrizmalLaunch(t, prizmalBin, home, expDir, harness, []string{"--yes", "--subagent-model", "prizmal-flash"}, nil)
+			code, _, stderr := runPrizmalLaunch(t, prizmalBin, home, expDir, harness, []string{"--yes", "--subagent-model", "prizmal/stub"}, nil)
 			if code == 0 || !strings.Contains(stderr, "--subagent-model is not supported for "+harness) {
 				t.Fatalf("exit %d, stderr %q, want the flag refused for %s", code, stderr, harness)
 			}

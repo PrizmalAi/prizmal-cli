@@ -24,10 +24,10 @@ type autoModeCase struct {
 // claudeAutoModeCases launches a model of each tier, named by a tier alias and
 // by a router config the Switch marks with the tier.
 var claudeAutoModeCases = []autoModeCase{
-	{name: "tier-alias-opus", args: []string{"claude", "--model", "claude-tier-opus"}, catalog: tierCatalog},
-	{name: "tier-alias-sonnet", args: []string{"claude", "--model", "claude-tier-sonnet"}, catalog: tierCatalog},
-	{name: "tier-alias-haiku", args: []string{"claude", "--model", "claude-tier-haiku"}, catalog: tierCatalog},
-	{name: "tier-alias-fable", args: []string{"claude", "--model", "claude-tier-fable"}, catalog: tierCatalog},
+	{name: "tier-alias-opus", args: []string{"claude", "--model", "claude-tier-opus"}, entries: proposedCatalog},
+	{name: "tier-alias-sonnet", args: []string{"claude", "--model", "claude-tier-sonnet"}, entries: proposedCatalog},
+	{name: "tier-alias-haiku", args: []string{"claude", "--model", "claude-tier-haiku"}, entries: proposedCatalog},
+	{name: "tier-alias-fable", args: []string{"claude", "--model", "claude-tier-fable"}, entries: proposedCatalog},
 	{name: "switch-tier-opus", args: []string{"claude", "--model", "smart"}, entries: proposedCatalog},
 	{name: "switch-tier-sonnet", args: []string{"claude", "--model", "balanced"}, entries: proposedCatalog},
 	{name: "switch-tier-haiku", args: []string{"claude", "--model", "flash"}, entries: proposedCatalog},

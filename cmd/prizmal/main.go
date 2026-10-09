@@ -687,6 +687,16 @@ func launch(name string, extraArgs []string, cfg *config.Config) error {
 		return err
 	}
 
+	// A name the Switch does not route is refused here, with the way to list
+	// the names, instead of reaching the Switch as a request it answers with an
+	// error. The subagent model is a name the launch sends too.
+	if err := launcher.CheckRoutable(chosen, catalog); err != nil {
+		return err
+	}
+	if err := launcher.CheckRoutable(subagentModel, catalog); err != nil {
+		return fmt.Errorf("--subagent-model: %w", err)
+	}
+
 	// Only the runners that show their own picker need the rest of the
 	// catalog. pi and cline read models[0] as the launch's model, so handing
 	// them every model would change the default they write.
