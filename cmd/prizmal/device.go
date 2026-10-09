@@ -12,6 +12,7 @@ import (
 	"github.com/PrizmalAi/prizmal-cli/internal/device"
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	launcher "github.com/PrizmalAi/prizmal-cli/internal/launcher"
+	"github.com/PrizmalAi/prizmal-cli/internal/launcher/registry"
 	"github.com/spf13/cobra"
 )
 
@@ -51,7 +52,7 @@ func deviceLoginApplies(listFlag bool, args []string) bool {
 	if listFlag || len(args) == 0 {
 		return true
 	}
-	spec, err := launcher.LookupIntegrationSpec(args[0])
+	spec, err := registry.LookupIntegrationSpec(args[0])
 	if err != nil {
 		return true
 	}

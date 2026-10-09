@@ -13,11 +13,11 @@ import (
 
 // ANSI color helpers shared by the adapters.
 const (
-	ansiReset  = "\x1b[0m"
-	ansiRed    = "\x1b[31m"
-	ansiGreen  = "\x1b[32m"
-	ansiYellow = "\x1b[33m"
-	ansiBold   = "\x1b[1m"
+	AnsiReset  = "\x1b[0m"
+	AnsiRed    = "\x1b[31m"
+	AnsiGreen  = "\x1b[32m"
+	AnsiYellow = "\x1b[33m"
+	AnsiBold   = "\x1b[1m"
 )
 
 // LaunchModel is minimal model metadata passed to integration config writers.
@@ -60,13 +60,13 @@ func (m LaunchModel) HasCapability(capability model.Capability) bool {
 
 func (m LaunchModel) WithCloudLimits() LaunchModel { return m }
 
-// fallbackLaunchModel builds a bare LaunchModel for a model name.
-func fallbackLaunchModel(name string) LaunchModel {
+// FallbackLaunchModel builds a bare LaunchModel for a model name.
+func FallbackLaunchModel(name string) LaunchModel {
 	return LaunchModel{Name: name}
 }
 
-// findLaunchModel finds a model by name in a list.
-func findLaunchModel(models []LaunchModel, name string) (LaunchModel, bool) {
+// FindLaunchModel finds a model by name in a list.
+func FindLaunchModel(models []LaunchModel, name string) (LaunchModel, bool) {
 	for _, m := range models {
 		if m.Name == name {
 			return m, true
@@ -75,15 +75,15 @@ func findLaunchModel(models []LaunchModel, name string) (LaunchModel, bool) {
 	return LaunchModel{}, false
 }
 
-// lookupCloudModelLimit always reports no limit known.
-func lookupCloudModelLimit(string) (struct{ Context, Output int }, bool) {
+// LookupCloudModelLimit always reports no limit known.
+func LookupCloudModelLimit(string) (struct{ Context, Output int }, bool) {
 	return struct{ Context, Output int }{}, false
 }
 
 var confirmReader = bufio.NewReader(os.Stdin)
 
-// ansiGray dims text.
-const ansiGray = "\033[37m"
+// AnsiGray dims text.
+const AnsiGray = "\033[37m"
 
 // ErrCancelled is returned when the user cancels a prompt.
 var ErrCancelled = errors.New("cancelled")
@@ -158,8 +158,8 @@ func plainConfirmPrompt(prompt string, options ConfirmOptions) (bool, error) {
 	return answer == "y" || answer == "yes", nil
 }
 
-// launchModelNames extracts non-empty model names from a LaunchModel list.
-func launchModelNames(models []LaunchModel) []string {
+// LaunchModelNames extracts non-empty model names from a LaunchModel list.
+func LaunchModelNames(models []LaunchModel) []string {
 	names := make([]string, 0, len(models))
 	for _, m := range models {
 		if m.Name != "" {
@@ -169,11 +169,11 @@ func launchModelNames(models []LaunchModel) []string {
 	return names
 }
 
-// launchModelMatches reports whether a candidate model name matches a target,
+// LaunchModelMatches reports whether a candidate model name matches a target,
 // tolerating the implicit :latest tag and Claude Code's [1m] context-budget
 // suffix on either side. The Switch decorates every catalog id with the
 // suffix and a launch sends the bare name, so a bare comparison never matches.
-func launchModelMatches(candidate, name string) bool {
+func LaunchModelMatches(candidate, name string) bool {
 	if candidate == name {
 		return true
 	}
@@ -183,7 +183,7 @@ func launchModelMatches(candidate, name string) bool {
 // bareLaunchModelName strips the decorations a model name can carry without
 // naming a different model: the [1m] suffix, then the :latest tag under it.
 func bareLaunchModelName(name string) string {
-	name = strings.TrimSuffix(name, oneMillionSuffix)
+	name = strings.TrimSuffix(name, OneMillionSuffix)
 	return strings.TrimSuffix(name, ":latest")
 }
 
@@ -252,21 +252,11 @@ type Configurer interface {
 	ConfigureWithModels(primary string, models []LaunchModel) error
 }
 
-// AnsiRed, AnsiGreen, AnsiReset and AnsiBold are exported ANSI helpers for
-// the CLI entrypoint.
-const (
-	AnsiRed    = ansiRed
-	AnsiGreen  = ansiGreen
-	AnsiYellow = ansiYellow
-	AnsiReset  = ansiReset
-	AnsiBold   = ansiBold
-)
-
-// readJSONFile returns nil, nil when the file is absent (there is nothing to
+// ReadJSONFile returns nil, nil when the file is absent (there is nothing to
 // restore) and an error otherwise, parsed as a generic JSON object. The
 // restore paths of pi and cline share it: both remove what their Edit added
 // and must treat an absent config as nothing to do.
-func readJSONFile(path string) (map[string]any, error) {
+func ReadJSONFile(path string) (map[string]any, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -281,10 +271,10 @@ func readJSONFile(path string) (map[string]any, error) {
 	return config, nil
 }
 
-// writeJSONFile0600 marshals and writes a JSON config at 0600 without taking
+// WriteJSONFile0600 marshals and writes a JSON config at 0600 without taking
 // a backup. The restore paths use it in place of fileutil.WriteWithBackup,
 // because that helper would copy the key being removed into ~/.prizmal/backup.
-func writeJSONFile0600(path string, config map[string]any) error {
+func WriteJSONFile0600(path string, config map[string]any) error {
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return err

@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/device"
-	launcher "github.com/PrizmalAi/prizmal-cli/internal/launcher"
+	"github.com/PrizmalAi/prizmal-cli/internal/launcher/registry"
 	"github.com/PrizmalAi/prizmal-cli/internal/stubserver"
 )
 
@@ -49,7 +49,7 @@ type harnessLaunchCase struct {
 	args     []string
 }
 
-// harnessLaunchCases has one entry per integration in the launcher registry.
+// harnessLaunchCases has one entry per integration in the launcher launcher.
 // TestHarnessLaunchRegistryCompleteness fails when one is missing, so a new
 // harness cannot be added without a launch in CI.
 var harnessLaunchCases = map[string]harnessLaunchCase{
@@ -81,7 +81,7 @@ var harnessLaunchCases = map[string]harnessLaunchCase{
 // registry has a launch case, and that the case's workflow runs its test with
 // the harness required, so CI cannot pass by skipping it.
 func TestHarnessLaunchRegistryCompleteness(t *testing.T) {
-	specs := launcher.ListAllIntegrationSpecs()
+	specs := registry.ListAllIntegrationSpecs()
 	if len(specs) == 0 {
 		t.Fatal("registry returned no integrations")
 	}

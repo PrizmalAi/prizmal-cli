@@ -25,9 +25,9 @@ var subagentModel string
 // main.go wires it from --subagent-model.
 func SetSubagentModel(model string) { subagentModel = model }
 
-// selectedSubagentModel returns the dedicated subagent model, or "" when
+// SelectedSubagentModel returns the dedicated subagent model, or "" when
 // subagents inherit the session model.
-func selectedSubagentModel() string { return subagentModel }
+func SelectedSubagentModel() string { return subagentModel }
 
 // modelCatalog is the launch's model list, fetched at most once per launch.
 //
@@ -101,10 +101,10 @@ func catalogModels(ctx context.Context) ([]LaunchModel, error) {
 // switch gives a tier one holder. Should it send two, only the first is folded,
 // and the other keeps its own row.
 func withClaudeTiers(catalog []LaunchModel) []LaunchModel {
-	models := make([]LaunchModel, 0, len(tierWords)+len(catalog))
-	holders := make(map[string]bool, len(tierWords))
-	for _, tier := range tierWords {
-		name := claudeTierModel(tier)
+	models := make([]LaunchModel, 0, len(TierWords)+len(catalog))
+	holders := make(map[string]bool, len(TierWords))
+	for _, tier := range TierWords {
+		name := ClaudeTierModel(tier)
 		entry, ok := findSwitchCatalogModel(catalog, name)
 		if !ok {
 			entry = LaunchModel{Name: name}
@@ -123,13 +123,13 @@ func withClaudeTiers(catalog []LaunchModel) []LaunchModel {
 		models = append(models, entry)
 	}
 	for _, entry := range catalog {
-		if slices.ContainsFunc(models[:len(tierWords)], func(tier LaunchModel) bool {
-			return launchModelMatches(entry.Name, tier.Name)
+		if slices.ContainsFunc(models[:len(TierWords)], func(tier LaunchModel) bool {
+			return LaunchModelMatches(entry.Name, tier.Name)
 		}) {
 			continue
 		}
 		if holders[entry.Name] {
-			entry.FoldedInto = claudeTierModel(modelTier(entry.Tier))
+			entry.FoldedInto = ClaudeTierModel(ModelTier(entry.Tier))
 		}
 		models = append(models, entry)
 	}
@@ -203,7 +203,7 @@ func LaunchModels(chosen string, catalog []LaunchModel, includeCatalog bool) []L
 		return models
 	}
 	for _, entry := range catalog {
-		if launchModelMatches(entry.Name, chosen) {
+		if LaunchModelMatches(entry.Name, chosen) {
 			continue
 		}
 		models = append(models, entry)

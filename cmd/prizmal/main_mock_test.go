@@ -12,7 +12,7 @@ import (
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher/mockbin"
 	"github.com/PrizmalAi/prizmal-cli/internal/stubserver"
 
-	launcher "github.com/PrizmalAi/prizmal-cli/internal/launcher"
+	"github.com/PrizmalAi/prizmal-cli/internal/launcher/registry"
 )
 
 // mockHarnessTest runs `prizmal <harness>` as a subprocess with a temp HOME
@@ -617,7 +617,7 @@ func TestMockHarnessRegistryCompleteness(t *testing.T) {
 		covered[exp.name] = true
 	}
 
-	specs := launcher.ListAllIntegrationSpecs()
+	specs := registry.ListAllIntegrationSpecs()
 	if len(specs) == 0 {
 		t.Fatal("registry returned no integrations")
 	}

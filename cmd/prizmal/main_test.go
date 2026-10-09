@@ -10,11 +10,12 @@ import (
 	"github.com/PrizmalAi/prizmal-cli/internal/config"
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	launcher "github.com/PrizmalAi/prizmal-cli/internal/launcher"
+	"github.com/PrizmalAi/prizmal-cli/internal/launcher/registry"
 	"github.com/spf13/cobra"
 )
 
 func TestListIntegrationsIncludesCoreHarnesses(t *testing.T) {
-	specs := launcher.ListVisibleIntegrationSpecs()
+	specs := registry.ListVisibleIntegrationSpecs()
 	want := map[string]bool{
 		"claude": false, "codex": false, "opencode": false, "pi": false,
 		"cline": false,
@@ -37,7 +38,7 @@ func TestLookupIntegrationAliases(t *testing.T) {
 		"CLAUDE": "claude",
 	}
 	for alias, want := range cases {
-		spec, err := launcher.LookupIntegrationSpec(alias)
+		spec, err := registry.LookupIntegrationSpec(alias)
 		if err != nil {
 			t.Fatalf("alias %q: %v", alias, err)
 		}
@@ -45,7 +46,7 @@ func TestLookupIntegrationAliases(t *testing.T) {
 			t.Errorf("alias %q resolved to %q, want %q", alias, spec.Name, want)
 		}
 	}
-	if _, err := launcher.LookupIntegrationSpec("does-not-exist"); err == nil {
+	if _, err := registry.LookupIntegrationSpec("does-not-exist"); err == nil {
 		t.Error("expected error for unknown integration")
 	}
 }
@@ -128,7 +129,7 @@ func TestBaseURLResolution(t *testing.T) {
 }
 
 func TestRestoreUnsupportedIntegration(t *testing.T) {
-	spec, err := launcher.LookupIntegrationSpec("claude")
+	spec, err := registry.LookupIntegrationSpec("claude")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +138,7 @@ func TestRestoreUnsupportedIntegration(t *testing.T) {
 	}); ok {
 		t.Error("claude runner should not implement Restore")
 	}
-	spec, err = launcher.LookupIntegrationSpec("codex")
+	spec, err = registry.LookupIntegrationSpec("codex")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +149,7 @@ func TestRestoreUnsupportedIntegration(t *testing.T) {
 	}
 	// Pi writes the live key into ~/.pi/agent/models.json because it has no
 	// environment channel for a custom provider, so it must offer the undo.
-	spec, err = launcher.LookupIntegrationSpec("pi")
+	spec, err = registry.LookupIntegrationSpec("pi")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +160,7 @@ func TestRestoreUnsupportedIntegration(t *testing.T) {
 	}
 	// Cline is in the same position as pi: its provider entry in
 	// providers.json carries the live key, so it needs the same undo.
-	spec, err = launcher.LookupIntegrationSpec("cline")
+	spec, err = registry.LookupIntegrationSpec("cline")
 	if err != nil {
 		t.Fatal(err)
 	}
