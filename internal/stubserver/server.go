@@ -102,13 +102,26 @@ type serverConfig struct {
 	deviceApproved bool
 	// approveAfter, when above zero, keeps the device pending until that many
 	// refresh requests have arrived. refreshes counts them.
-	approveAfter int32
-	refreshes    atomic.Int32
-	deviceOnly   bool
-	issuer       *DeviceTokenIssuer
-	toolLoop     *piToolLoop
-	usagePlan    *UsagePlan
-	recorder     *Recorder
+	approveAfter        int32
+	refreshes           atomic.Int32
+	deviceOnly          bool
+	issuer              *DeviceTokenIssuer
+	toolLoop            *piToolLoop
+	usagePlan           *UsagePlan
+	recorder            *Recorder
+	codexModels         bool
+	modelsStatus        int
+	rejectFirstResponse bool
+	requestLog          func(Request)
+}
+
+// Request is what the request log records: enough to tell which credential a
+// call carried, and never the body.
+type Request struct {
+	Method        string
+	Path          string
+	Query         string
+	Authorization string
 }
 
 // ServerOption configures a stub server.
@@ -334,6 +347,36 @@ func WithEntries(entries ...Entry) ServerOption {
 	}
 }
 
+// WithCodexModels makes GET /v1/models answer the shape Codex expects,
+// {"models":[ModelInfo]}, when the request carries client_version, which Codex
+// adds to its discovery call. Any other request keeps the OpenAI list.
+func WithCodexModels() ServerOption {
+	return func(c *serverConfig) { c.codexModels = true }
+}
+
+// WithoutModels makes GET /v1/models answer 404, a Switch with no discovery.
+func WithoutModels() ServerOption {
+	return func(c *serverConfig) { c.modelsStatus = http.StatusNotFound }
+}
+
+// WithFailingModels makes GET /v1/models answer 500.
+func WithFailingModels() ServerOption {
+	return func(c *serverConfig) { c.modelsStatus = http.StatusInternalServerError }
+}
+
+// WithRejectFirstResponse answers the first POST /v1/responses with 401, as a
+// Switch does for an expired credential, and serves every later one.
+func WithRejectFirstResponse() ServerOption {
+	return func(c *serverConfig) { c.rejectFirstResponse = true }
+}
+
+// WithRequestLog calls log for every request, before the stub answers. The
+// stub serves concurrently, so log must be safe to call from several
+// goroutines.
+func WithRequestLog(log func(Request)) ServerOption {
+	return func(c *serverConfig) { c.requestLog = log }
+}
+
 // WithDeviceApproval makes POST /v1/cli/token approve the device. Without it
 // that route answers 404, the pending state.
 func WithDeviceApproval() ServerOption {
@@ -514,7 +557,11 @@ func (r *Recorder) wrap(h http.HandlerFunc) http.HandlerFunc {
 
 // handler serves the stub API. A nil models serves the default fixture.
 func handler(c *serverConfig) http.HandlerFunc {
+	var rejected atomic.Bool
 	return func(w http.ResponseWriter, r *http.Request) {
+		if c.requestLog != nil {
+			c.requestLog(Request{Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery, Authorization: r.Header.Get("Authorization")})
+		}
 		// POST /v1/cli/token is the device refresh. The real Switch serves it
 		// without a bearer credential, because the request carries its own
 		// ed25519 signature in the body and the Config API checks it, so it is
@@ -537,12 +584,28 @@ func handler(c *serverConfig) http.HandlerFunc {
 
 		switch {
 		case method == http.MethodGet && path == "/v1/models":
+			if c.modelsStatus != 0 {
+				writeJSON(w, c.modelsStatus, map[string]any{
+					"error": map[string]any{"message": "models unavailable"},
+				})
+				return
+			}
+			if c.codexModels && r.URL.Query().Has("client_version") {
+				handleCodexModels(w, c.models)
+				return
+			}
 			handleModels(w, c.models)
 
 		case method == http.MethodPost && path == "/v1/chat/completions":
 			handleChatCompletions(w, r, c.toolLoop)
 
 		case method == http.MethodPost && path == "/v1/responses":
+			if c.rejectFirstResponse && rejected.CompareAndSwap(false, true) {
+				writeJSON(w, http.StatusUnauthorized, map[string]any{
+					"error": map[string]any{"message": "token expired"},
+				})
+				return
+			}
 			handleResponses(w, r)
 
 		case method == http.MethodPost && path == "/v1/messages":
@@ -695,6 +758,30 @@ func wantsStream(body map[string]any) bool {
 	}
 	s, ok := body["stream"].(bool)
 	return ok && s
+}
+
+// handleCodexModels answers Codex's discovery call in the shape it decodes:
+// every field Codex requires on a ModelInfo, and nothing it would reject.
+func handleCodexModels(w http.ResponseWriter, models []map[string]any) {
+	entries := make([]map[string]any, 0, len(models))
+	for i, m := range models {
+		id, _ := m["id"].(string)
+		entries = append(entries, map[string]any{
+			"slug":                         id,
+			"display_name":                 id,
+			"supported_reasoning_levels":   []any{},
+			"shell_type":                   "default",
+			"visibility":                   "list",
+			"supported_in_api":             true,
+			"priority":                     i,
+			"support_verbosity":            false,
+			"truncation_policy":            map[string]any{"mode": "tokens", "limit": 10000},
+			"experimental_supported_tools": []any{},
+			"base_instructions":            "You are a coding agent.",
+			"context_window":               272000,
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"models": entries})
 }
 
 func handleModels(w http.ResponseWriter, models []map[string]any) {

@@ -122,10 +122,6 @@ const (
 	// harnessLaunchDeviceLogin enrols a device key and approves the stub's
 	// device refresh, so a harness that can refresh runs in device mode.
 	harnessLaunchDeviceLogin
-	// harnessLaunchIgnoredDevice enrols a device key whose refresh the stub
-	// refuses, so a launch that ignores device login is the only one that can
-	// reach the harness: one that tried device login would stop first.
-	harnessLaunchIgnoredDevice
 )
 
 // harnessLaunchOnPath returns the harness binary, or skips the test when it is
@@ -177,11 +173,6 @@ func runHarnessLaunch(t *testing.T, harness string, mode harnessLaunchKeyMode) {
 		// the harness authenticated with a token the helper minted, not with
 		// the switch key the config file already held.
 		srvOpts = append(srvOpts, stubserver.WithDeviceTokenOnly())
-	case harnessLaunchIgnoredDevice:
-		// Approve the device, so the launch has a working device credential in
-		// hand and still has to leave it unused: falling back because a refresh
-		// failed would prove nothing about the rule.
-		srvOpts = append(srvOpts, stubserver.WithDeviceApproval())
 	}
 	srv := stubserver.NewServer(srvOpts...)
 	t.Cleanup(srv.Close)
@@ -202,12 +193,6 @@ func runHarnessLaunch(t *testing.T, harness string, mode harnessLaunchKeyMode) {
 		// mode.
 		if !strings.Contains(stderr, "using api key from: device login") {
 			t.Errorf("launch did not announce device login:\n--- stderr ---\n%s", tail(stderr, 50))
-		}
-	case harnessLaunchIgnoredDevice:
-		// Device login must be ignored for a harness without a refresh
-		// contract, so the config file's key is the one in use.
-		if !strings.Contains(stderr, "using api key from: config file") {
-			t.Errorf("launch did not announce the config key:\n--- stderr ---\n%s", tail(stderr, 50))
 		}
 	}
 	if harness == "codex" {
@@ -263,9 +248,7 @@ func harnessLaunchSandbox(t *testing.T, switchURL string, enrollDevice bool) (pr
 	})
 	if enrollDevice {
 		// A real key, so a device-mode launch can sign a refresh the approving
-		// stub accepts. harnessLaunchIgnoredDevice pairs it with an
-		// unapproving stub, where the refresh fails — the state a launch that
-		// ignores device login has to survive to reach the harness at all.
+		// stub accepts.
 		writeDeviceKey(t, home)
 	}
 	return prizmalBin, home, project

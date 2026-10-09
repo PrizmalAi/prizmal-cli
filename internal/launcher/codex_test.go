@@ -350,3 +350,93 @@ func TestCodexCatalogDeclaresTheWindowTheSwitchPublishes(t *testing.T) {
 		}
 	}
 }
+
+// TestCodexDeviceModeOverridesUseCommandAuth pins the device-mode credential
+// channel: the provider runs `prizmal auth token` for its bearer token, and
+// declares no env_key, which Codex rejects next to a command.
+func TestCodexDeviceModeOverridesUseCommandAuth(t *testing.T) {
+	withDeviceMode(t)
+	overrides := strings.Join(codexManagedConfigOverrides(""), "\n")
+
+	for _, want := range []string{
+		"model_providers.prizmal.auth.command=",
+		`model_providers.prizmal.auth.args=["auth", "token"]`,
+		"model_providers.prizmal.auth.refresh_interval_ms=240000",
+	} {
+		if !strings.Contains(overrides, want) {
+			t.Errorf("overrides lack %q:\n%s", want, overrides)
+		}
+	}
+	if strings.Contains(overrides, "env_key") {
+		t.Errorf("device-mode overrides name env_key:\n%s", overrides)
+	}
+}
+
+func TestCodexKeyModeOverridesKeepEnvKeyAndNoAuth(t *testing.T) {
+	envconfig.SetDeviceMode(false)
+	overrides := strings.Join(codexManagedConfigOverrides(""), "\n")
+	if !strings.Contains(overrides, `env_key="OPENAI_API_KEY"`) {
+		t.Errorf("key-mode overrides lack env_key:\n%s", overrides)
+	}
+	if strings.Contains(overrides, ".auth.") {
+		t.Errorf("key-mode overrides carry command auth:\n%s", overrides)
+	}
+}
+
+// TestCodexDeviceModeProfileHasCommandAuthAndNoEnvKey: the profile file and
+// the -c overrides merge key by key, so a profile that kept env_key would
+// combine with the command and fail Codex's config validation.
+func TestCodexDeviceModeProfileHasCommandAuthAndNoEnvKey(t *testing.T) {
+	sandboxCodexHome(t)
+	withDeviceMode(t)
+	profilePath := filepath.Join(t.TempDir(), "prizmal.config.toml")
+	if err := writeCodexNamedProfileConfig(profilePath, codexProfileName, "gpt-test", "", ""); err != nil {
+		t.Fatalf("writeCodexNamedProfileConfig: %v", err)
+	}
+	data, _ := os.ReadFile(profilePath)
+	parsed, err := codexParseConfig(string(data))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if _, ok := parsed.String("model_providers", codexProfileName, "env_key"); ok {
+		t.Errorf("profile keeps env_key in device mode:\n%s", data)
+	}
+	if got, ok := parsed.String("model_providers", codexProfileName, "auth", "command"); !ok || !filepath.IsAbs(got) {
+		t.Errorf("auth.command = %q (ok=%v), want an absolute executable path:\n%s", got, ok, data)
+	}
+}
+
+// TestCodexDeviceModeChildEnvCarriesNoCredential: the switch key and the
+// device token stay out of Codex's environment, and an OPENAI_API_KEY the
+// operator exported for OpenAI itself does not reach the Switch.
+func TestCodexDeviceModeChildEnvCarriesNoCredential(t *testing.T) {
+	withDeviceMode(t)
+	envconfig.SetAPIKey("switch-key-probe")
+	t.Cleanup(func() { envconfig.SetAPIKey("") })
+
+	envconfig.SetBaseURL("https://switch.example")
+	t.Cleanup(func() { envconfig.SetBaseURL("") })
+	// The operator's own OPENAI_API_KEY is what must not reach the Switch.
+	t.Setenv("OPENAI_API_KEY", "operator-openai-key")
+
+	env := codexChildEnv()
+	joined := strings.Join(env, "\n")
+	for _, secret := range []string{"switch-key-probe", "pz-d-dt-test-token", "operator-openai-key"} {
+		if strings.Contains(joined, secret) {
+			t.Errorf("child env leaks %q:\n%s", secret, joined)
+		}
+	}
+	if !strings.Contains(joined, envconfig.EnvVar+"=https://switch.example") {
+		t.Errorf("child env does not pin the Switch URL for the helper:\n%s", joined)
+	}
+}
+
+func TestCodexKeyModeChildEnvCarriesSwitchKey(t *testing.T) {
+	envconfig.SetDeviceMode(false)
+	envconfig.SetAPIKey("switch-key-probe")
+	t.Cleanup(func() { envconfig.SetAPIKey("") })
+	env := codexChildEnv()
+	if !strings.Contains(strings.Join(env, "\n"), "OPENAI_API_KEY=switch-key-probe") {
+		t.Errorf("key-mode env lacks the switch key: %v", env)
+	}
+}
