@@ -2,6 +2,7 @@ package launch
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -625,7 +626,15 @@ func codexCatalogModel(modelName string, models []LaunchModel) LaunchModel {
 }
 
 func writeCodexModelCatalog(catalogPath string, model LaunchModel) error {
+	prompt, err := readCodexSystemPrompt()
+	if err != nil {
+		return err
+	}
 	entry := buildCodexModelEntry(model)
+	entry["base_instructions"] = prompt.baseInstructions
+	if len(prompt.modelMessages) > 0 {
+		entry["model_messages"] = prompt.modelMessages
+	}
 
 	catalog := map[string]any{
 		"models": []any{entry},
@@ -637,6 +646,52 @@ func writeCodexModelCatalog(catalogPath string, model LaunchModel) error {
 	}
 
 	return os.WriteFile(catalogPath, data, 0o644)
+}
+
+// codexSystemPrompt is the prompt Codex ships for a model: the legacy
+// base_instructions text and the model_messages object that holds the same
+// template with its sections.
+type codexSystemPrompt struct {
+	baseInstructions string
+	modelMessages    json.RawMessage
+}
+
+// readCodexSystemPrompt reads the prompt of the installed Codex's default
+// model, the listed model with the lowest priority number. It asks the binary
+// at launch, so the prompt always matches the installed version and the
+// repository carries no copy of it. A launch without a prompt would send
+// Codex's requests with empty instructions, so an unreadable prompt is an
+// error.
+func readCodexSystemPrompt() (codexSystemPrompt, error) {
+	out, err := exec.Command("codex", "debug", "models", "--bundled").Output()
+	if err != nil {
+		return codexSystemPrompt{}, fmt.Errorf("could not read Codex's system prompt with `codex debug models --bundled`: %w", err)
+	}
+	var bundle struct {
+		Models []struct {
+			Visibility       string          `json:"visibility"`
+			Priority         int             `json:"priority"`
+			BaseInstructions string          `json:"base_instructions"`
+			ModelMessages    json.RawMessage `json:"model_messages"`
+		} `json:"models"`
+	}
+	if err := json.Unmarshal(out, &bundle); err != nil {
+		return codexSystemPrompt{}, fmt.Errorf("could not parse Codex's bundled catalog: %w", err)
+	}
+	best := -1
+	for i, m := range bundle.Models {
+		if m.Visibility != "list" || m.BaseInstructions == "" {
+			continue
+		}
+		if best < 0 || m.Priority < bundle.Models[best].Priority {
+			best = i
+		}
+	}
+	if best < 0 {
+		return codexSystemPrompt{}, errors.New("the catalog bundled with Codex has no listed model with a system prompt")
+	}
+	m := bundle.Models[best]
+	return codexSystemPrompt{baseInstructions: m.BaseInstructions, modelMessages: m.ModelMessages}, nil
 }
 
 func buildCodexModelEntry(launchModel LaunchModel) map[string]any {

@@ -107,6 +107,7 @@ func TestEnvChannelLaunchersLeaveNoKeyOnDisk(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			home := cdkSandboxHome(t)
 			internaltest.WithAPIKey(t, fakeKeyAtRest)
+			fakeCodexBundle(t, fakeCodexCatalog)
 
 			if err := tc.configure(t); err != nil {
 				t.Fatalf("configure %s: %v", tc.name, err)
@@ -427,6 +428,7 @@ func TestOverwritesLeaveNoKeyInBackupDir(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			home := cdkSandboxHome(t)
 			internaltest.WithAPIKey(t, fakeKeyAtRest)
+			fakeCodexBundle(t, fakeCodexCatalog)
 
 			target := tc.seed(t, home)
 			before, err := os.ReadFile(target)
