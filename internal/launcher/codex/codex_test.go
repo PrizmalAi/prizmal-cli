@@ -2,6 +2,7 @@ package codex
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -38,12 +39,10 @@ func codexContextWindow(t *testing.T, entry map[string]any) int {
 	return got
 }
 
-// The declared window is the documented fallback for every model, because
-// GET /v1/models carries no context length: the Switch sends id,
-// input_modalities, tier and description, and no writer in the tree ever fills
-// LaunchModel.ContextLength or LaunchModel.Details. Pinning it here means a
-// writer added later without a wire from the catalog fails here instead of
-// leaving a session to compact at 90% of a window nobody chose.
+// A model with no stated window declares the documented fallback. The catalog
+// states a window only through the [1m] mark on an id, so a model without it
+// has none, and the fallback keeps a session from compacting at 90% of a window
+// nobody chose.
 func TestCodexEntryDeclaresTheDocumentedContextWindow(t *testing.T) {
 	entry := buildCodexModelEntry(launch.LaunchModel{
 		Name:         "smart",
@@ -254,12 +253,18 @@ func TestCodexCatalogListsTheTenantCatalogWithEffortLevels(t *testing.T) {
 	}
 }
 
-// TestCodexCatalogDeclaresTheWindowTheSwitchPublishes pins the 1M window: an
-// id the Switch decorates with [1m] becomes a bare slug whose entry declares
-// 1000000, and an undecorated id keeps the fallback window.
+// TestCodexCatalogDeclaresTheWindowTheSwitchPublishes pins the window the
+// catalog states: an id the Switch decorates with [1m] becomes a bare slug whose
+// entry declares 1000000, and an undecorated id keeps the fallback. The
+// fallback is set to a window no model has, so an entry that ignored the
+// catalog and always wrote the fallback would fail on the decorated id.
 func TestCodexCatalogDeclaresTheWindowTheSwitchPublishes(t *testing.T) {
 	fakeCodexBundle(t, fakeCodexCatalog)
 	t.Setenv("HARNESS_CONTEXT_LENGTH", "")
+	const fallback = 200_000
+	previous := codexFallbackContextWindow
+	codexFallbackContextWindow = fallback
+	t.Cleanup(func() { codexFallbackContextWindow = previous })
 	body := `{"data":[{"id":"prizmal-flash[1m]"},{"id":"prizmal-core"}]}`
 	catalog, err := launch.ParseSwitchCatalog([]byte(body))
 	if err != nil {
@@ -280,7 +285,7 @@ func TestCodexCatalogDeclaresTheWindowTheSwitchPublishes(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]int{"prizmal-flash": 1_000_000, "prizmal-core": codexFallbackContextWindow}
+	want := map[string]int{"prizmal-flash": 1_000_000, "prizmal-core": fallback}
 	if len(got.Models) != 2 {
 		t.Fatalf("entries = %+v", got.Models)
 	}
@@ -291,12 +296,32 @@ func TestCodexCatalogDeclaresTheWindowTheSwitchPublishes(t *testing.T) {
 	}
 }
 
+// A window the catalog states for a model wins over the fallback, and the
+// operator's $HARNESS_CONTEXT_LENGTH wins over both.
+func TestCodexEntryTakesTheModelsOwnContextWindow(t *testing.T) {
+	t.Setenv("HARNESS_CONTEXT_LENGTH", "")
+	entry := buildCodexModelEntry(launch.LaunchModel{Name: "smart", ContextLength: 512_000})
+	if got := codexContextWindow(t, entry); got != 512_000 {
+		t.Fatalf("context_window = %d, want the model's 512000", got)
+	}
+
+	t.Setenv("HARNESS_CONTEXT_LENGTH", "300000")
+	entry = buildCodexModelEntry(launch.LaunchModel{Name: "smart", ContextLength: 512_000})
+	if got := codexContextWindow(t, entry); got != 300_000 {
+		t.Fatalf("context_window = %d, want the operator's 300000", got)
+	}
+}
+
 // TestCodexDeviceModeOverridesUseCommandAuth pins the device-mode credential
 // channel: the provider runs `prizmal auth token` for its bearer token, and
 // declares no env_key, which Codex rejects next to a command.
 func TestCodexDeviceModeOverridesUseCommandAuth(t *testing.T) {
 	internaltest.WithDeviceMode(t)
-	overrides := strings.Join(codexManagedConfigOverrides(""), "\n")
+	list, err := codexManagedConfigOverrides("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	overrides := strings.Join(list, "\n")
 
 	for _, want := range []string{
 		"model_providers.prizmal.auth.command=",
@@ -312,9 +337,27 @@ func TestCodexDeviceModeOverridesUseCommandAuth(t *testing.T) {
 	}
 }
 
+// A device-mode launch that cannot find its own executable fails, because the
+// provider would otherwise carry neither a key nor an auth command and Codex
+// would start unable to sign in.
+func TestCodexDeviceModeFailsWhenTheExecutableIsUnknown(t *testing.T) {
+	internaltest.WithDeviceMode(t)
+	previous := executablePath
+	executablePath = func() (string, error) { return "", errors.New("no executable") }
+	t.Cleanup(func() { executablePath = previous })
+
+	if _, err := (&Codex{}).args("smart", "", nil); err == nil || !strings.Contains(err.Error(), "find the prizmal executable") {
+		t.Fatalf("args error = %v, want one naming the missing executable", err)
+	}
+}
+
 func TestCodexKeyModeOverridesKeepEnvKeyAndNoAuth(t *testing.T) {
 	envconfig.SetDeviceMode(false)
-	overrides := strings.Join(codexManagedConfigOverrides(""), "\n")
+	list, err := codexManagedConfigOverrides("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	overrides := strings.Join(list, "\n")
 	if !strings.Contains(overrides, `env_key="OPENAI_API_KEY"`) {
 		t.Errorf("key-mode overrides lack env_key:\n%s", overrides)
 	}

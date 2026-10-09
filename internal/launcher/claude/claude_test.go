@@ -221,8 +221,8 @@ func TestClaudeChildEnvDeviceModeHasNoAuthToken(t *testing.T) {
 	if got := internaltest.EnvValue(env, "ANTHROPIC_API_KEY="); got != "" {
 		t.Fatalf("ANTHROPIC_API_KEY = %q, want empty in device mode", got)
 	}
-	if got := internaltest.EnvValue(env, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS="); got != strconv.Itoa(launch.ClaudeHelperTTLMs) {
-		t.Fatalf("CLAUDE_CODE_API_KEY_HELPER_TTL_MS = %q, want %d", got, launch.ClaudeHelperTTLMs)
+	if got := internaltest.EnvValue(env, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS="); got != strconv.Itoa(launch.DeviceTokenRefreshMs) {
+		t.Fatalf("CLAUDE_CODE_API_KEY_HELPER_TTL_MS = %q, want %d", got, launch.DeviceTokenRefreshMs)
 	}
 }
 
@@ -659,7 +659,8 @@ func TestClaudeModelOverridesNameEachTiersProfileFirst(t *testing.T) {
 		}
 	}
 
-	for tier, profile := range launch.TierProfiles {
+	for _, tier := range launch.TierWords() {
+		profile := launch.ProfileOf(tier)
 		alias := claudeModelName(launch.ClaudeTierModel(tier))
 		if !profileInLineage(tier) {
 			// The session on this alias must miss the overrides, so that

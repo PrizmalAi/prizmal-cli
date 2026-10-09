@@ -2,6 +2,8 @@
 
 `prizmal codex` launches Codex against the Prizmal Switch. The launch passes the provider as `-c` overrides, writes a model catalog to a temporary file for the length of the session, and puts the key on the child environment. It writes nothing to `~/.codex`.
 
+`prizmal codex` needs Codex 0.160.0 or newer and stops with an error on an older release. The launch uses `--no-daemon`, command-backed provider auth, `codex debug models --bundled` and the `supports_search_tool`, `apply_patch_tool_type` and `agents.default_subagent_model` settings, and earlier releases do not know them.
+
 ## Provider wiring
 
 | What | Where |

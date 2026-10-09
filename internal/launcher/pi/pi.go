@@ -119,7 +119,7 @@ func (p *Pi) Run(model string, models []launch.LaunchModel, args []string) error
 	// name of its own, so an empty model here would select the provider's
 	// own default rather than a model the operator chose.
 	cmd := exec.Command(bin, piLaunchArgs(model, extension, args)...)
-	cmd.Env = append(os.Environ(), p.envVars(extension)...)
+	cmd.Env = p.childEnv(extension)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -156,6 +156,12 @@ func piDeviceLaunchFor(model string, models []launch.LaunchModel) (*piDeviceLaun
 // production. A launch aimed at a non-default host by --url would otherwise
 // let that process fall back to production and mint a token the launch's own
 // Switch cannot use, so the launch's resolved URL is pinned for the child.
+// childEnv is the environment pi runs in: the inherited environment with the
+// launch's own variables in place of any inherited copy.
+func (p *Pi) childEnv(extension *piDeviceLaunch) []string {
+	return launch.ChildEnv(nil, p.envVars(extension))
+}
+
 func (p *Pi) envVars(extension *piDeviceLaunch) []string {
 	if extension == nil {
 		return []string{envconfig.KeyEnvVar + "=" + envconfig.APIKey()}

@@ -101,9 +101,9 @@ func catalogModels(ctx context.Context) ([]LaunchModel, error) {
 // switch gives a tier one holder. Should it send two, only the first is folded,
 // and the other keeps its own row.
 func withClaudeTiers(catalog []LaunchModel) []LaunchModel {
-	models := make([]LaunchModel, 0, len(TierWords)+len(catalog))
-	holders := make(map[string]bool, len(TierWords))
-	for _, tier := range TierWords {
+	models := make([]LaunchModel, 0, len(tierWords)+len(catalog))
+	holders := make(map[string]bool, len(tierWords))
+	for _, tier := range tierWords {
 		name := ClaudeTierModel(tier)
 		entry, ok := findSwitchCatalogModel(catalog, name)
 		if !ok {
@@ -123,7 +123,7 @@ func withClaudeTiers(catalog []LaunchModel) []LaunchModel {
 		models = append(models, entry)
 	}
 	for _, entry := range catalog {
-		if slices.ContainsFunc(models[:len(TierWords)], func(tier LaunchModel) bool {
+		if slices.ContainsFunc(models[:len(tierWords)], func(tier LaunchModel) bool {
 			return LaunchModelMatches(entry.Name, tier.Name)
 		}) {
 			continue

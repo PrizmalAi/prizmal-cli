@@ -89,7 +89,7 @@ func Run() int {
 
 	// codex install discovery calls `codex --version`.
 	if len(args) == 1 && args[0] == "--version" {
-		fmt.Println("codex-cli 0.134.0")
+		fmt.Println("codex-cli 0.160.0")
 		return 0
 	}
 

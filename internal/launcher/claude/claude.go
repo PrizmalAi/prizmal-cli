@@ -225,7 +225,7 @@ func (c *Claude) envVars() []string {
 		// The helper refreshes the device token 4 minutes before it would
 		// otherwise expire, with 6 minutes still on the token in hand: enough
 		// for the background refresh a laptop sleep interrupts.
-		env = append(env, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS="+strconv.Itoa(launch.ClaudeHelperTTLMs))
+		env = append(env, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS="+strconv.Itoa(launch.DeviceTokenRefreshMs))
 	}
 	return env
 }
@@ -271,34 +271,12 @@ var claudeInheritedModelVars = []string{
 // is keyed by name, so the CLI's own value always wins over an inherited one
 // and a variable can never appear twice.
 func claudeChildEnv(model string, rows []launch.ModelRow) []string {
-	drop := make(map[string]bool, len(claudeInheritedModelVars))
-	for _, name := range claudeInheritedModelVars {
-		drop[name] = true
-	}
-
-	// The launch's own variables are collected first, so the inherited pass can
-	// skip every name they define. A name defined twice would leave the child's
-	// value depending on which copy the OS reads first, and the launch value
-	// must be the one that wins.
+	// The launch's own variables are collected first so ChildEnv can skip
+	// every inherited name they define.
 	fixed := (&Claude{}).envVars()
-	fixedNames := make(map[string]bool, len(fixed))
-	for _, kv := range fixed {
-		name, _, _ := strings.Cut(kv, "=")
-		fixedNames[name] = true
-	}
-
-	env := make([]string, 0, len(os.Environ())+len(fixed)+1)
-	for _, kv := range os.Environ() {
-		name, _, _ := strings.Cut(kv, "=")
-		if drop[name] || fixedNames[name] {
-			continue
-		}
-		env = append(env, kv)
-	}
-	env = append(env, fixed...)
 	// The compaction window: without it Claude Code never compacts these
 	// launches (claude_compact.go says why).
-	env = append(env, claudeCompactWindowEnv+"="+claudeCompactWindowValue(os.Getenv(claudeCompactWindowEnv)))
+	fixed = append(fixed, claudeCompactWindowEnv+"="+claudeCompactWindowValue(os.Getenv(claudeCompactWindowEnv)))
 	// Claude Code builds the /model picker's Default row from the Opus tier,
 	// and ANTHROPIC_DEFAULT_OPUS_MODEL is the first place it reads that tier
 	// from. The settings JSON has no field for the row's text. Unset, the row
@@ -307,7 +285,7 @@ func claudeChildEnv(model string, rows []launch.ModelRow) []string {
 	// It also makes the "opus" alias resolve to the pinned model, the one
 	// target this launch routes to.
 	if model != "" {
-		env = append(env, "ANTHROPIC_DEFAULT_OPUS_MODEL="+claudeLaunchModelName(model, rows))
+		fixed = append(fixed, "ANTHROPIC_DEFAULT_OPUS_MODEL="+claudeLaunchModelName(model, rows))
 	}
 
 	// The subagent model variable, set only when a dedicated
@@ -316,10 +294,47 @@ func claudeChildEnv(model string, rows []launch.ModelRow) []string {
 	// default. There is no settings-JSON equivalent, so this variable is the
 	// only channel that gives subagents a different model than the parent.
 	if sub := launch.SelectedSubagentModel(); sub != "" {
-		env = append(env, "CLAUDE_CODE_SUBAGENT_MODEL="+claudeModelName(sub))
+		fixed = append(fixed, "CLAUDE_CODE_SUBAGENT_MODEL="+claudeModelName(sub))
 	}
 
-	return env
+	return launch.ChildEnv(claudeInheritedModelVars, fixed)
+}
+
+// claudeFamilyIDs maps each Claude Code model family to the catalog ids a
+// request can resolve to for that family, newest first. The ids are the provider_ids
+// first_party strings from the installed Claude Code binary catalog.
+//
+// The mythos family is absent: it has no tier alias (a request for
+// claude-mythos-5 or -5-1 passes through unmapped, reaching the Switch as the
+// id itself), so no entry belongs here.
+var claudeFamilyIDs = map[launch.ModelTier][]string{
+	launch.ModelTierOpus: {
+		"claude-opus-5-5",
+		"claude-opus-5",
+		"claude-opus-4-8",
+		"claude-opus-4-7",
+		"claude-opus-4-6",
+		"claude-opus-4-5-20251101",
+		"claude-opus-4-20250514",
+		"claude-opus-4-1-20250805",
+	},
+	launch.ModelTierSonnet: {
+		"claude-sonnet-5-5",
+		"claude-sonnet-5",
+		"claude-sonnet-4-6",
+		"claude-sonnet-4-5-20250929",
+		"claude-sonnet-4-20250514",
+		"claude-3-7-sonnet-20250219",
+		"claude-3-5-sonnet-20241022",
+	},
+	launch.ModelTierHaiku: {
+		"claude-haiku-4-5-20251001",
+		"claude-3-5-haiku-20241022",
+	},
+	launch.ModelTierFable: {
+		"claude-fable-5-1",
+		"claude-fable-5",
+	},
 }
 
 // claudeModelName returns the model name to hand Claude Code: the switch's own
@@ -351,7 +366,7 @@ func claudeModelName(model string) string {
 		}
 		bare = stripped
 	}
-	if tier, ok := launch.InferTier(bare); ok && !launch.TierProfiles[tier].OneMillion {
+	if tier, ok := launch.InferTier(bare); ok && !launch.ProfileOf(tier).OneMillion {
 		return bare
 	}
 	return bare + launch.OneMillionSuffix
@@ -364,7 +379,7 @@ func claudeRowModelName(row launch.ModelRow) string {
 		return claudeModelName(row.Model)
 	}
 	bare := strings.TrimSuffix(claudeModelName(row.Model), launch.OneMillionSuffix)
-	if launch.TierProfiles[row.Tier].OneMillion {
+	if launch.ProfileOf(row.Tier).OneMillion {
 		return bare + launch.OneMillionSuffix
 	}
 	return bare
@@ -461,7 +476,7 @@ func claudeSettingsJSON(model string, rows []launch.ModelRow) (string, error) {
 // resolves a tier to them either.
 func claudeModelOverrides() map[string]string {
 	overrides := make(map[string]string)
-	for tier, ids := range launch.ClaudeFamilyIDs {
+	for tier, ids := range claudeFamilyIDs {
 		if !profileInLineage(tier) {
 			continue
 		}
@@ -475,7 +490,7 @@ func claudeModelOverrides() map[string]string {
 // profileInLineage reports whether a tier's rows behave as a model of the
 // tier's own lineage.
 func profileInLineage(tier launch.ModelTier) bool {
-	return slices.Contains(launch.ClaudeFamilyIDs[tier], launch.TierProfiles[tier].BehavesAs)
+	return slices.Contains(claudeFamilyIDs[tier], launch.ProfileOf(tier).BehavesAs)
 }
 
 // modelOverride is one modelOverrides entry.
@@ -521,12 +536,12 @@ func (o orderedModelOverrides) MarshalJSON() ([]byte, error) {
 func claudeOrderedModelOverrides() orderedModelOverrides {
 	overrides := claudeModelOverrides()
 	ordered := make(orderedModelOverrides, 0, len(overrides))
-	for _, tier := range launch.TierWords {
+	for _, tier := range launch.TierWords() {
 		if !profileInLineage(tier) {
 			continue
 		}
-		profile := launch.TierProfiles[tier].BehavesAs
-		ids := append([]string{profile}, slices.DeleteFunc(slices.Clone(launch.ClaudeFamilyIDs[tier]), func(id string) bool {
+		profile := launch.ProfileOf(tier).BehavesAs
+		ids := append([]string{profile}, slices.DeleteFunc(slices.Clone(claudeFamilyIDs[tier]), func(id string) bool {
 			return id == profile
 		})...)
 		for _, id := range ids {

@@ -7,10 +7,12 @@ import (
 	launch "github.com/PrizmalAi/prizmal-cli/internal/launcher"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	"github.com/PrizmalAi/prizmal-cli/internal/fileutil"
@@ -30,33 +32,34 @@ func (c *Codex) String() string { return "Codex" }
 // `prizmal auth token` instead of a fixed key.
 func (c *Codex) SupportsDeviceMode() bool { return true }
 
+// codexFallbackContextWindow is the context window a catalog entry declares
+// when neither the operator nor the catalog states one. It is the 1M window
+// every model the Switch serves has today, stated rather than learned.
+// GET /v1/models marks a 1M model by decorating its id with [1m] and carries no
+// other context length, so a model without the mark has no window to learn, and
+// no model name is mapped to a window because such a table would be guesswork
+// about an endpoint prizmal knows nothing else about.
+//
+// Codex derives auto-compaction from this number: 90% of context_window
+// unless the entry says otherwise (ModelInfo::auto_compact_token_limit in
+// codex-rs/protocol). Declaring too small a window makes Codex discard
+// conversation history the Switch would have accepted. Revisit this when the
+// Switch serves a model with a smaller window. $HARNESS_CONTEXT_LENGTH
+// overrides it for an operator who knows better. It is a variable so a test
+// can set a window no model has.
+var codexFallbackContextWindow = 1_000_000
+
 const (
 	codexProfileName    = "prizmal"
 	codexProviderName   = "prizmal"
 	codexRestoreSuccess = "Codex launch configuration removed."
-
-	// codexFallbackContextWindow is the context window every Codex catalog
-	// entry declares, and it is the 1M window every model the Switch serves
-	// has today, stated rather than learned. GET /v1/models carries no context length (the
-	// Switch sends id, input_modalities, tier and description), so nothing here
-	// can learn the real one, and no model name is mapped to a window because
-	// such a table would be guesswork about an endpoint prizmal knows nothing
-	// else about.
-	//
-	// Codex derives auto-compaction from this number — 90% of context_window
-	// unless the entry says otherwise (ModelInfo::auto_compact_token_limit in
-	// codex-rs/protocol) — so declaring too small a window makes Codex discard
-	// conversation history the Switch would have accepted. Revisit this when the
-	// Switch serves a model with a smaller window. $HARNESS_CONTEXT_LENGTH
-	// overrides it for an operator who knows better.
-	codexFallbackContextWindow = 1_000_000
 
 	// codexRefreshIntervalMs is how long Codex keeps a token from the auth
 	// command before running it again. It is the Claude Code interval for the
 	// same reason: the device token lives 10 minutes, and a refresh every 4
 	// leaves at least 6 on the token in hand. Codex's own default of 5
 	// minutes would refresh with only 5 left.
-	codexRefreshIntervalMs = launch.ClaudeHelperTTLMs
+	codexRefreshIntervalMs = launch.DeviceTokenRefreshMs
 
 	// codexApplyPatchToolType is the only value Codex 0.160 defines for
 	// apply_patch_tool_type (ApplyPatchToolType::Freeform in codex-rs protocol).
@@ -81,7 +84,11 @@ func (c *Codex) args(model, modelCatalogPath string, extra []string) ([]string, 
 	// Codex falls back to embedded mode for every -c override and warns about
 	// it in its footer. --no-daemon makes that choice explicit.
 	args := []string{"--no-daemon"}
-	for _, override := range codexManagedConfigOverrides(modelCatalogPath) {
+	managed, err := codexManagedConfigOverrides(modelCatalogPath)
+	if err != nil {
+		return nil, err
+	}
+	for _, override := range managed {
 		args = append(args, "-c", override)
 	}
 	for _, override := range codexHygieneOverrides() {
@@ -125,28 +132,51 @@ func (c *Codex) Run(model string, models []launch.LaunchModel, args []string) er
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Env = codexChildEnv()
-	return cmd.Run()
+	return runPassingOnTermination(cmd)
 }
 
-// codexChildEnv returns the environment Codex is launched with.
+// runPassingOnTermination runs cmd and waits for it. SIGHUP and SIGTERM go on to
+// it, and SIGINT is ignored. Without the handler any of the three ends prizmal
+// at once, before the deferred removal of the catalog directory in Run, and the
+// directory stays behind. With it, prizmal waits for Codex to exit and Run
+// cleans up.
 //
-// With a switch key, the key travels on OPENAI_API_KEY: the generated profile
-// names that variable via env_key rather than embedding the key, so nothing
-// credential-shaped outlives the launched process.
-//
-// In device mode no credential travels on the environment at all. Codex runs
-// `prizmal auth token` for its bearer token, and an OPENAI_API_KEY the operator
-// exported for OpenAI itself is removed so it can neither reach the Switch nor
-// be mistaken for the provider's key. The Switch URL this launch resolved is
-// pinned for the helper, which resolves its own (see EnsureHelperBaseURL).
+// Codex handles Ctrl-C itself: the terminal sends SIGINT to the whole
+// foreground process group, so Codex has it already, and passing it on would
+// deliver it twice.
+func runPassingOnTermination(cmd *exec.Cmd) error {
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGINT)
+	defer signal.Stop(signals)
+
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	for {
+		select {
+		case sig := <-signals:
+			if sig == syscall.SIGINT {
+				continue
+			}
+			_ = cmd.Process.Signal(sig) // fails on Windows, where the child ends with the console
+		case err := <-done:
+			return err
+		}
+	}
+}
+
 // envVars returns the child environment that carries the provider credential.
-// This is the only channel the key travels on: the generated profile names
+// This is the only channel the key travels on: the provider settings name
 // OPENAI_API_KEY via env_key rather than embedding the key, so nothing
 // credential-shaped outlives the launched process.
 //
-// In device mode it carries nothing. The profile names Codex's command-backed
-// provider auth instead, and Codex runs `prizmal auth token` for its bearer
-// token rather than reading a fixed key from the environment.
+// In device mode it carries nothing. The provider settings name Codex's
+// command-backed provider auth instead, and Codex runs `prizmal auth token` for
+// its bearer token rather than reading a fixed key from the environment. An
+// OPENAI_API_KEY the operator exported for OpenAI itself is removed, so it can
+// neither reach the Switch nor be mistaken for the provider's key.
 func (c *Codex) envVars() []string {
 	if envconfig.DeviceMode() {
 		return nil
@@ -154,11 +184,15 @@ func (c *Codex) envVars() []string {
 	return []string{"OPENAI_API_KEY=" + envconfig.APIKey()}
 }
 
+// executablePath finds the running binary. It is a variable so a test can make
+// the lookup fail.
+var executablePath = os.Executable
+
 // codexAuthCommand is the command Codex runs for a device token: this binary,
 // and the arguments that select its helper subcommand. Codex executes it
 // directly, not through a shell, so the path needs no quoting.
 func codexAuthCommand() (string, []string, error) {
-	exe, err := os.Executable()
+	exe, err := executablePath()
 	if err != nil {
 		return "", nil, fmt.Errorf("find the prizmal executable: %w", err)
 	}
@@ -193,28 +227,10 @@ var codexInheritedVars = []string{
 // names are skipped in the inherited pass, so each appears once and the
 // launch value wins.
 func codexChildEnv() []string {
-	drop := make(map[string]bool, len(codexInheritedVars))
-	for _, name := range codexInheritedVars {
-		drop[name] = true
-	}
 	// An OPENAI_API_KEY from the operator's shell never reaches Codex: with a
 	// switch key the launch sets its own, and in device mode there is none.
-	drop["OPENAI_API_KEY"] = true
-	fixed := (&Codex{}).envVars()
-	for _, kv := range fixed {
-		name, _, _ := strings.Cut(kv, "=")
-		drop[name] = true
-	}
-
-	env := make([]string, 0, len(os.Environ())+len(fixed))
-	for _, kv := range os.Environ() {
-		name, _, _ := strings.Cut(kv, "=")
-		if drop[name] {
-			continue
-		}
-		env = append(env, kv)
-	}
-	env = append(env, fixed...)
+	drop := append(slices.Clone(codexInheritedVars), "OPENAI_API_KEY")
+	env := launch.ChildEnv(drop, (&Codex{}).envVars())
 	// The helper is a separate prizmal process that resolves the Switch URL from
 	// scratch, so this launch's resolved host is pinned for it.
 	if envconfig.DeviceMode() {
@@ -370,7 +386,7 @@ func codexValidateExtraArgs(args []string) error {
 	return nil
 }
 
-func codexManagedConfigOverrides(modelCatalogPath string) []string {
+func codexManagedConfigOverrides(modelCatalogPath string) ([]string, error) {
 	overrides := []string{
 		fmt.Sprintf("%s=%q", codexRootModelProviderKey, codexProfileName),
 		fmt.Sprintf("model_providers.%s.name=%q", codexProfileName, codexProviderName),
@@ -380,20 +396,22 @@ func codexManagedConfigOverrides(modelCatalogPath string) []string {
 	if envconfig.DeviceMode() {
 		// Codex rejects a provider that sets both env_key and a command, so
 		// device mode names the command and leaves env_key out.
-		if command, args, err := codexAuthCommand(); err == nil {
-			overrides = append(overrides,
-				fmt.Sprintf("model_providers.%s.auth.command=%q", codexProfileName, command),
-				fmt.Sprintf("model_providers.%s.auth.args=%s", codexProfileName, codexAuthArgsTOML(args)),
-				fmt.Sprintf("model_providers.%s.auth.refresh_interval_ms=%d", codexProfileName, codexRefreshIntervalMs),
-			)
+		command, args, err := codexAuthCommand()
+		if err != nil {
+			return nil, err
 		}
+		overrides = append(overrides,
+			fmt.Sprintf("model_providers.%s.auth.command=%q", codexProfileName, command),
+			fmt.Sprintf("model_providers.%s.auth.args=%s", codexProfileName, codexAuthArgsTOML(args)),
+			fmt.Sprintf("model_providers.%s.auth.refresh_interval_ms=%d", codexProfileName, codexRefreshIntervalMs),
+		)
 	} else {
 		overrides = append(overrides, fmt.Sprintf("model_providers.%s.env_key=%q", codexProfileName, "OPENAI_API_KEY"))
 	}
 	if modelCatalogPath != "" {
 		overrides = append(overrides, fmt.Sprintf("%s=%q", codexRootModelCatalogJSONKey, modelCatalogPath))
 	}
-	return overrides
+	return overrides, nil
 }
 
 func codexConfigOverrideConflicts(value string) bool {
@@ -583,6 +601,13 @@ var codexReasoningLevels = []any{
 // writeCodexModelCatalog writes one entry per model. The first model is the
 // launch's own: it gets the lowest priority number, which Codex sorts first
 // and offers as the default.
+// WriteModelCatalog writes the model catalog a launch of model hands Codex to
+// catalogPath, built the way Run builds it. It reads Codex's own system prompt
+// from the installed binary, so Codex must be installed.
+func WriteModelCatalog(catalogPath, model string, models []launch.LaunchModel) error {
+	return writeCodexModelCatalog(catalogPath, codexCatalogModels(model, models))
+}
+
 func writeCodexModelCatalog(catalogPath string, models []launch.LaunchModel) error {
 	prompt, err := readCodexSystemPrompt()
 	if err != nil {
@@ -665,11 +690,13 @@ func readCodexSystemPrompt() (codexSystemPrompt, error) {
 func buildCodexModelEntry(launchModel launch.LaunchModel) map[string]any {
 	modelName := launchModel.Name
 
-	// The declared window is the fallback unless the operator states the real
-	// one. Nothing else in the tree carries a window: LaunchModel.ContextLength
-	// has no writer and LaunchModel.Details is never populated, so the branches
-	// that once read them here could not be taken by any model.
+	// The operator's $HARNESS_CONTEXT_LENGTH wins, then the window the catalog
+	// states for the model (LaunchModel.ContextLength, which the core sets from
+	// the [1m] mark on an id), then the fallback.
 	contextWindow := codexFallbackContextWindow
+	if launchModel.ContextLength > 0 {
+		contextWindow = launchModel.ContextLength
+	}
 	if ctxLen := envconfig.ContextLength(); ctxLen > 0 {
 		contextWindow = ctxLen
 	}
@@ -720,6 +747,13 @@ func buildCodexModelEntry(launchModel launch.LaunchModel) map[string]any {
 	}
 }
 
+// codexMinVersion is the oldest Codex the launch supports. The launch passes
+// --no-daemon and command-backed provider auth, reads `codex debug models
+// --bundled`, and writes supports_search_tool, apply_patch_tool_type and
+// agents.default_subagent_model, which earlier releases do not know. It is the
+// release the terminal baselines pin, and a test keeps the two equal.
+const codexMinVersion = "0.160.0"
+
 func checkCodexVersion() error {
 	if _, err := exec.LookPath("codex"); err != nil {
 		return fmt.Errorf("codex is not installed, install with: npm install -g @openai/codex")
@@ -730,17 +764,16 @@ func checkCodexVersion() error {
 		return fmt.Errorf("failed to get codex version: %w", err)
 	}
 
-	// Parse output like "codex-cli 0.87.0"
+	// Parse output like "codex-cli 0.160.0"
 	fields := strings.Fields(strings.TrimSpace(string(out)))
 	if len(fields) < 2 {
 		return fmt.Errorf("unexpected codex version output: %s", string(out))
 	}
 
 	version := "v" + fields[len(fields)-1]
-	minVersion := "v0.134.0"
 
-	if semver.Compare(version, minVersion) < 0 {
-		return fmt.Errorf("codex version %s is too old, minimum required is %s, update with: npm update -g @openai/codex", fields[len(fields)-1], "0.134.0")
+	if semver.Compare(version, "v"+codexMinVersion) < 0 {
+		return fmt.Errorf("codex version %s is too old, minimum required is %s, update with: npm update -g @openai/codex", fields[len(fields)-1], codexMinVersion)
 	}
 
 	return nil

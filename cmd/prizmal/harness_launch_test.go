@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -208,6 +209,16 @@ func runHarnessLaunch(t *testing.T, harness string, mode harnessLaunchKeyMode) {
 				t.Errorf("responses request %d carries empty instructions", i)
 			}
 		}
+		// The catalog entry sets apply_patch_tool_type and supports_search_tool,
+		// and Codex answers with the freeform apply_patch tool and a
+		// tool_search tool in the tools it offers. Only the wire shows that the
+		// settings reached the client, so the first request must offer both.
+		offered := responsesToolNames(bodies[0])
+		for _, want := range []string{"apply_patch", "tool_search"} {
+			if !slices.Contains(offered, want) {
+				t.Errorf("the first responses request does not offer the %s tool (offers %v)", want, offered)
+			}
+		}
 	}
 	if !strings.Contains(stdout, stubserver.Reply) {
 		t.Fatalf("%s did not print the stub's reply %q on stdout (run error: %v, timed out: %v)\n--- stdout ---\n%s\n--- stderr ---\n%s",
@@ -294,4 +305,23 @@ func tail(s string, n int) string {
 		lines = lines[len(lines)-n:]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// responsesToolNames lists the tools a /v1/responses request offers by name,
+// falling back to the tool's type for the ones that carry no name, such as the
+// hosted tool_search.
+func responsesToolNames(body map[string]any) []string {
+	tools, _ := body["tools"].([]any)
+	var names []string
+	for _, raw := range tools {
+		tool, _ := raw.(map[string]any)
+		if name, _ := tool["name"].(string); name != "" {
+			names = append(names, name)
+			continue
+		}
+		if kind, _ := tool["type"].(string); kind != "" {
+			names = append(names, kind)
+		}
+	}
+	return names
 }

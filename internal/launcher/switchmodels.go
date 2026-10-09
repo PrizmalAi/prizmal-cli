@@ -119,7 +119,7 @@ func capabilitiesFromModalities(modalities []string) []model.Capability {
 // that is not one of the Claude tiers.
 func knownTier(tier string) string {
 	tier = strings.ToLower(strings.TrimSpace(tier))
-	if _, ok := TierProfiles[ModelTier(tier)]; ok {
+	if _, ok := tierProfiles[ModelTier(tier)]; ok {
 		return tier
 	}
 	return ""
