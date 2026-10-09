@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/PrizmalAi/prizmal-cli/internal/claudecode"
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 )
 
@@ -648,18 +649,18 @@ func TestClaudeModelOverridesNameEachTiersProfileFirst(t *testing.T) {
 		}
 	}
 
-	for tier, profile := range tierProfiles {
-		alias := claudeModelName(claudeTierModel(tier))
+	for tier, profile := range claudecode.Profiles {
+		alias := claudeModelName(claudecode.TierModel(tier))
 		if !profileInLineage(tier) {
 			// The session on this alias must miss the overrides, so that
 			// Claude Code reads the row's behavesAs instead.
 			if got, ok := firstKey[alias]; ok {
-				t.Errorf("modelOverrides maps %q to %s, so a session on the alias runs as %s instead of %s", got, alias, got, profile.behavesAs)
+				t.Errorf("modelOverrides maps %q to %s, so a session on the alias runs as %s instead of %s", got, alias, got, profile.BehavesAs)
 			}
 			continue
 		}
-		if got := firstKey[alias]; got != profile.behavesAs {
-			t.Errorf("first modelOverrides key for %s = %q, want %q, the id its rows behave as", alias, got, profile.behavesAs)
+		if got := firstKey[alias]; got != profile.BehavesAs {
+			t.Errorf("first modelOverrides key for %s = %q, want %q, the id its rows behave as", alias, got, profile.BehavesAs)
 		}
 	}
 }
@@ -696,11 +697,11 @@ func TestClaudeModelOverridesCarryTheirTiersSuffix(t *testing.T) {
 	overrides := claudeModelOverrides()
 
 	for key, value := range overrides {
-		if !strings.HasSuffix(value, oneMillionSuffix) {
-			t.Errorf("modelOverrides[%q] = %q, want it to end in %s", key, value, oneMillionSuffix)
+		if !strings.HasSuffix(value, claudecode.OneMillionSuffix) {
+			t.Errorf("modelOverrides[%q] = %q, want it to end in %s", key, value, claudecode.OneMillionSuffix)
 		}
-		if strings.Count(value, oneMillionSuffix) != 1 {
-			t.Errorf("modelOverrides[%q] = %q, want exactly one %s", key, value, oneMillionSuffix)
+		if strings.Count(value, claudecode.OneMillionSuffix) != 1 {
+			t.Errorf("modelOverrides[%q] = %q, want exactly one %s", key, value, claudecode.OneMillionSuffix)
 		}
 	}
 }
@@ -751,7 +752,7 @@ func TestClaudeSettingsRowModelsAreNotTheirProfiles(t *testing.T) {
 		t.Fatalf("picker options = %d, want %d: %s", len(got.ModelPicker.Options), len(want), settings)
 	}
 	for _, option := range got.ModelPicker.Options {
-		model := strings.TrimSuffix(option.Model, oneMillionSuffix)
+		model := claudecode.RoutableName(option.Model)
 		tier, ok := want[model]
 		if !ok {
 			t.Errorf("row sends model %q, which is not one of the catalog's ids", option.Model)
