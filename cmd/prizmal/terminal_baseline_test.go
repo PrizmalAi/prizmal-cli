@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -30,34 +29,24 @@ import (
 // and its capture-pane prints the rendered screen, so the test reads what a
 // person would read rather than the byte stream that drew it.
 //
-// Regenerate the files with:
+// This file holds what every group shares: the runner, the tmux capture and
+// the comparison. Each harness owns its cases, its normalization and its
+// pinned version in its own file: terminal_baseline_claude_test.go,
+// terminal_baseline_codex_test.go, and terminal_baseline_prizmal_test.go for
+// prizmal's own screens. A new harness adds a file of its own.
+//
+// Regenerate a group's files with:
 //
 //	go test -run TestTerminalBaselinesClaude -update-baselines .
 //
-// The Claude Code cases need the Claude Code version recorded in
-// testdata/terminal/claude/claude-code-version, because its screens change
-// with each release. The claude-code workflow installs that version.
+// A group that runs a real harness needs the harness version recorded beside
+// its baselines, because its screens change with each release. The harness's
+// workflow installs that version.
 
 var updateBaselines = flag.Bool("update-baselines", false, "rewrite testdata/terminal from the current render")
 
 const (
-	claudeBaselineDir = "testdata/terminal/claude"
-
-	// codexBaselineDir holds the screens of the real Codex, which the codex
-	// workflow records with the version in codex-version beside them.
-	codexBaselineDir = "testdata/terminal/codex"
-
-	// prizmalBaselineDir holds the screens prizmal's own subcommands draw: the
-	// first-run prompt and the device-login flow. They come from the real
-	// prizmal binary and the stub switch, with no harness involved.
-	prizmalBaselineDir = "testdata/terminal/prizmal"
-
-	// nonRoutableAppURL is the consent-page origin a login case gets. A window
-	// that opened it would reach nothing, and PRIZMAL_ENV=testing already
-	// refuses to open a browser at all.
-	nonRoutableAppURL = "http://127.0.0.1:0"
-
-	// baselineRequireEnv set to "require" turns a missing tmux or Claude Code
+	// baselineRequireEnv set to "require" turns a missing tmux or harness
 	// into a failure. CI sets it, so a runner without them cannot pass by
 	// skipping every case.
 	baselineRequireEnv = "PRIZMAL_TERMINAL_BASELINES"
@@ -73,83 +62,15 @@ const (
 	pickerTimeout = 10 * time.Second
 )
 
+var (
+	stepPrizmalPicker = baselineStep{waitFor: "Select a model"}
+	stepPrizmalExit   = baselineStep{waitFor: "[prizmal exited"}
+)
+
 // baselineCatalog is the tenant the stub switch serves from GET /v1/models,
 // which is where prizmal reads the rows of its picker and of Claude Code's
 // /model menu. It lists the reserved placeholder too, which both must hide.
 var baselineCatalog = []string{"smart", "flash", "default"}
-
-// tierCatalog is a tenant with a router config whose name carries a Claude
-// Code tier word, hidden inside a longer id as tenant-named models do. Like
-// every tenant, it lists router configs only. The tier aliases come from the
-// CLI.
-var tierCatalog = []string{"team-opus-blend", "smart", "default"}
-
-// proposedCatalog is a tenant whose Switch lists router configs only. Each
-// config that holds a tier alias carries that tier, and every config carries
-// its tenant's description but one. The tier rows stand for the four tier
-// configs, so only the two others get rows of their own.
-var proposedCatalog = []stubserver.Entry{
-	{ID: "default"},
-	{ID: "balanced", Tier: "sonnet", Description: "Balanced cost and speed"},
-	{ID: "deep", Tier: "fable", Description: "Long, hard tasks"},
-	{ID: "experimental"},
-	{ID: "flash", Tier: "haiku", Description: "Quick answers"},
-	{ID: "smart", Tier: "opus", Description: "Everyday coding"},
-	{ID: "team-opus-blend", Description: "Team blend for refactors"},
-}
-
-// claudeVersionPattern matches the version in Claude Code's banner. A baseline
-// keeps the version it was recorded with, and the comparison reads the
-// banner as that version, so moving to a new release changes no baseline
-// unless something else on the screen changed too.
-var claudeVersionPattern = regexp.MustCompile(`Claude Code v[0-9]+\.[0-9]+\.[0-9]+`)
-
-// claudeElapsedPattern matches the wall-clock duration the /usage screen prints.
-// The screen reads it when it opens, so a loaded machine records a larger
-// value and a baseline would depend on how busy the runner was. The
-// comparison normalizes it instead, the way it does the banner version.
-var claudeElapsedPattern = regexp.MustCompile(`(?m)^(.*Total duration \(wall\): ).*$`)
-
-// The login and first-run screens carry values that change per run and per
-// machine, so the comparison replaces each with a placeholder. The values are
-// still drawn correctly; only the baseline is made stable.
-//
-// Two of them are long enough to wrap at 100 columns, and where they wrap
-// depends on the machine (a temp path) or the hostname. So each is normalized
-// as the whole block between two stable lines, not as a token: a token match
-// would leave the wrapped continuation behind, and its position would differ
-// between the recorder's machine and the CI runner.
-//
-//   - The consent URL holds a freshly generated ed25519 public key (per run)
-//     and the machine's hostname.
-//   - The first-run screen prints the config path under the run's temp HOME.
-//   - The device fingerprint is derived from the key, so it changes too, but it
-//     is short and stays on one line.
-var (
-	baselineConsentURLPattern = regexp.MustCompile(`(?s)(To approve this device, open:\n\n).*?(\n\nDevice fingerprint: )`)
-	// baselineConfigPathPattern matches the config path the first-run screen
-	// prints. It ends on the stable ".prizmal/config.json" suffix rather than on
-	// the next line's text, because in the colour capture that line opens with a
-	// style escape the plain capture does not carry.
-	baselineConfigPathPattern = regexp.MustCompile(`(?s)(No configuration found at ).*?\.prizmal/config\.json`)
-	baselineFingerprint       = regexp.MustCompile(`Device fingerprint: [0-9a-f]{4}-[0-9a-f]{4}`)
-	// baselineBrowserFailure matches the parenthetical reason the login prints
-	// when it cannot open a browser. In a baseline run the reason is always the
-	// testing guard, which is an artifact of the harness and differs on a real
-	// host, so the line is normalized to its stable prefix.
-	baselineBrowserFailure = regexp.MustCompile(`Could not open a browser automatically \([^)]*\)\.`)
-)
-
-// withStableDeviceValues replaces the per-run values on the login and first-run
-// screens with placeholders, so their baselines do not depend on the generated
-// key, the machine's hostname, or the temp directory of the run.
-func withStableDeviceValues(screen string) string {
-	screen = baselineConsentURLPattern.ReplaceAllString(screen, "${1}<consent-url>${2}")
-	screen = baselineConfigPathPattern.ReplaceAllString(screen, "${1}<config-path>${2}")
-	screen = baselineFingerprint.ReplaceAllString(screen, "Device fingerprint: <fp>")
-	screen = baselineBrowserFailure.ReplaceAllString(screen, "Could not open a browser automatically.")
-	return screen
-}
 
 // baselineStep sends keys, then waits until the screen shows waitFor and has
 // stopped changing. literal is typed as text, key is a tmux key name such as
@@ -225,342 +146,6 @@ type updateScenario struct {
 	noStdin bool
 }
 
-var (
-	stepPrizmalPicker = baselineStep{waitFor: "Select a model"}
-	stepPickFirst     = baselineStep{key: "Enter", waitFor: "shift+tab to cycle"}
-	stepClaudePrompt  = baselineStep{waitFor: "shift+tab to cycle"}
-	stepOpenModel     = baselineStep{literal: "/model", waitFor: "/model"}
-	stepModelPicker   = baselineStep{key: "Enter", waitFor: "Esc to cancel"}
-	stepTypeContext   = baselineStep{literal: "/context", waitFor: "/context"}
-	stepShowContext   = baselineStep{key: "Enter", waitFor: "Free space"}
-	stepOpenUsage     = baselineStep{literal: "/usage", waitFor: "/usage"}
-	stepShowUsage     = baselineStep{key: "Enter", waitFor: "Esc to cancel"}
-	stepPrizmalExit   = baselineStep{waitFor: "[prizmal exited"}
-
-	stepCodexPrompt      = baselineStep{waitFor: "f2 to view"}
-	stepCodexOpenModel   = baselineStep{literal: "/model", waitFor: "/model"}
-	stepCodexModelPicker = baselineStep{key: "Enter", waitFor: "Select Model"}
-	stepCodexTypeStatus  = baselineStep{literal: "/status", waitFor: "/status"}
-	stepCodexStatus      = baselineStep{key: "Enter", waitFor: "Session"}
-	// stepClaudeReady waits for the prompt's footer in any permission mode. A
-	// session on a model that auto mode is closed to starts in manual mode,
-	// whose footer has no shift+tab hint.
-	stepClaudeReady = baselineStep{waitFor: "for agents"}
-)
-
-// codexBaselineCases are the screens of the real Codex. Each launches it
-// through prizmal with a model passed as -m, so no picker shows first.
-var codexBaselineCases = []baselineCase{
-	{
-		name: "codex-startup-m-smart-100x30", cols: 100, rows: 30,
-		args: []string{"-m", "smart", "codex"}, codex: true,
-		steps: []baselineStep{stepCodexPrompt},
-	},
-	{
-		name: "codex-model-picker-m-smart-100x30", cols: 100, rows: 30,
-		args: []string{"-m", "smart", "codex"}, codex: true,
-		steps: []baselineStep{stepCodexPrompt, stepCodexOpenModel, stepCodexModelPicker},
-	},
-	{
-		name: "codex-status-m-smart-100x30", cols: 100, rows: 30,
-		args: []string{"-m", "smart", "codex"}, codex: true,
-		steps: []baselineStep{stepCodexPrompt, stepCodexTypeStatus, stepCodexStatus},
-	},
-	{
-		name: "codex-exec-m-smart-100x30", cols: 100, rows: 30,
-		args:      []string{"-m", "smart", "codex"},
-		argsAfter: []string{"exec", "--skip-git-repo-check", "-s", "read-only", "hi"}, codex: true,
-		steps: []baselineStep{stepPrizmalExit},
-	},
-}
-
-var claudeBaselineCases = []baselineCase{
-	{
-		name: "prizmal-picker-100x30", cols: 100, rows: 30,
-		args:  []string{"claude"},
-		steps: []baselineStep{stepPrizmalPicker},
-	},
-	{
-		name: "prizmal-picker-filter-100x30", cols: 100, rows: 30,
-		args: []string{"claude"},
-		steps: []baselineStep{
-			stepPrizmalPicker,
-			{literal: "/", waitFor: "Filter:"},
-			{literal: "fla", waitFor: "Filter: fla"},
-		},
-	},
-	{
-		name: "claude-startup-picked-100x30", cols: 100, rows: 30,
-		args: []string{"claude"}, claude: true,
-		steps: []baselineStep{stepPrizmalPicker, stepPickFirst},
-	},
-	{
-		name: "claude-model-picker-picked-100x30", cols: 100, rows: 30,
-		args: []string{"claude"}, claude: true,
-		steps: []baselineStep{stepPrizmalPicker, stepPickFirst, stepOpenModel, stepModelPicker},
-	},
-	{
-		name: "claude-startup-m-smart-100x30", cols: 100, rows: 30,
-		args: []string{"-m", "smart", "claude"}, claude: true,
-		steps: []baselineStep{stepClaudePrompt},
-	},
-	{
-		name: "claude-model-picker-m-smart-100x30", cols: 100, rows: 30,
-		args: []string{"-m", "smart", "claude"}, claude: true,
-		steps: []baselineStep{stepClaudePrompt, stepOpenModel, stepModelPicker},
-	},
-	{
-		name: "claude-startup-model-flash-100x30", cols: 100, rows: 30,
-		args: []string{"--model", "flash", "claude"}, claude: true,
-		steps: []baselineStep{stepClaudePrompt},
-	},
-	{
-		name: "claude-model-picker-model-flash-100x30", cols: 100, rows: 30,
-		args: []string{"--model", "flash", "claude"}, claude: true,
-		steps: []baselineStep{stepClaudePrompt, stepOpenModel, stepModelPicker},
-	},
-	// A --model after the integration name is prizmal's own flag. Forwarded to
-	// Claude Code, it outranked the settings model and dropped its [1m], so
-	// the session fell back to the 200k window of a model Claude Code does not
-	// know. /context shows the window and the model the session runs as, the
-	// /model picker shows one row per model with its tier, and a print run
-	// shows any unknown-model warning.
-	{
-		name: "claude-context-model-opus-100x40", cols: 100, rows: 40,
-		args: []string{"claude", "--model", "team-opus-blend"}, catalog: tierCatalog, claude: true,
-		steps: []baselineStep{stepClaudeReady, stepTypeContext, stepShowContext},
-	},
-	{
-		name: "claude-model-picker-model-opus-100x40", cols: 100, rows: 40,
-		args: []string{"claude", "--model", "team-opus-blend"}, catalog: tierCatalog, claude: true,
-		steps: []baselineStep{stepClaudeReady, stepOpenModel, stepModelPicker},
-	},
-	{
-		name: "claude-print-model-opus-100x40", cols: 100, rows: 40,
-		args: []string{"claude", "--model", "team-opus-blend", "-p", "hi"}, catalog: tierCatalog, claude: true,
-		steps: []baselineStep{stepPrizmalExit},
-	},
-	// A haiku alias runs as Sonnet 5 with a 1M window, in auto mode. As Haiku
-	// 4.5, the profile its tier names, it started in manual mode with no way
-	// to cycle into auto, because Claude Code refuses auto mode to a model
-	// released before Claude Opus 4.6.
-	{
-		name: "claude-context-model-haiku-100x40", cols: 100, rows: 40,
-		args: []string{"claude", "--model", "claude-tier-haiku"}, catalog: tierCatalog, claude: true,
-		steps: []baselineStep{stepClaudeReady, stepTypeContext, stepShowContext},
-	},
-	{
-		name: "claude-model-picker-model-haiku-100x40", cols: 100, rows: 40,
-		args: []string{"claude", "--model", "claude-tier-haiku"}, catalog: tierCatalog, claude: true,
-		steps: []baselineStep{stepClaudeReady, stepOpenModel, stepModelPicker},
-	},
-	{
-		name: "claude-print-model-haiku-100x40", cols: 100, rows: 40,
-		args: []string{"claude", "--model", "claude-tier-haiku", "-p", "hi"}, catalog: tierCatalog, claude: true,
-		steps: []baselineStep{stepPrizmalExit},
-	},
-	// The first picker row is the Opus tier, which runs as Opus 5 with a 1M
-	// window. A router config without a tier word runs with a 1M window too.
-	{
-		name: "claude-context-picked-100x40", cols: 100, rows: 40,
-		args: []string{"claude"}, claude: true,
-		steps: []baselineStep{stepPrizmalPicker, stepPickFirst, stepTypeContext, stepShowContext},
-	},
-	{
-		name: "claude-context-m-smart-100x40", cols: 100, rows: 40,
-		args: []string{"-m", "smart", "claude"}, claude: true,
-		steps: []baselineStep{stepClaudePrompt, stepTypeContext, stepShowContext},
-	},
-	// /usage is the screen a client opens to read its balance. The stub Switch
-	// sends the same unified status header the real Switch sends, so this
-	// records the funded-tenant screen.
-	{
-		name: "claude-usage-100x40", cols: 100, rows: 40,
-		args: []string{"claude"}, claude: true,
-		steps: []baselineStep{stepPrizmalPicker, stepPickFirst, stepClaudeReady, stepOpenUsage, stepShowUsage},
-	},
-	{
-		name: "claude-print-m-smart-100x40", cols: 100, rows: 40,
-		args: []string{"-m", "smart", "claude", "-p", "hi"}, claude: true,
-		steps: []baselineStep{stepPrizmalExit},
-	},
-	// The proposed Switch: each tier row shows the description of the config
-	// that holds the tier's alias, and that config has no row of its own
-	// unless the launch names it.
-	{
-		name: "prizmal-picker-proposed-100x30", cols: 100, rows: 30,
-		args: []string{"claude"}, entries: proposedCatalog,
-		steps: []baselineStep{stepPrizmalPicker},
-	},
-	{
-		name: "claude-model-picker-proposed-100x40", cols: 100, rows: 40,
-		args: []string{"claude"}, entries: proposedCatalog, claude: true,
-		steps: []baselineStep{stepPrizmalPicker, stepPickFirst, stepOpenModel, stepModelPicker},
-	},
-	{
-		name: "claude-context-proposed-100x40", cols: 100, rows: 40,
-		args: []string{"claude"}, entries: proposedCatalog, claude: true,
-		steps: []baselineStep{stepPrizmalPicker, stepPickFirst, stepTypeContext, stepShowContext},
-	},
-	{
-		name: "claude-print-proposed-100x40", cols: 100, rows: 40,
-		args: []string{"claude", "--model", "claude-tier-opus", "-p", "hi"}, entries: proposedCatalog, claude: true,
-		steps: []baselineStep{stepPrizmalExit},
-	},
-	{
-		name: "claude-model-picker-proposed-m-smart-100x40", cols: 100, rows: 40,
-		args: []string{"-m", "smart", "claude"}, entries: proposedCatalog, claude: true,
-		steps: []baselineStep{stepClaudePrompt, stepOpenModel, stepModelPicker},
-	},
-	{
-		name: "claude-print-proposed-experimental-100x40", cols: 100, rows: 40,
-		args: []string{"claude", "--model", "experimental", "-p", "hi"}, entries: proposedCatalog, claude: true,
-		steps: []baselineStep{stepPrizmalExit},
-	},
-}
-
-// prizmalBaselineCases are the screens prizmal draws for its own commands: the
-// first-run prompt and the device-login flow. They run the real prizmal binary
-// against the stub switch with no harness, so a stand-in claude keeps the
-// first-run case from offering an install.
-//
-// The login cases pin PRIZMAL_APP_URL to a non-routable host. PRIZMAL_ENV=testing
-// already refuses to open a browser, and the pinned URL keeps even a stray
-// window off the production consent page. The stub decides pending (404) versus
-// approved (200), so neither needs the polling loop to advance.
-var prizmalBaselineCases = []baselineCase{
-	// The first-run menu. The config file is absent, so ensureConfig prompts with
-	// the shared picker: the two ways to sign in, under the "Sign in" heading.
-	{
-		name: "firstrun-menu-100x30", cols: 100, rows: 30,
-		args:      []string{"--model", "smart"},
-		argsAfter: []string{"claude"},
-		noConfig:  true,
-		steps:     []baselineStep{{waitFor: "Paste a key"}},
-	},
-	// The browser login while the tenant has not approved yet. The login waits
-	// polls from the moment it prints the URL and opens a browser only on Enter,
-	// so the case presses it; the stub answers the refresh 404, so the flow stays
-	// at "Waiting for approval..." and the wait is stable to capture.
-	{
-		name: "login-pending-100x30", cols: 100, rows: 30,
-		args: []string{"login"},
-		env:  []string{"PRIZMAL_APP_URL=" + nonRoutableAppURL},
-		steps: []baselineStep{
-			{waitFor: "Press Enter to open the browser"},
-			{key: "Enter", waitFor: "Could not open a browser"},
-		},
-	},
-	// The login approved in another browser. Nobody presses Enter: the poll
-	// starts when the URL prints, so the stub's 200 ends the wait, takes the
-	// prompt off the screen and shows the success line and the deadline.
-	{
-		name: "login-approved-100x30", cols: 100, rows: 30,
-		args:           []string{"login"},
-		deviceApproved: true,
-		env:            []string{"PRIZMAL_APP_URL=" + nonRoutableAppURL},
-		steps:          []baselineStep{{waitFor: "This device is approved"}},
-	},
-	// The operator presses Enter while the approval is still pending, then the
-	// approval lands: the screen keeps the browser line Enter produced.
-	{
-		name: "login-enter-then-approved-100x30", cols: 100, rows: 30,
-		args:                []string{"login"},
-		deviceApprovedAfter: 4,
-		env:                 []string{"PRIZMAL_APP_URL=" + nonRoutableAppURL},
-		steps: []baselineStep{
-			{waitFor: "Press Enter to open the browser"},
-			{key: "Enter", waitFor: "This device is approved"},
-		},
-	},
-	// Re-approving a machine that already has a device key: the same screen with
-	// the re-approve line instead of "Generated a new device key".
-	{
-		name: "login-reapprove-100x30", cols: 100, rows: 30,
-		args:           []string{"login"},
-		deviceKey:      true,
-		deviceApproved: true,
-		env:            []string{"PRIZMAL_APP_URL=" + nonRoutableAppURL},
-		steps:          []baselineStep{{waitFor: "This device is approved"}},
-	},
-	// Codex missing from PATH with npm present: the launch offers to install
-	// it, as it does for the other npm-installed harnesses.
-	{
-		name: "codex-install-prompt-100x30", cols: 100, rows: 30,
-		args:     []string{"--model", "smart", "codex"},
-		standIns: []string{"npm"},
-		steps:    []baselineStep{{waitFor: "Install with npm?"}},
-	},
-	// `auth token` with no device key is the only screen it draws: its success
-	// path prints the token to stdout and nothing else.
-	{
-		name: "auth-token-no-key-100x30", cols: 100, rows: 30,
-		args:  []string{"auth", "token"},
-		steps: []baselineStep{{waitFor: "run prizmal login"}},
-	},
-}
-
-// updateBaselineCases are the screens of the update check. Each case poses as
-// release 0.1.2 on an install method, against a release host that serves 0.2.0.
-// The stubs stand in for brew and go, so the upgrade and the relaunch run for
-// real, and the final screen shows the launch that follows.
-var updateBaselineCases = func() []baselineCase {
-	const latest = "v0.2.0"
-	launch := []string{"-m", "smart", "claude"}
-	offer := func(name, install string) baselineCase {
-		return baselineCase{name: name, cols: 100, rows: 30, args: launch,
-			update: &updateScenario{install: install, latest: latest},
-			steps:  []baselineStep{{waitFor: "Upgrade now"}}}
-	}
-	upgrade := func(name, install string, fail bool) baselineCase {
-		return baselineCase{name: name, cols: 100, rows: 30, args: launch,
-			update: &updateScenario{install: install, latest: latest, failUpgrade: fail},
-			steps:  []baselineStep{{waitFor: "Upgrade now"}, {key: "Enter", waitFor: "[prizmal exited"}}}
-	}
-	warn := func(name, install string) baselineCase {
-		return baselineCase{name: name, cols: 100, rows: 30, args: launch,
-			update: &updateScenario{install: install, latest: latest},
-			steps:  []baselineStep{{waitFor: "Continue"}}}
-	}
-	return []baselineCase{
-		offer("update-offer-homebrew-100x30", "homebrew"),
-		offer("update-offer-go-install-100x30", "go-install"),
-		upgrade("update-upgrade-homebrew-100x30", "homebrew", false),
-		upgrade("update-upgrade-go-install-100x30", "go-install", false),
-		upgrade("update-upgrade-homebrew-failed-100x30", "homebrew", true),
-		upgrade("update-upgrade-go-install-failed-100x30", "go-install", true),
-		{name: "update-declined-100x30", cols: 100, rows: 30, args: launch,
-			update: &updateScenario{install: "homebrew", latest: latest},
-			steps: []baselineStep{{waitFor: "Upgrade now"}, {key: "Down", waitFor: "Not now"},
-				{key: "Enter", waitFor: "[prizmal exited"}}},
-		{name: "update-offer-escape-100x30", cols: 100, rows: 30, args: launch,
-			update: &updateScenario{install: "homebrew", latest: latest},
-			steps:  []baselineStep{{waitFor: "Upgrade now"}, {key: "Escape", waitFor: "[prizmal exited"}}},
-		warn("update-warning-archive-100x30", "archive"),
-		warn("update-warning-source-100x30", "source"),
-		{name: "update-warning-continue-100x30", cols: 100, rows: 30, args: launch,
-			update: &updateScenario{install: "archive", latest: latest},
-			steps:  []baselineStep{{waitFor: "Continue"}, {key: "Enter", waitFor: "[prizmal exited"}}},
-		{name: "update-warning-exit-100x30", cols: 100, rows: 30, args: launch,
-			update: &updateScenario{install: "archive", latest: latest},
-			steps: []baselineStep{{waitFor: "Continue"}, {key: "Down", waitFor: "Exit"},
-				{key: "Enter", waitFor: "[prizmal exited"}}},
-		{name: "update-noninteractive-homebrew-100x30", cols: 100, rows: 30, args: launch,
-			update: &updateScenario{install: "homebrew", latest: latest, noStdin: true},
-			steps:  []baselineStep{stepPrizmalExit}},
-		{name: "update-noninteractive-archive-100x30", cols: 100, rows: 30, args: launch,
-			update: &updateScenario{install: "archive", latest: latest, noStdin: true},
-			steps:  []baselineStep{stepPrizmalExit}},
-		{name: "update-yes-100x30", cols: 100, rows: 30, args: append([]string{"--yes"}, launch...),
-			update: &updateScenario{install: "homebrew", latest: latest},
-			steps:  []baselineStep{stepPrizmalExit}},
-		{name: "update-disabled-100x30", cols: 100, rows: 30, args: launch,
-			update:      &updateScenario{install: "homebrew", latest: latest},
-			configExtra: map[string]any{"check_updates": false},
-			steps:       []baselineStep{stepPrizmalExit}},
-	}
-}()
-
 // launchArgs assembles the child's argument list: prizmal's own args, then a
 // `--` separator when the case passes text after the integration name, so the
 // first-run case can name the integration the menu would otherwise capture.
@@ -571,24 +156,6 @@ func launchArgs(tc baselineCase) []string {
 		args = append(args, tc.argsAfter...)
 	}
 	return args
-}
-
-func TestTerminalBaselinesClaude(t *testing.T) {
-	runBaselineCases(t, claudeBaselineCases, claudeBaselineDir, true, false)
-}
-
-// TestTerminalBaselinesCodex renders the screens of the real Codex, launched
-// through prizmal against the stub switch. Add a screen with a case in
-// codexBaselineCases and run with -update-baselines.
-func TestTerminalBaselinesCodex(t *testing.T) {
-	runBaselineCases(t, codexBaselineCases, codexBaselineDir, false, true)
-}
-
-// TestTerminalBaselinesPrizmal renders the screens prizmal draws itself: the
-// first-run prompt and the device-login flow. It needs no harness, so it runs
-// wherever tmux is, and its screens live under testdata/terminal/prizmal.
-func TestTerminalBaselinesPrizmal(t *testing.T) {
-	runBaselineCases(t, append(append([]baselineCase{}, prizmalBaselineCases...), updateBaselineCases...), prizmalBaselineDir, false, false)
 }
 
 // runBaselineCases renders one group of cases in parallel and compares each to
@@ -694,31 +261,6 @@ func runBaselineCases(t *testing.T, cases []baselineCase, dir string, needsClaud
 			}
 		})
 	}
-}
-
-// withStableElapsed replaces the wall-clock duration the /usage screen prints
-// with a fixed placeholder, so the baseline does not depend on how long the
-// session took to reach the screen.
-func withStableElapsed(screen string) string {
-	return claudeElapsedPattern.ReplaceAllString(screen, "${1}<elapsed>")
-}
-
-// withBaselineVersion rewrites the Claude Code version in got to the one in
-// want, the recorded baseline. A baseline without a version leaves got as is.
-func withBaselineVersion(got, want string) string {
-	recorded := claudeVersionPattern.FindString(want)
-	if recorded == "" {
-		return got
-	}
-	return claudeVersionPattern.ReplaceAllLiteralString(got, recorded)
-}
-
-// pinnedClaudeDir returns the directory of the claude binary on PATH when its
-// version is the one the baselines were recorded with. Otherwise it returns ""
-// and the reason.
-func pinnedClaudeDir(t *testing.T) (string, string) {
-	t.Helper()
-	return pinnedHarnessDir(t, "claude", "Claude Code", filepath.Join(claudeBaselineDir, "claude-code-version"), 0)
 }
 
 // pinnedHarnessDir returns the directory of the binary on PATH when the
@@ -968,37 +510,6 @@ func waitForSettledScreen(capture func() string, want string, timeout time.Durat
 	return false
 }
 
-// seedClaudeState writes the Claude Code state a returning user has, so the
-// launch opens at the prompt: onboarding done, release notes read, a theme
-// chosen, and the project folder trusted. Without it the first screen is the
-// theme picker.
-func seedClaudeState(t *testing.T, home, project string) {
-	t.Helper()
-	pinned, err := os.ReadFile(filepath.Join(claudeBaselineDir, "claude-code-version"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	version := strings.TrimSpace(string(pinned))
-	writeJSONFile(t, filepath.Join(home, ".claude.json"), map[string]any{
-		"hasCompletedOnboarding": true,
-		"lastOnboardingVersion":  version,
-		"lastReleaseNotesSeen":   version,
-		"theme":                  "dark",
-		"numStartups":            1,
-		"autoUpdates":            false,
-		"projects": map[string]any{
-			project: map[string]any{"hasTrustDialogAccepted": true},
-		},
-	})
-	// The logo animates, and a capture could land on any frame.
-	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeJSONFile(t, filepath.Join(home, ".claude", "settings.json"), map[string]any{
-		"prefersReducedMotion": true,
-	})
-}
-
 func writeJSONFile(t *testing.T, path string, v any) {
 	t.Helper()
 	data, err := json.Marshal(v)
@@ -1057,84 +568,6 @@ func shellJoin(args []string) string {
 	return strings.Join(quoted, " ")
 }
 
-// Claude Code animates its logo: the eyes blink and glance, and the logo
-// jumps. A capture can land on any frame, so the seeded state turns animation
-// off, which Claude Code offers as its reduced-motion setting.
-func TestSeedClaudeStateTurnsOffAnimation(t *testing.T) {
-	home := t.TempDir()
-	seedClaudeState(t, home, filepath.Join(home, "project"))
-
-	data, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json"))
-	if err != nil {
-		t.Fatalf("read seeded settings: %v", err)
-	}
-	var settings map[string]any
-	if err := json.Unmarshal(data, &settings); err != nil {
-		t.Fatalf("seeded settings do not parse: %v\n%s", err, data)
-	}
-	if settings["prefersReducedMotion"] != true {
-		t.Fatalf("prefersReducedMotion = %v, want true", settings["prefersReducedMotion"])
-	}
-}
-
-// codexVersionPattern matches the version in Codex's banner, in the TUI and in
-// a codex exec header. The comparison reads it as the recorded one for the
-// same reason it does for Claude Code's.
-var codexVersionPattern = regexp.MustCompile(`OpenAI Codex (\(v[0-9]+\.[0-9]+\.[0-9]+\)|v[0-9]+\.[0-9]+\.[0-9]+)`)
-
-// The session id on /status and on a codex exec run changes per run.
-var codexSessionPattern = regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
-
-// Codex greets a new session with a phrase it picks at random, and a codex
-// exec run prints the working directory, which is a temp path that wraps at
-// 100 columns. The greeting is the line under the folder row of the header.
-var (
-	codexGreetingPattern = regexp.MustCompile(`(?m)(^     ~/project\n\n)  [^\n]+`)
-	codexWorkdirPattern  = regexp.MustCompile(`(?s)(workdir: ).*?(\nmodel: )`)
-)
-
-// withStableCodexValues replaces the per-run values on Codex's screens with a
-// placeholder.
-func withStableCodexValues(screen string) string {
-	screen = codexSessionPattern.ReplaceAllString(screen, "<session-id>")
-	screen = codexGreetingPattern.ReplaceAllString(screen, "${1}  <greeting>")
-	return codexWorkdirPattern.ReplaceAllString(screen, "${1}<workdir>${2}")
-}
-
-// withBaselineCodexVersion rewrites the Codex version in got to the one in
-// want, the recorded baseline.
-func withBaselineCodexVersion(got, want string) string {
-	recorded := codexVersionPattern.FindString(want)
-	if recorded == "" {
-		return got
-	}
-	return codexVersionPattern.ReplaceAllLiteralString(got, recorded)
-}
-
-// pinnedCodexDir returns the directory of the codex binary on PATH when its
-// version is the one the baselines were recorded with, as pinnedClaudeDir does.
-func pinnedCodexDir(t *testing.T) (string, string) {
-	t.Helper()
-	return pinnedHarnessDir(t, "codex", "Codex", filepath.Join(codexBaselineDir, "codex-version"), -1)
-}
-
-// seedCodexState writes the Codex state a returning user has, so the launch
-// opens at the prompt: the project folder trusted. Prizmal merges its own
-// profile into this file at launch.
-func seedCodexState(t *testing.T, home, project string) {
-	t.Helper()
-	dir := filepath.Join(home, ".codex")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	// The welcome screen animates and picks a random greeting; with animations
-	// off it still greets, but without the motion a capture could land in.
-	config := fmt.Sprintf("[tui]\nanimations = false\n\n[projects.%q]\ntrust_level = \"trusted\"\n", project)
-	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(config), 0o600); err != nil {
-		t.Fatal(err)
-	}
-}
-
 // buildPrizmalVersion builds prizmal as the given release, so a case can pose
 // as an installed release without a published one.
 func buildPrizmalVersion(t *testing.T, release string) string {
@@ -1187,13 +620,6 @@ func seedUpdate(t *testing.T, root, binDir string, tc baselineCase) (string, []s
 	return target, []string{"PRIZMAL_TEST_INSTALL=" + u.install, "PRIZMAL_TEST_UPDATE_URL=" + releases.URL}
 }
 
-func writeScript(t *testing.T, path, body string) {
-	t.Helper()
-	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func copyExecutable(t *testing.T, from, to string) {
 	t.Helper()
 	data, err := os.ReadFile(from)
@@ -1201,6 +627,13 @@ func copyExecutable(t *testing.T, from, to string) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(to, data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeScript(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 }
