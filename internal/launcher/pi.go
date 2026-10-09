@@ -888,12 +888,10 @@ func createConfig(model LaunchModel) map[string]any {
 		"_launch": true,
 	}
 
-	// Set input types based on vision capability
-	if model.HasCapability("vision") {
-		cfg["input"] = []string{"text", "image"}
-	} else {
-		cfg["input"] = []string{"text"}
-	}
+	// The declared inputs come from the capability vocabulary in
+	// capability.go, which owns what a modality means, what each harness
+	// spells it as, and what an unknown model gets.
+	cfg["input"] = declaredInputs(model, harnessPi)
 
 	// Set reasoning based on thinking capability
 	if model.HasCapability("thinking") {
