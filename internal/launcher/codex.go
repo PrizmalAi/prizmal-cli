@@ -366,7 +366,7 @@ func writeCodexNamedProfileConfig(profilePath, profileName, model, modelCatalogP
 }
 
 func codexBaseURL() string {
-	return strings.TrimRight(envconfig.ConnectableHost().String(), "/") + "/v1/"
+	return envconfig.OpenAIBaseURL(true)
 }
 
 func codexProfileHeader() string {
