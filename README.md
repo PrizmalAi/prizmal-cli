@@ -35,6 +35,12 @@ With Go:
 go install github.com/PrizmalAi/prizmal-cli/cmd/prizmal@latest
 ```
 
+`go install` writes the binary to `$GOBIN`, or to `$(go env GOPATH)/bin` (`~/go/bin` by default) when `GOBIN` is unset. If your shell then answers `prizmal: command not found`, add that directory to your `PATH`:
+
+```bash
+echo 'export PATH="$PATH:$(go env GOPATH)/bin"' >> ~/.bashrc
+```
+
 Or build from source:
 
 ```bash
