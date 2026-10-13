@@ -209,7 +209,11 @@ func deviceSettingsJSON(settings string) (string, error) {
 // apiKeyHelper exists for.
 func (c *Claude) envVars() []string {
 	env := []string{
-		"ANTHROPIC_BASE_URL=" + claudeBaseURL(envconfig.Host().String()),
+		// Claude Code appends /v1 to ANTHROPIC_BASE_URL itself, so the
+		// endpoint goes in without it; envconfig owns that spelling for every
+		// caller, and envconfig.UnversionedBaseURL explains what breaks if a
+		// base configured with the suffix keeps it.
+		"ANTHROPIC_BASE_URL=" + envconfig.UnversionedBaseURL(),
 	}
 	if !envconfig.DeviceMode() {
 		// The switch key travels as ANTHROPIC_AUTH_TOKEN, Claude Code's
@@ -642,17 +646,6 @@ func claudeModelPicker(rows []ModelRow) map[string]any {
 		"replaceBuiltInOptions": true,
 		"options":               options,
 	}
-}
-
-// claudeBaseURL strips one trailing /v1 from the Switch host. Claude Code
-// appends /v1 to ANTHROPIC_BASE_URL itself, so a host configured with the
-// suffix already on it would send gateway discovery to /v1/v1/models, which
-// 404s and drops the picker back to the built-in list.
-func claudeBaseURL(host string) string {
-	if trimmed, ok := strings.CutSuffix(host, "/v1"); ok {
-		return trimmed
-	}
-	return host
 }
 
 func ensureClaudeInstalled() (string, error) {

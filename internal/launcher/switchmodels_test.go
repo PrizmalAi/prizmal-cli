@@ -193,20 +193,6 @@ func TestFetchSwitchCatalogSendsBearerKey(t *testing.T) {
 	}
 }
 
-// A host already carrying the /v1 suffix must not produce /v1/v1/models.
-func TestSwitchCatalogURLDoesNotDoubleV1(t *testing.T) {
-	for _, tc := range []struct{ base, want string }{
-		{"https://api.prizmal.ai", "https://api.prizmal.ai/v1/models"},
-		{"https://api.prizmal.ai/", "https://api.prizmal.ai/v1/models"},
-		{"https://api.prizmal.ai/v1", "https://api.prizmal.ai/v1/models"},
-		{"https://api.prizmal.ai/v1/", "https://api.prizmal.ai/v1/models"},
-	} {
-		if got := switchCatalogURL(tc.base); got != tc.want {
-			t.Fatalf("switchCatalogURL(%q) = %q, want %q", tc.base, got, tc.want)
-		}
-	}
-}
-
 // A non-200 is an error, not a silently empty catalog.
 func TestFetchSwitchCatalogRejectsErrorStatus(t *testing.T) {
 	srv, _, _ := switchTestServer(t, `{"error":"nope"}`, http.StatusInternalServerError)
