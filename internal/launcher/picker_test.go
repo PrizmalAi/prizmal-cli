@@ -12,35 +12,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
-)
 
-// A model whose name carries a tier word behaves as that tier, matched anywhere
-// in the name and case-insensitively. The tier sets how Claude Code runs and
-// shows the model. It never decides what serves the request.
-func TestInferTier(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		want modelTier
-		ok   bool
-	}{
-		{name: "claude-tier-haiku", want: modelTierHaiku, ok: true},
-		{name: "claude-tier-sonnet", want: modelTierSonnet, ok: true},
-		{name: "claude-tier-opus", want: modelTierOpus, ok: true},
-		{name: "claude-tier-fable", want: modelTierFable, ok: true},
-		{name: "claude-Opus-5", want: modelTierOpus, ok: true},
-		{name: "my-sonnet-thing", want: modelTierSonnet, ok: true},
-		{name: "gpt-oss:20b"},
-		{name: "ollama-open-china-1"},
-		{name: ""},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got, ok := inferTier(tc.name)
-			if ok != tc.ok || got != tc.want {
-				t.Fatalf("inferTier(%q) = (%q, %v), want (%q, %v)", tc.name, got, ok, tc.want, tc.ok)
-			}
-		})
-	}
-}
+	"github.com/PrizmalAi/prizmal-cli/internal/claudecode"
+)
 
 // The row label drops the [1m] suffix and the claude- prefix, which are
 // decoration the operator never chose.
@@ -96,13 +70,13 @@ func TestModelRowsBuildsRows(t *testing.T) {
 func TestModelRowsMapEachTierToAFirstPartyID(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
-		lineage modelTier
+		lineage claudecode.Tier
 		want    string
 	}{
-		{name: "claude-tier-opus", lineage: modelTierOpus, want: "claude-opus-5"},
-		{name: "claude-tier-sonnet", lineage: modelTierSonnet, want: "claude-sonnet-5"},
-		{name: "claude-tier-haiku", lineage: modelTierSonnet, want: "claude-sonnet-5"},
-		{name: "claude-tier-fable", lineage: modelTierFable, want: "claude-fable-5-1"},
+		{name: "claude-tier-opus", lineage: claudecode.Opus, want: "claude-opus-5"},
+		{name: "claude-tier-sonnet", lineage: claudecode.Sonnet, want: "claude-sonnet-5"},
+		{name: "claude-tier-haiku", lineage: claudecode.Sonnet, want: "claude-sonnet-5"},
+		{name: "claude-tier-fable", lineage: claudecode.Fable, want: "claude-fable-5-1"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rows := ModelRows([]LaunchModel{{Name: tc.name}})
@@ -112,8 +86,8 @@ func TestModelRowsMapEachTierToAFirstPartyID(t *testing.T) {
 			if rows[0].BehavesAs != tc.want {
 				t.Fatalf("behavesAs = %q, want %q", rows[0].BehavesAs, tc.want)
 			}
-			if !slices.Contains(claudeFamilyIDs[tc.lineage], rows[0].BehavesAs) {
-				t.Fatalf("behavesAs %q is not in the %s lineage %v", rows[0].BehavesAs, tc.lineage, claudeFamilyIDs[tc.lineage])
+			if !slices.Contains(claudecode.FamilyIDs[tc.lineage], rows[0].BehavesAs) {
+				t.Fatalf("behavesAs %q is not in the %s lineage %v", rows[0].BehavesAs, tc.lineage, claudecode.FamilyIDs[tc.lineage])
 			}
 		})
 	}
@@ -640,9 +614,9 @@ func TestModelRowsTakeTheSwitchsTier(t *testing.T) {
 // to 2.1.287 all apply the rule. TestClaudeTiersStartInAutoMode checks the
 // outcome against the pinned Claude Code release.
 func TestNoTierRunsAsAHaikuModel(t *testing.T) {
-	for tier, profile := range tierProfiles {
-		if strings.Contains(strings.ToLower(profile.behavesAs), "haiku") {
-			t.Errorf("the %s tier runs as %q, and Claude Code refuses auto mode to Haiku 4.5", tier, profile.behavesAs)
+	for tier, profile := range claudecode.Profiles {
+		if strings.Contains(strings.ToLower(profile.BehavesAs), "haiku") {
+			t.Errorf("the %s tier runs as %q, and Claude Code refuses auto mode to Haiku 4.5", tier, profile.BehavesAs)
 		}
 	}
 }

@@ -23,6 +23,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/PrizmalAi/prizmal-cli/internal/claudecode"
 )
 
 // Expectations is the JSON contract between the test and the mock binary,
@@ -244,6 +246,12 @@ func truncate(s string, n int) string {
 // a Claude Code launch passes as an argument. It returns the value with Claude
 // Code's [1m] context-budget suffix stripped, because that suffix is the
 // client's own instruction and never part of the model id on the wire.
+//
+// The suffix is not spelled here. It used to be, as a constant mirroring the
+// one the CLI appends, and the mirror was free to drift: a changed suffix
+// would have left the mock asserting against a decoration the launch no longer
+// sends, and the expectation would fail on a model id rather than on anything
+// about the mock.
 func modelFromSettingsArg(args []string) (string, error) {
 	for i := 0; i < len(args); i++ {
 		value, ok := strings.CutPrefix(args[i], "--settings=")
@@ -265,11 +273,7 @@ func modelFromSettingsArg(args []string) (string, error) {
 		if settings.Model == "" {
 			return "", fmt.Errorf("--settings JSON carries no model")
 		}
-		return strings.TrimSuffix(settings.Model, oneMillionSuffixMock), nil
+		return claudecode.RoutableName(settings.Model), nil
 	}
 	return "", fmt.Errorf("no --settings argument on the command line")
 }
-
-// oneMillionSuffixMock mirrors the suffix the CLI appends. It is spelled here
-// rather than imported so the mock stays a standalone binary.
-const oneMillionSuffixMock = "[1m]"

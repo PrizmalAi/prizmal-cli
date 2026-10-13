@@ -40,6 +40,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/PrizmalAi/prizmal-cli/internal/claudecode"
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	"github.com/PrizmalAi/prizmal-cli/internal/model"
 )
@@ -55,16 +56,6 @@ const (
 	switchCatalogMaxBytes = 1 << 20
 )
 
-// oneMillionSuffix is Claude Code's own context-budgeting instruction. It is
-// not part of any model id: Claude Code strips the suffix from the name before
-// it sends the request and budgets a 1M context window for that name.
-//
-// The spelling lives here, not in the Claude adapter, because every part of the
-// CLI has to recognise it and only Claude Code writes it: the catalog strips it
-// off the ids the Switch decorates with it, and the match rule has to see
-// through it on names prizmal never wrote.
-const oneMillionSuffix = "[1m]"
-
 // ModelNameWithoutSuffix strips the [1m] context-budget suffix from a model
 // name and nothing else. It is the one place the decoration is spelled, because
 // a name printed or sent must be the routable one: Claude Code writes the
@@ -76,7 +67,7 @@ const oneMillionSuffix = "[1m]"
 // than the one listed. Deciding that two names match anyway is a separate
 // question, answered by modelNamesSame.
 func ModelNameWithoutSuffix(name string) string {
-	return strings.TrimSuffix(name, oneMillionSuffix)
+	return claudecode.RoutableName(name)
 }
 
 // modelNamesSame reports whether two model names refer to the same model,
@@ -169,16 +160,6 @@ func capabilitiesFromModalities(modalities []string) []model.Capability {
 	return capabilities
 }
 
-// knownTier returns the tier the Switch named, lowercased, or "" for a name
-// that is not one of the Claude tiers.
-func knownTier(tier string) string {
-	tier = strings.ToLower(strings.TrimSpace(tier))
-	if _, ok := tierProfiles[modelTier(tier)]; ok {
-		return tier
-	}
-	return ""
-}
-
 // cleanDescription keeps only the text of a description the switch sent. The
 // picker draws it in the operator's terminal and Claude Code draws it in
 // /model, so escape sequences and control characters are dropped, and runs of
@@ -209,7 +190,7 @@ func parseSwitchCatalog(data []byte) ([]LaunchModel, error) {
 		models = append(models, LaunchModel{
 			Name:         name,
 			Capabilities: capabilitiesFromModalities(entry.InputModalities),
-			Tier:         knownTier(entry.Tier),
+			Tier:         claudecode.KnownTier(entry.Tier),
 			Description:  cleanDescription(entry.Description),
 		})
 	}
@@ -322,10 +303,10 @@ func cachedCatalog(ctx context.Context) ([]LaunchModel, error) {
 // is where a Claude Code tier is named. The dependency runs one way: this file
 // knows the aliases, the adapter knows nothing about the catalog.
 func withClaudeTiers(catalog []LaunchModel) []LaunchModel {
-	models := make([]LaunchModel, 0, len(tierWords)+len(catalog))
-	holders := make(map[string]bool, len(tierWords))
-	for _, tier := range tierWords {
-		name := claudeTierModel(tier)
+	models := make([]LaunchModel, 0, len(claudecode.Tiers)+len(catalog))
+	holders := make(map[string]bool, len(claudecode.Tiers))
+	for _, tier := range claudecode.Tiers {
+		name := claudecode.TierModel(tier)
 		entry, ok := findCatalogModel(catalog, name)
 		if !ok {
 			entry = LaunchModel{Name: name}
@@ -344,13 +325,13 @@ func withClaudeTiers(catalog []LaunchModel) []LaunchModel {
 		models = append(models, entry)
 	}
 	for _, entry := range catalog {
-		if slices.ContainsFunc(models[:len(tierWords)], func(tier LaunchModel) bool {
+		if slices.ContainsFunc(models[:len(claudecode.Tiers)], func(tier LaunchModel) bool {
 			return modelNamesSame(entry.Name, tier.Name)
 		}) {
 			continue
 		}
 		if holders[entry.Name] {
-			entry.FoldedInto = claudeTierModel(modelTier(entry.Tier))
+			entry.FoldedInto = claudecode.TierModel(claudecode.Tier(entry.Tier))
 		}
 		models = append(models, entry)
 	}
