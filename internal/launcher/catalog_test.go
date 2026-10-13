@@ -482,10 +482,8 @@ func TestBestEffortCatalogNamesKeySourceAndStatusOnFailure(t *testing.T) {
 	envconfig.SetAPIKey("")
 	envconfig.SetConfigAPIKey("")
 	t.Setenv(envconfig.KeyEnvVar, "sk-env-wrong-host")
-	ResetModelCatalog()
 	t.Cleanup(func() {
 		envconfig.SetBaseURL("")
-		ResetModelCatalog()
 	})
 
 	var warn strings.Builder

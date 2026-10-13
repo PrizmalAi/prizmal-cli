@@ -66,9 +66,9 @@ func readDefaultModel(t *testing.T, home string) string {
 	return got.DefaultModel
 }
 
-// useStubSwitch points prizmal at a stub switch serving the catalog, and clears
-// the launch's cached list so the next fetch reads it. Pass a body to serve a
-// different catalog.
+// useStubSwitch points prizmal at a stub switch serving the catalog. The launch
+// keys its cached list on the endpoint and credential, so a fresh stub server
+// per test is already a fresh fetch. Pass a body to serve a different catalog.
 func useStubSwitch(t *testing.T, body ...string) {
 	t.Helper()
 	served := catalogBody
@@ -82,12 +82,14 @@ func useStubSwitch(t *testing.T, body ...string) {
 	t.Cleanup(srv.Close)
 
 	envconfig.SetBaseURL(srv.URL)
-	envconfig.SetAPIKey("test-switch-key")
-	launcher.ResetModelCatalog()
+	// The credential is unique to this test. The catalog memo is keyed on the
+	// endpoint and the key together, and httptest hands a freed port to a later
+	// server, so two tests can otherwise compare equal and this one would be
+	// answered from the earlier test's rows instead of reaching its own 500.
+	envconfig.SetAPIKey("failing-switch-key-" + t.Name())
 	t.Cleanup(func() {
 		envconfig.SetBaseURL("")
 		envconfig.SetAPIKey("")
-		launcher.ResetModelCatalog()
 	})
 }
 
@@ -103,22 +105,30 @@ func useFailingSwitch(t *testing.T) {
 
 	envconfig.SetBaseURL(srv.URL)
 	envconfig.SetAPIKey("test-switch-key")
+	// The catalog memo is shared process state: without this, a fetch another
+	// test cached under the same endpoint and key would answer this one and the
+	// 500 would never be reached.
 	launcher.ResetModelCatalog()
 	t.Cleanup(func() {
+		launcher.ResetModelCatalog()
 		envconfig.SetBaseURL("")
 		envconfig.SetAPIKey("")
-		launcher.ResetModelCatalog()
 	})
 }
 
-// stubPicker replaces the interactive menu with one that returns a fixed model,
-// and reports the rows it was offered.
-func stubPicker(t *testing.T, chosen string, sawRows *[]string) {
-	t.Helper()
-	original := launcher.ModelPickerMenu
-	t.Cleanup(func() { launcher.ModelPickerMenu = original })
-
-	launcher.ModelPickerMenu = func(rows []launcher.ModelRow) (string, error) {
+// askWith is the Asking a test launches with: whether there is a person to
+// answer, and the menu that asks them.
+//
+// chosen is the model the menu returns, and sawRows, when not nil, collects
+// the rows the menu was offered. An empty chosen wires no menu at all, so a
+// case that must never reach one says so by leaving it out: reaching it fails
+// with the launcher's own message instead of quietly picking nothing.
+func askWith(interactive bool, chosen string, sawRows *[]string) launcher.Asking {
+	ask := launcher.Asking{Interactive: func() bool { return interactive }}
+	if chosen == "" {
+		return ask
+	}
+	ask.Menu = func(rows []launcher.ModelRow) (string, error) {
 		if sawRows != nil {
 			for _, row := range rows {
 				*sawRows = append(*sawRows, row.Model)
@@ -126,15 +136,12 @@ func stubPicker(t *testing.T, chosen string, sawRows *[]string) {
 		}
 		return chosen, nil
 	}
+	return ask
 }
 
-// stubTerminal forces the interactive-terminal check for one test.
-func stubTerminal(t *testing.T, interactive bool) {
-	t.Helper()
-	original := launcher.StdinIsTerminal
-	t.Cleanup(func() { launcher.StdinIsTerminal = original })
-	launcher.StdinIsTerminal = func() bool { return interactive }
-}
+// askNobody is the Asking for a launch that must not reach a person: no probe
+// to pass and no menu to open.
+var askNobody = askWith(false, "", nil)
 
 // setModel sets the --model flag for one test and restores it.
 func setModel(t *testing.T, value string) {
@@ -158,9 +165,9 @@ func TestDefaultModelIsUsedWhenNoFlagIsGiven(t *testing.T) {
 	cfg, home := writeConfig(t, map[string]any{"version": 1, "default_model": "saved-model"})
 	setModel(t, "")
 	setPick(t, false)
-	stubTerminal(t, false)
+	ask := askNobody
 
-	chosen, _, err := resolveLaunchModel(cfg, "")
+	chosen, _, err := resolveLaunchModel(cfg, "", ask)
 	if err != nil {
 		t.Fatalf("resolveLaunchModel: %v", err)
 	}
@@ -179,8 +186,9 @@ func TestModelFlagOverridesDefaultModel(t *testing.T) {
 	cfg, home := writeConfig(t, map[string]any{"version": 1, "default_model": "saved-model"})
 	setModel(t, "flag-model")
 	setPick(t, false)
+	ask := askNobody
 
-	chosen, _, err := resolveLaunchModel(cfg, "")
+	chosen, _, err := resolveLaunchModel(cfg, "", ask)
 	if err != nil {
 		t.Fatalf("resolveLaunchModel: %v", err)
 	}
@@ -199,10 +207,9 @@ func TestPickSavesTheChosenModelAsDefault(t *testing.T) {
 	cfg, home := writeConfig(t, map[string]any{"version": 1})
 	setModel(t, "")
 	setPick(t, true)
-	stubTerminal(t, true)
-	stubPicker(t, "picked-model", nil)
+	ask := askWith(true, "picked-model", nil)
 
-	chosen, _, err := resolveLaunchModel(cfg, "")
+	chosen, _, err := resolveLaunchModel(cfg, "", ask)
 	if err != nil {
 		t.Fatalf("resolveLaunchModel: %v", err)
 	}
@@ -222,10 +229,9 @@ func TestPickSkipsTheSavedDefault(t *testing.T) {
 	cfg, home := writeConfig(t, map[string]any{"version": 1, "default_model": "saved-model"})
 	setModel(t, "")
 	setPick(t, true)
-	stubTerminal(t, true)
-	stubPicker(t, "fresh-choice", nil)
+	ask := askWith(true, "fresh-choice", nil)
 
-	chosen, _, err := resolveLaunchModel(cfg, "")
+	chosen, _, err := resolveLaunchModel(cfg, "", ask)
 	if err != nil {
 		t.Fatalf("resolveLaunchModel: %v", err)
 	}
@@ -243,10 +249,9 @@ func TestPickDefaultModelSavesAndReturnsTheChoice(t *testing.T) {
 	useStubSwitch(t)
 	cfg, home := writeConfig(t, map[string]any{"version": 1, "default_model": "old-model"})
 	setPick(t, true)
-	stubTerminal(t, true)
-	stubPicker(t, "fresh-choice", nil)
+	ask := askWith(true, "fresh-choice", nil)
 
-	if err := pickDefaultModel(cfg); err != nil {
+	if err := pickDefaultModel(cfg, ask); err != nil {
 		t.Fatalf("pickDefaultModel: %v", err)
 	}
 	if got := readDefaultModel(t, home); got != "fresh-choice" {
@@ -260,11 +265,10 @@ func TestPickDefaultModelReportsWhatItSaved(t *testing.T) {
 	useStubSwitch(t)
 	cfg, home := writeConfig(t, map[string]any{"version": 1})
 	setPick(t, true)
-	stubTerminal(t, true)
-	stubPicker(t, "chosen-model", nil)
+	ask := askWith(true, "chosen-model", nil)
 
 	stderr := captureStream(t, &os.Stderr, func() {
-		if err := pickDefaultModel(cfg); err != nil {
+		if err := pickDefaultModel(cfg, ask); err != nil {
 			t.Fatalf("pickDefaultModel: %v", err)
 		}
 	})
@@ -287,11 +291,10 @@ func TestPickDefaultModelKeepsStdoutMachineReadable(t *testing.T) {
 	useStubSwitch(t)
 	cfg, _ := writeConfig(t, map[string]any{"version": 1})
 	setPick(t, true)
-	stubTerminal(t, true)
-	stubPicker(t, "chosen-model", nil)
+	ask := askWith(true, "chosen-model", nil)
 
 	stdout := captureStream(t, &os.Stdout, func() {
-		if err := pickDefaultModel(cfg); err != nil {
+		if err := pickDefaultModel(cfg, ask); err != nil {
 			t.Fatalf("pickDefaultModel: %v", err)
 		}
 	})
@@ -332,10 +335,9 @@ func captureStream(t *testing.T, stream **os.File, f func()) string {
 func TestPickDefaultModelRefusesWithoutAConfig(t *testing.T) {
 	useStubSwitch(t)
 	setPick(t, true)
-	stubTerminal(t, true)
-	stubPicker(t, "picked", nil)
+	ask := askWith(true, "picked", nil)
 
-	err := pickDefaultModel(nil)
+	err := pickDefaultModel(nil, ask)
 	if err == nil {
 		t.Fatal("--pick with no config file must fail rather than pretend to save")
 	}
@@ -351,19 +353,16 @@ func TestPickDefaultModelGatesBeforeTheFetch(t *testing.T) {
 	envconfig.SetBaseURL("https://switch.example.test")
 	envconfig.SetAPIKey("")
 	t.Setenv(envconfig.KeyEnvVar, "")
-	launcher.ResetModelCatalog()
 	t.Cleanup(func() {
 		envconfig.SetBaseURL("")
 		envconfig.SetAPIKey("")
-		launcher.ResetModelCatalog()
 	})
 
 	cfg, _ := writeConfig(t, map[string]any{"version": 1})
 	setPick(t, true)
-	stubTerminal(t, true)
-	stubPicker(t, "picked", nil)
+	ask := askWith(true, "picked", nil)
 
-	err := pickDefaultModel(cfg)
+	err := pickDefaultModel(cfg, ask)
 	if err == nil {
 		t.Fatal("a keyless pick must be refused")
 	}
@@ -380,10 +379,9 @@ func TestPickDefaultModelFailsOnAnUnreadableCatalog(t *testing.T) {
 	useFailingSwitch(t)
 	cfg, home := writeConfig(t, map[string]any{"version": 1, "default_model": "kept"})
 	setPick(t, true)
-	stubTerminal(t, true)
-	stubPicker(t, "picked", nil)
+	ask := askWith(true, "picked", nil)
 
-	if err := pickDefaultModel(cfg); err == nil {
+	if err := pickDefaultModel(cfg, ask); err == nil {
 		t.Fatal("the picker mode must fail when the model list cannot be read")
 	}
 	// The old default must survive a failed pick.
@@ -402,8 +400,9 @@ func TestModelFlagIsUnambiguousInALaunch(t *testing.T) {
 	cfg, _ := writeConfig(t, map[string]any{"version": 1, "default_model": "saved-model"})
 	setModel(t, "flag-model")
 	setPick(t, true)
+	ask := askNobody
 
-	chosen, _, err := resolveLaunchModel(cfg, "")
+	chosen, _, err := resolveLaunchModel(cfg, "", ask)
 	if err != nil {
 		t.Fatalf("resolveLaunchModel: %v", err)
 	}
@@ -419,9 +418,9 @@ func TestNoModelAndNoTerminalFails(t *testing.T) {
 	cfg, _ := writeConfig(t, map[string]any{"version": 1})
 	setModel(t, "")
 	setPick(t, false)
-	stubTerminal(t, false)
+	ask := askNobody
 
-	_, _, err := resolveLaunchModel(cfg, "")
+	_, _, err := resolveLaunchModel(cfg, "", ask)
 	if err == nil {
 		t.Fatal("a launch with no model and no terminal must fail")
 	}
@@ -438,10 +437,9 @@ func TestPickDefaultModelRefusesWithoutATerminal(t *testing.T) {
 	useStubSwitch(t)
 	cfg, _ := writeConfig(t, map[string]any{"version": 1})
 	setPick(t, true)
-	stubTerminal(t, false)
-	stubPicker(t, "picked", nil)
+	ask := askWith(false, "picked", nil)
 
-	err := pickDefaultModel(cfg)
+	err := pickDefaultModel(cfg, ask)
 	if err == nil {
 		t.Fatal("--pick without a terminal must fail rather than hang")
 	}
@@ -457,12 +455,11 @@ func TestBareLaunchOnATerminalOpensThePicker(t *testing.T) {
 	cfg, home := writeConfig(t, map[string]any{"version": 1})
 	setModel(t, "")
 	setPick(t, false)
-	stubTerminal(t, true)
 
 	var sawRows []string
-	stubPicker(t, "chosen-here", &sawRows)
+	ask := askWith(true, "chosen-here", &sawRows)
 
-	chosen, catalog, err := resolveLaunchModel(cfg, "")
+	chosen, catalog, err := resolveLaunchModel(cfg, "", ask)
 	if err != nil {
 		t.Fatalf("resolveLaunchModel: %v", err)
 	}
@@ -499,10 +496,9 @@ func TestNoLaunchPathResolvesPrizmalDefault(t *testing.T) {
 			cfg, _ := writeConfig(t, map[string]any{"version": 1, "default_model": tc.saved})
 			setModel(t, tc.flag)
 			setPick(t, false)
-			stubTerminal(t, true)
-			stubPicker(t, "picked-model", nil)
+			ask := askWith(true, "picked-model", nil)
 
-			chosen, _, err := resolveLaunchModel(cfg, "")
+			chosen, _, err := resolveLaunchModel(cfg, "", ask)
 			if err != nil {
 				t.Fatalf("resolveLaunchModel: %v", err)
 			}
@@ -519,10 +515,9 @@ func TestPickWithoutAConfigStillLaunches(t *testing.T) {
 	useStubSwitch(t)
 	setModel(t, "")
 	setPick(t, true)
-	stubTerminal(t, true)
-	stubPicker(t, "picked-model", nil)
+	ask := askWith(true, "picked-model", nil)
 
-	chosen, _, err := resolveLaunchModel(nil, "")
+	chosen, _, err := resolveLaunchModel(nil, "", ask)
 	if err != nil {
 		t.Fatalf("resolveLaunchModel(nil, empty): %v", err)
 	}
@@ -559,20 +554,17 @@ func TestPickerRefusesAKeylessRemoteFetch(t *testing.T) {
 	envconfig.SetBaseURL("https://switch.example.test")
 	envconfig.SetAPIKey("")
 	t.Setenv(envconfig.KeyEnvVar, "")
-	launcher.ResetModelCatalog()
 	t.Cleanup(func() {
 		envconfig.SetBaseURL("")
 		envconfig.SetAPIKey("")
-		launcher.ResetModelCatalog()
 	})
 
 	cfg, _ := writeConfig(t, map[string]any{"version": 1})
 	setModel(t, "")
 	setPick(t, true)
-	stubTerminal(t, true)
-	stubPicker(t, "picked-model", nil)
+	ask := askWith(true, "picked-model", nil)
 
-	_, _, err := resolveLaunchModel(cfg, "")
+	_, _, err := resolveLaunchModel(cfg, "", ask)
 	if err == nil {
 		t.Fatal("a keyless picker run must be refused")
 	}
@@ -594,8 +586,9 @@ func TestCatalogFetchFailureDoesNotStopAModelFlagLaunch(t *testing.T) {
 	cfg, _ := writeConfig(t, map[string]any{"version": 1})
 	setModel(t, "flag-model")
 	setPick(t, false)
+	ask := askNobody
 
-	chosen, catalog, err := resolveLaunchModel(cfg, "")
+	chosen, catalog, err := resolveLaunchModel(cfg, "", ask)
 	if err != nil {
 		t.Fatalf("resolveLaunchModel: %v", err)
 	}
@@ -614,10 +607,9 @@ func TestCatalogFetchFailureStopsThePicker(t *testing.T) {
 	cfg, _ := writeConfig(t, map[string]any{"version": 1})
 	setModel(t, "")
 	setPick(t, true)
-	stubTerminal(t, true)
-	stubPicker(t, "picked-model", nil)
+	ask := askWith(true, "picked-model", nil)
 
-	_, _, err := resolveLaunchModel(cfg, "")
+	_, _, err := resolveLaunchModel(cfg, "", ask)
 	if err == nil {
 		t.Fatal("the picker must not open when the model list could not be read")
 	}

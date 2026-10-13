@@ -195,25 +195,6 @@ func PickOption(heading string, options []Option) (string, error) {
 	return menu(heading, options)
 }
 
-// ModelPickerMenu renders the model picker and returns the chosen model id. It
-// is the model-facing seam, kept so a caller that drives the model picker
-// specifically need not build options.
-var ModelPickerMenu func(rows []ModelRow) (string, error)
-
-// PickModel asks the operator to choose from rows. It returns ErrNoModels
-// rather than opening an empty menu, which would render a list with nothing to
-// select and no way to leave with a model.
-func PickModel(rows []ModelRow) (string, error) {
-	if len(rows) == 0 {
-		return "", ErrNoModels
-	}
-	menu := ModelPickerMenu
-	if menu == nil {
-		menu = defaultModelPickerMenu
-	}
-	return menu(rows)
-}
-
 // modelOptions adapts picker rows to options: the label is what a person reads,
 // the model id is the value a selection returns, and the description is drawn
 // beside the label.
