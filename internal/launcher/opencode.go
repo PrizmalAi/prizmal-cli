@@ -48,6 +48,11 @@ func findOpenCode() (string, bool) {
 	return "", false
 }
 
+func (o *OpenCode) Installed() bool {
+	_, ok := findOpenCode()
+	return ok
+}
+
 func (o *OpenCode) Run(model string, models []LaunchModel, args []string) error {
 	opencodePath, err := ensureOpenCodeInstalled()
 	if err != nil {

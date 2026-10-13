@@ -2,15 +2,16 @@ package launch
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
 	"slices"
 	"strings"
 )
 
 // IntegrationInstallSpec describes how launcher should detect and guide installation.
+// It holds what the registry alone knows — where to point an operator who must
+// install by hand, and the function that installs automatically. Whether the
+// binary is already there is not in here: that is a fact about the runner, and
+// the runner answers it through Installed.
 type IntegrationInstallSpec struct {
-	CheckInstalled  func() bool
 	EnsureInstalled func() error
 	URL             string
 	Command         []string
@@ -26,13 +27,6 @@ type IntegrationSpec struct {
 	Install     IntegrationInstallSpec
 }
 
-// IntegrationInfo contains display information about a registered integration.
-type IntegrationInfo struct {
-	Name        string
-	DisplayName string
-	Description string
-}
-
 var launcherIntegrationOrder = []string{"claude", "codex", "cline", "opencode", "pi"}
 
 var integrationSpecs = []*IntegrationSpec{
@@ -41,10 +35,6 @@ var integrationSpecs = []*IntegrationSpec{
 		Runner:      &Claude{},
 		Description: "Anthropic's coding tool with subagents",
 		Install: IntegrationInstallSpec{
-			CheckInstalled: func() bool {
-				_, err := (&Claude{}).findPath()
-				return err == nil
-			},
 			EnsureInstalled: func() error {
 				_, err := ensureClaudeInstalled()
 				return err
@@ -57,10 +47,6 @@ var integrationSpecs = []*IntegrationSpec{
 		Runner:      &Cline{},
 		Description: "Autonomous coding agent with parallel execution",
 		Install: IntegrationInstallSpec{
-			CheckInstalled: func() bool {
-				_, err := exec.LookPath("cline")
-				return err == nil
-			},
 			EnsureInstalled: func() error {
 				_, err := ensureClineInstalled()
 				return err
@@ -73,10 +59,6 @@ var integrationSpecs = []*IntegrationSpec{
 		Runner:      &Codex{},
 		Description: "OpenAI's open-source coding agent",
 		Install: IntegrationInstallSpec{
-			CheckInstalled: func() bool {
-				_, err := exec.LookPath("codex")
-				return err == nil
-			},
 			URL:     "https://developers.openai.com/codex/cli/",
 			Command: []string{"npm", "install", "-g", "@openai/codex"},
 		},
@@ -86,10 +68,6 @@ var integrationSpecs = []*IntegrationSpec{
 		Runner:      &OpenCode{},
 		Description: "Anomaly's open-source coding agent",
 		Install: IntegrationInstallSpec{
-			CheckInstalled: func() bool {
-				_, ok := findOpenCode()
-				return ok
-			},
 			EnsureInstalled: func() error {
 				_, err := ensureOpenCodeInstalled()
 				return err
@@ -102,10 +80,6 @@ var integrationSpecs = []*IntegrationSpec{
 		Runner:      &Pi{},
 		Description: "Minimal AI agent toolkit with plugin support",
 		Install: IntegrationInstallSpec{
-			CheckInstalled: func() bool {
-				_, err := exec.LookPath("pi")
-				return err == nil
-			},
 			EnsureInstalled: func() error {
 				_, err := ensurePiInstalled()
 				return err
@@ -119,10 +93,6 @@ var integrationSpecsByName map[string]*IntegrationSpec
 
 func init() {
 	rebuildIntegrationSpecIndexes()
-}
-
-func hyperlink(url, text string) string {
-	return fmt.Sprintf("\033]8;;%s\033\\%s\033]8;;\033\\", url, text)
 }
 
 func rebuildIntegrationSpecIndexes() {
@@ -200,15 +170,6 @@ func LookupIntegrationSpec(name string) (*IntegrationSpec, error) {
 	return spec, nil
 }
 
-// LookupIntegration resolves a registry name to the canonical key and runner.
-func LookupIntegration(name string) (string, Runner, error) {
-	spec, err := LookupIntegrationSpec(name)
-	if err != nil {
-		return "", nil, err
-	}
-	return spec.Name, spec.Runner, nil
-}
-
 // ListVisibleIntegrationSpecs returns the canonical integrations that should appear in interactive UIs.
 func ListVisibleIntegrationSpecs() []IntegrationSpec {
 	visible := make([]IntegrationSpec, 0, len(integrationSpecs))
@@ -244,67 +205,40 @@ func ListVisibleIntegrationSpecs() []IntegrationSpec {
 	return visible
 }
 
-// ListIntegrationInfos returns the registered integrations in launcher display order.
-func ListIntegrationInfos() []IntegrationInfo {
-	visible := ListVisibleIntegrationSpecs()
-	infos := make([]IntegrationInfo, 0, len(visible))
-	for _, spec := range visible {
-		infos = append(infos, IntegrationInfo{
-			Name:        spec.Name,
-			DisplayName: spec.Runner.String(),
-			Description: spec.Description,
-		})
-	}
-	return infos
-}
-
-// IsIntegrationInstalled checks if an integration binary is installed.
-func IsIntegrationInstalled(name string) bool {
-	integration, err := integrationFor(name)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "prizmal couldn't find integration %q, so it'll show up as not installed.\n", name)
-		return false
-	}
-	return integration.installed
-}
-
 // integration is resolved registry metadata used by launcher state and install checks.
 // It combines immutable registry spec data with computed runtime traits.
 type integration struct {
 	spec            *IntegrationSpec
 	installed       bool
 	autoInstallable bool
-	editor          bool
-	installHint     string
 }
 
 // integrationFor resolves an integration name into the canonical spec plus
 // derived launcher/install traits used across registry and launch flows.
+//
+// Installation is asked of the runner itself rather than of a closure in the
+// registry. The registry used to answer this by constructing a second adapter
+// — a fresh &Claude{} — to call a private method on one it was already
+// holding, so the answer came from an instance that never launched anything.
 func integrationFor(name string) (integration, error) {
 	spec, err := LookupIntegrationSpec(name)
 	if err != nil {
 		return integration{}, err
 	}
 
+	// A runner that does not report installation counts as present, which is
+	// what a spec with no check used to mean: nothing can vouch that it is
+	// missing, so the launch proceeds and the runner's own ensure path reports
+	// a missing binary in the terms that harness uses.
 	installed := true
-	if spec.Install.CheckInstalled != nil {
-		installed = spec.Install.CheckInstalled()
-	}
-
-	_, editor := spec.Runner.(Editor)
-	hint := ""
-	if spec.Install.URL != "" {
-		hint = "Install from " + hyperlink(spec.Install.URL, spec.Install.URL)
-	} else if len(spec.Install.Command) > 0 {
-		hint = "Install with: " + strings.Join(spec.Install.Command, " ")
+	if probe, ok := spec.Runner.(Installed); ok {
+		installed = probe.Installed()
 	}
 
 	return integration{
 		spec:            spec,
 		installed:       installed,
 		autoInstallable: spec.Install.EnsureInstalled != nil,
-		editor:          editor,
-		installHint:     hint,
 	}, nil
 }
 

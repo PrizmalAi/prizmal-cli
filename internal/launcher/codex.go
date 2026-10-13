@@ -63,6 +63,11 @@ func (c *Codex) args(model, modelCatalogPath string, extra []string) ([]string, 
 	return args, nil
 }
 
+func (c *Codex) Installed() bool {
+	_, err := exec.LookPath("codex")
+	return err == nil
+}
+
 func (c *Codex) Run(model string, models []LaunchModel, args []string) error {
 	if err := checkCodexVersion(); err != nil {
 		return err
@@ -117,10 +122,6 @@ func (c *Codex) Restore() (RestoreOutcome, error) {
 
 func (c *Codex) RestoreSuccessMessage() string {
 	return codexRestoreSuccess
-}
-
-func (c *Codex) SkipRestoreInstallCheck() bool {
-	return true
 }
 
 func codexRestoreFailure(configPath string, err error) error {

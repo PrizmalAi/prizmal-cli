@@ -89,6 +89,16 @@ func (p *Pi) String() string { return "Pi" }
 // launch of the installed Pi does.
 func (p *Pi) SupportsDeviceMode() bool { return true }
 
+// Installed reports whether the pi binary can be found, so the registry can ask
+// the runner rather than keeping a closure that re-asks it.
+func (p *Pi) Installed() bool {
+	_, err := exec.LookPath("pi")
+	return err == nil
+}
+
+// Run keeps the models argument: a device launch resolves the extension it
+// hands Pi from the model list, so the parameter cannot be dropped even though
+// the switch-key path ignores it.
 func (p *Pi) Run(model string, models []LaunchModel, args []string) error {
 	fmt.Fprintf(os.Stderr, "\n%sPreparing Pi...%s\n", ansiGray, ansiReset)
 	if err := ensureNpmInstalled(); err != nil {
