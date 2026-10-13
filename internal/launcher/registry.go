@@ -36,7 +36,7 @@ var integrationSpecs = []*IntegrationSpec{
 		Description: "Anthropic's coding tool with subagents",
 		Install: IntegrationInstallSpec{
 			EnsureInstalled: func() error {
-				_, err := ensureClaudeInstalled()
+				_, err := claudeInstaller.EnsureInstalled()
 				return err
 			},
 			URL: "https://code.claude.com/docs/en/quickstart",
@@ -48,7 +48,7 @@ var integrationSpecs = []*IntegrationSpec{
 		Description: "Autonomous coding agent with parallel execution",
 		Install: IntegrationInstallSpec{
 			EnsureInstalled: func() error {
-				_, err := ensureClineInstalled()
+				_, err := clineInstaller.EnsureInstalled()
 				return err
 			},
 			Command: []string{"npm", "install", "-g", "cline@latest"},
@@ -69,7 +69,7 @@ var integrationSpecs = []*IntegrationSpec{
 		Description: "Anomaly's open-source coding agent",
 		Install: IntegrationInstallSpec{
 			EnsureInstalled: func() error {
-				_, err := ensureOpenCodeInstalled()
+				_, err := openCodeInstaller.EnsureInstalled()
 				return err
 			},
 			URL: "https://opencode.ai",
@@ -81,7 +81,7 @@ var integrationSpecs = []*IntegrationSpec{
 		Description: "Minimal AI agent toolkit with plugin support",
 		Install: IntegrationInstallSpec{
 			EnsureInstalled: func() error {
-				_, err := ensurePiInstalled()
+				_, err := piInstaller.EnsureInstalled()
 				return err
 			},
 			Command: []string{"npm", "install", "-g", "@earendil-works/pi-coding-agent@latest"},
