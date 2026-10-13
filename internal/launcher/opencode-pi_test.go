@@ -276,3 +276,36 @@ func TestOpenCodeOutputModalityIsTextOnly(t *testing.T) {
 		t.Fatalf("modalities.output = %v, want [text]", output)
 	}
 }
+
+// opencode's inline config declares an input modality per model, so the entry
+// it resolves decides what opencode will accept. A launch model whose name
+// differs from the catalog's by the [1m] decoration the Switch puts on every
+// id must still resolve to the catalog entry: a bare fallback is
+// indistinguishable from a model the Switch said nothing about, and opencode
+// then gets the permissive modality list for a model that only takes images.
+func TestOpenCodeResolvesTheCatalogEntryAcrossTheSuffix(t *testing.T) {
+	catalog := []LaunchModel{
+		{Name: "vision-model", Capabilities: capabilitiesFromModalities([]string{"text", "image"})},
+	}
+
+	resolved := resolveOpenCodeRunModels("vision-model[1m]", catalog, nil)
+	if len(resolved) != 1 {
+		t.Fatalf("resolved %d models, want 1: %v", len(resolved), launchModelNames(resolved))
+	}
+	if got := openCodeInputModalities(resolved[0]); !slices.Equal(got, []string{"text", "image"}) {
+		t.Fatalf("opencode input modalities = %v, want the catalog entry's [text image]", got)
+	}
+}
+
+// A name the catalog does not hold still reaches opencode as a row: the harness
+// is told what to run, and the permissive modality list is what an unknown
+// model gets.
+func TestOpenCodeKeepsAnUnknownNameAsABareEntry(t *testing.T) {
+	resolved := resolveOpenCodeRunModels("not-in-catalog", []LaunchModel{{Name: "vision-model"}}, nil)
+	if len(resolved) != 2 || resolved[0].Name != "not-in-catalog" || len(resolved[0].Capabilities) != 0 {
+		t.Fatalf("resolved = %+v, want a bare not-in-catalog first, then the catalog", resolved)
+	}
+	if got := openCodeInputModalities(resolved[0]); !slices.Equal(got, []string{"text", "image", "pdf"}) {
+		t.Fatalf("opencode input modalities = %v, want the permissive list for an unknown model", got)
+	}
+}

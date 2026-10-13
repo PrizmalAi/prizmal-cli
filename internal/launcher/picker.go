@@ -12,12 +12,25 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"golang.org/x/term"
 )
 
 // ErrNoModels is returned when the tenant serves nothing to pick from. It is
 // a distinct error because the remedy differs from a failed fetch: the key is
 // valid and the tenant is reachable, it simply has no models.
 var ErrNoModels = errors.New("this switch key's tenant serves no models")
+
+// StdinIsTerminal reports whether stdin is an interactive terminal. A launch
+// with no model to send can only ask for one when a person is there to answer.
+//
+// It is a variable so tests can drive the interactive paths without a terminal,
+// in the same way ModelPickerMenu and DefaultConfirmPrompt are. It lives here
+// because that is the only reason the CLI asks: a menu needs a person, and
+// opening a full-screen list on a pipe would read whatever arrives on stdin as
+// keystrokes.
+var StdinIsTerminal = func() bool {
+	return term.IsTerminal(int(os.Stdin.Fd()))
+}
 
 // modelTier is the Claude Code model family a model is recognised as, from a
 // tier word in its name.
@@ -89,7 +102,7 @@ func inferTier(name string) (modelTier, bool) {
 // operator never chose. A name that is nothing but decoration falls back to
 // the name it came from, so a row is never blank.
 func modelDisplayLabel(name string) string {
-	label := strings.TrimSuffix(name, oneMillionSuffix)
+	label := ModelNameWithoutSuffix(name)
 	if len(label) >= len(claudeModelPrefix) &&
 		strings.EqualFold(label[:len(claudeModelPrefix)], claudeModelPrefix) {
 		label = label[len(claudeModelPrefix):]
@@ -154,7 +167,7 @@ func ModelRows(models []LaunchModel) []ModelRow {
 	seen := make(map[string]bool, len(models))
 
 	for _, m := range models {
-		name := strings.TrimSuffix(m.Name, oneMillionSuffix)
+		name := ModelNameWithoutSuffix(m.Name)
 		if name == "" || seen[name] || isReservedModelName(name) || m.FoldedInto != "" {
 			continue
 		}

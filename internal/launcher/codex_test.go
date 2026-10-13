@@ -170,3 +170,32 @@ func TestCodexEntryKeepsTheExplicitBaseInstructionsKey(t *testing.T) {
 		t.Fatalf("base_instructions = %v, want the empty template the entry has always written", instructions)
 	}
 }
+
+// The model catalog prizmal writes for codex carries the entry the Switch
+// described. The launch names its model exactly as the operator typed it, which
+// can differ from the catalog's spelling by the [1m] decoration the Switch puts
+// on every id; a lookup that compared the strings would write a bare entry with
+// no capabilities, and codex would then be told nothing about what the model
+// takes as input.
+func TestCodexCatalogModelMatchesAcrossTheSuffix(t *testing.T) {
+	catalog := []LaunchModel{
+		{Name: "vision-model", Capabilities: capabilitiesFromModalities([]string{"text", "image"})},
+	}
+
+	got := codexCatalogModel("vision-model[1m]", catalog)
+	if !got.HasCapability("vision") {
+		t.Fatalf("codex catalog model = %+v, want the catalog entry's capabilities", got)
+	}
+	if got.Name != "vision-model[1m]" {
+		t.Fatalf("codex catalog model name = %q, want the name the launch asked for", got.Name)
+	}
+}
+
+// A model the catalog does not hold stays a bare entry: codex gets a name that
+// routes and nothing it cannot know.
+func TestCodexCatalogModelFallsBackForAnUnknownName(t *testing.T) {
+	got := codexCatalogModel("not-in-catalog", []LaunchModel{{Name: "vision-model"}})
+	if got.Name != "not-in-catalog" || len(got.Capabilities) != 0 {
+		t.Fatalf("codex catalog model = %+v, want a bare entry named not-in-catalog", got)
+	}
+}

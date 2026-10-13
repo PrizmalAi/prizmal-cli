@@ -114,6 +114,10 @@ func TestParseSwitchCatalogSkipsEntriesWithNoName(t *testing.T) {
 // aliases the Switch does not list lead the way they lead --pick. The
 // Switch's own entries keep its order underneath: `default` first and the rest
 // sorted, and re-sorting here would fight that.
+//
+// Every listing test resets the catalog cache: the listing and the launch
+// readers share one fetch, so a test that pointed at a server earlier in the
+// package would otherwise be answered from that server's rows.
 func TestListSwitchModelsOffersEveryClaudeTierFirst(t *testing.T) {
 	srv, _, _ := switchTestServer(t, `{"data":[
 		{"id":"default[1m]","name":"default"},
