@@ -113,23 +113,33 @@ func TestCodexArgsTurnOffAnalyticsAndFeedback(t *testing.T) {
 	}
 }
 
-func TestCodexArgsMapSubagentModelToReviewModel(t *testing.T) {
+// --subagent-model names the model a spawned subagent runs and the model
+// /review runs, the two slots Codex reads for delegated work.
+func TestCodexArgsMapSubagentModelToBothDelegatedSlots(t *testing.T) {
 	SetSubagentModel("prizmal-core")
 	t.Cleanup(func() { SetSubagentModel("") })
 	args, err := (&Codex{}).args("prizmal-flash", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !codexHasOverride(args, `review_model="prizmal-core"`) {
-		t.Fatalf("args lack review_model: %v", args)
+	for _, want := range []string{
+		`agents.default_subagent_model="prizmal-core"`,
+		`review_model="prizmal-core"`,
+	} {
+		if !codexHasOverride(args, want) {
+			t.Errorf("args lack %s: %v", want, args)
+		}
 	}
 }
 
-func TestCodexArgsOmitReviewModelByDefault(t *testing.T) {
+func TestCodexArgsOmitTheDelegatedModelsByDefault(t *testing.T) {
 	SetSubagentModel("")
 	args, _ := (&Codex{}).args("prizmal-flash", "", nil)
-	if strings.Contains(strings.Join(args, " "), "review_model") {
-		t.Fatalf("review_model set without --subagent-model: %v", args)
+	joined := strings.Join(args, " ")
+	for _, name := range []string{"review_model", "agents.default_subagent_model"} {
+		if strings.Contains(joined, name) {
+			t.Errorf("%s set without --subagent-model: %v", name, args)
+		}
 	}
 }
 

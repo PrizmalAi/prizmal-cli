@@ -153,7 +153,10 @@ func codexChildEnv() []string {
 
 // codexHygieneOverrides are the -c settings that keep a launch quiet: Codex
 // analytics and the feedback upload are off, and --subagent-model, when given,
-// becomes the model Codex uses for /review. They travel on the command line, so
+// names the model for both slots Codex reads for work it delegates.
+// agents.default_subagent_model is the model a spawned subagent runs when the
+// spawn call names none, which is the slot the flag's own name means;
+// review_model is the model /review runs. They travel on the command line, so
 // nothing is written to disk.
 func codexHygieneOverrides() []string {
 	overrides := []string{
@@ -161,7 +164,10 @@ func codexHygieneOverrides() []string {
 		"feedback.enabled=false",
 	}
 	if sub := selectedSubagentModel(); sub != "" {
-		overrides = append(overrides, fmt.Sprintf("review_model=%q", sub))
+		overrides = append(overrides,
+			fmt.Sprintf("agents.default_subagent_model=%q", sub),
+			fmt.Sprintf("review_model=%q", sub),
+		)
 	}
 	return overrides
 }
