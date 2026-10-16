@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/PrizmalAi/prizmal-cli/internal/claudecode"
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	"github.com/PrizmalAi/prizmal-cli/internal/fileutil"
 	"github.com/pelletier/go-toml/v2"
@@ -631,18 +632,25 @@ func codexCatalogModel(modelName string, models []LaunchModel) LaunchModel {
 func codexCatalogModels(modelName string, models []LaunchModel) []LaunchModel {
 	out := []LaunchModel{codexCatalogModel(modelName, models)}
 	for _, m := range models {
-		// The Claude tier aliases are rows for Claude Code's picker. A folded
-		// model is shown by its tier alias there, so Codex gets the model.
-		if launchModelMatches(m.Name, modelName) || isClaudeTierModel(m.Name) || isReservedModelName(m.Name) {
+		// The picker's placeholder row names a model the Switch is retiring, and
+		// a tier alias is a row Claude Code's own picker folds a model into, so
+		// Codex gets neither.
+		if modelNamesSame(m.Name, modelName) || isReservedModelName(m.Name) ||
+			isClaudeTierRow(m.Name) {
 			continue
 		}
-		out = append(out, m.WithCloudLimits())
+		out = append(out, m)
 	}
 	return out
 }
 
-func isClaudeTierModel(name string) bool {
-	return slices.ContainsFunc(tierWords, func(t modelTier) bool { return name == claudeTierModel(t) })
+// isClaudeTierRow reports whether a catalog name is one of Claude Code's tier
+// aliases. Those rows exist for Claude Code's picker, which shows a folded
+// model under its tier's alias, and Codex has no such picker row.
+func isClaudeTierRow(name string) bool {
+	return slices.ContainsFunc(claudecode.Tiers, func(tier claudecode.Tier) bool {
+		return modelNamesSame(name, claudecode.TierModel(tier))
+	})
 }
 
 // ShowsModelList reports that a launch hands Codex the whole catalog, because
