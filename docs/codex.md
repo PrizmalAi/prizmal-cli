@@ -30,7 +30,7 @@ env -u OPENAI_BASE_URL -u CODEX_API_KEY -u CODEX_ACCESS_TOKEN -u CODEX_HOME \
 
 Codex refreshes a device token through its command-backed provider auth. On a machine signed in with a device key the launch writes a `[model_providers.<profile>.auth]` table naming this binary as the command, so Codex runs `prizmal auth token` for its bearer token instead of reading a fixed key. The table carries no credential, and the launch writes no `env_key` beside it: Codex rejects a provider that names both a key and a command.
 
-Codex re-runs the command every four minutes, the interval prizmal sets. A device token expires ten minutes after issue and Codex's own default refresh is five, which would refresh with only five minutes still in hand; four keeps the margin a laptop sleep spends.
+Codex re-runs the command on the refresh interval prizmal sets, four minutes, so a token that expires ten minutes after issue is replaced with time in hand.
 
 Launched without a device key, the profile names `OPENAI_API_KEY` with `env_key` and the launch sets that variable to the switch key, so nothing credential-shaped outlives the launched process. With no switch key, prizmal asks for one, as any unauthenticated launch does.
 
