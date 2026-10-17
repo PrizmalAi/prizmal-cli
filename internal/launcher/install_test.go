@@ -448,6 +448,7 @@ func TestInstallerCommandPerPlatform(t *testing.T) {
 		pkg     string
 	}{
 		{"cline", clineInstallerCommand, "cline@latest"},
+		{"codex", codexInstallerCommand, "@openai/codex"},
 		{"pi", piInstallerCommand, piNpmPackage + "@latest"},
 	} {
 		_, args, err := tc.command("linux")
@@ -471,6 +472,7 @@ func TestInstallerPrompts(t *testing.T) {
 		{"claude", "Claude Code is not installed. Install now?", claudeInstaller},
 		{"opencode", "OpenCode is not installed. Install now?", openCodeInstaller},
 		{"cline", "Cline is not installed. Install with npm?", clineInstaller},
+		{"codex", "Codex is not installed. Install with npm?", codexInstaller},
 		{"pi", "Install Pi with npm?", piInstaller},
 	} {
 		if got := tc.installer.prompt(); got != tc.prompt {
