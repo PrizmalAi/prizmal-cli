@@ -59,6 +59,22 @@ func TestEnsureCodexInstalledWithoutNpmNamesTheDependency(t *testing.T) {
 	}
 }
 
+// TestEnsureCodexInstalledReportsABinaryStillNotOnPath: npm exits 0 without
+// putting codex anywhere, so the launch says so and names the fix rather than
+// exec'ing a command that is not there.
+func TestEnsureCodexInstalledReportsABinaryStillNotOnPath(t *testing.T) {
+	skipWithoutShell(t)
+	dir := fakeBin(t, map[string]string{"npm": "exit 0"})
+	if err := ensureCodexInstalled(); err == nil {
+		t.Fatal("ensureCodexInstalled = nil, want an error naming PATH")
+	} else if !strings.Contains(err.Error(), "was not found on PATH") {
+		t.Fatalf("error = %v, want it to name PATH", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "codex")); !os.IsNotExist(err) {
+		t.Fatalf("npm wrote a codex binary: %v", err)
+	}
+}
+
 func TestEnsureCodexInstalledSkipsNpmWhenPresent(t *testing.T) {
 	skipWithoutShell(t)
 	fakeBin(t, map[string]string{"codex": "exit 0", "npm": "exit 1"})

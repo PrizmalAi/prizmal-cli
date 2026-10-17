@@ -74,7 +74,8 @@ func (c *Codex) Installed() bool {
 }
 
 func (c *Codex) Run(model string, models []LaunchModel, args []string) error {
-	if err := ensureCodexInstalled(); err != nil {
+	codexPath, err := codexInstaller.EnsureInstalled()
+	if err != nil {
 		return err
 	}
 	if err := checkCodexVersion(); err != nil {
@@ -95,7 +96,7 @@ func (c *Codex) Run(model string, models []LaunchModel, args []string) error {
 		return fmt.Errorf("failed to configure codex: %w", err)
 	}
 
-	cmd := exec.Command("codex", codexArgs...)
+	cmd := exec.Command(codexPath, codexArgs...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -172,37 +173,45 @@ func codexHygieneOverrides() []string {
 	return overrides
 }
 
-// ensureCodexInstalled installs Codex with npm when it is missing, after the
-// operator confirms.
-func ensureCodexInstalled() error {
-	if _, err := exec.LookPath("codex"); err == nil {
-		return nil
-	}
-	if _, err := exec.LookPath("npm"); err != nil {
-		return fmt.Errorf("codex is not installed and required dependencies are missing\n\nInstall the following first:\n  npm (Node.js): https://nodejs.org/\n\nThen re-run:\n  prizmal codex")
-	}
+// codexInstaller is Codex's install story. It is the plain one, like Cline's:
+// npm puts the binary on PATH when it works, so there is no fallback directory
+// to read, and Node.js is the only thing the installer needs on every
+// platform.
+var codexInstaller = Installer{
+	Name:         "codex",
+	DisplayName:  "Codex",
+	Prompt:       "Codex is not installed. Install with npm?",
+	Locate:       locateCodex,
+	Dependencies: codexInstallerDependencies,
+	Command:      codexInstallerCommand,
+}
 
-	ok, err := ConfirmPrompt("Codex is not installed. Install with npm?")
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return fmt.Errorf("codex installation cancelled")
-	}
-
-	fmt.Fprintf(os.Stderr, "\nInstalling Codex...\n")
-	cmd := exec.Command("npm", "install", "-g", "@openai/codex")
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to install codex: %w", err)
-	}
+// locateCodex returns the codex binary when it is on PATH. It returns the bare
+// command name rather than the path LookPath resolved, which is what a codex
+// launch has always exec'd.
+func locateCodex(string) (string, error) {
 	if _, err := exec.LookPath("codex"); err != nil {
-		return fmt.Errorf("codex was installed but the binary was not found on PATH\n\nYou may need to restart your shell")
+		return "", errHarnessAbsent
 	}
-	fmt.Fprintf(os.Stderr, "%sCodex installed successfully%s\n\n", ansiGreen, ansiReset)
-	return nil
+	return "codex", nil
+}
+
+// codexInstallerDependencies lists what Codex's installer needs: npm installs
+// Codex on every platform alike, so Node.js is the whole list.
+func codexInstallerDependencies(string) []Dependency {
+	return []Dependency{npmDependency}
+}
+
+// codexInstallerCommand is the npm install Codex ships, on every platform.
+func codexInstallerCommand(string) (string, []string, error) {
+	return "npm", []string{"install", "-g", "@openai/codex"}, nil
+}
+
+// ensureCodexInstalled installs Codex when it is missing, after the operator
+// confirms.
+func ensureCodexInstalled() error {
+	_, err := codexInstaller.EnsureInstalled()
+	return err
 }
 
 func (c *Codex) Restore() (RestoreOutcome, error) {
