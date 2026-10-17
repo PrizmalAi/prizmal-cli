@@ -646,7 +646,9 @@ func codexCatalogModels(modelName string, models []LaunchModel) []LaunchModel {
 
 // isClaudeTierRow reports whether a catalog name is one of Claude Code's tier
 // aliases. Those rows exist for Claude Code's picker, which shows a folded
-// model under its tier's alias, and Codex has no such picker row.
+// model under its tier's alias, and Codex has no such picker row. The tier
+// identity is claudecode's to define: this asks that package rather than
+// spelling the aliases here.
 func isClaudeTierRow(name string) bool {
 	return slices.ContainsFunc(claudecode.Tiers, func(tier claudecode.Tier) bool {
 		return modelNamesSame(name, claudecode.TierModel(tier))

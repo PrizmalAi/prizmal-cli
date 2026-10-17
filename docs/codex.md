@@ -51,3 +51,5 @@ OPENAI_API_KEY="$PRIZMAL_SWITCH_KEY" codex --profile prizmal -m your-model
 `prizmal codex` writes this profile and a model catalog beside it, and passes the provider settings and catalog path as `-c` overrides so your root `config.toml` stays as it was. The catalog makes Codex budget the 1M window the Switch serves instead of a default. It also installs Codex when the `codex` binary is missing.
 
 Give Codex its system prompt by hand too: build the catalog with `codex debug models --bundled`, and copy the `base_instructions` and `model_messages` of the model you launched into its entry. A catalog entry without them sends Codex a session with no description of its tools, its sandbox or its editing rules.
+
+For Codex's `/model` picker to list your whole tenant, point `model_catalog_json` at a catalog with one entry per model from `GET /v1/models`. Each entry needs `slug`, `display_name`, `description`, `supported_reasoning_levels` and a `priority`, where the lowest priority is the model Codex runs by default. Leave out the `claude-tier-*` aliases: those rows are for Claude Code's picker.
