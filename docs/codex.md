@@ -8,7 +8,7 @@
 |---|---|
 | Profile, model, provider, catalog | `~/.codex/prizmal.config.toml`, written with a backup |
 | Model metadata, context window | `~/.codex/model.json`, named by the profile's `model_catalog_json` |
-| Credential | `OPENAI_API_KEY`, which the profile names with `env_key` |
+| Credential | `model_providers.<profile>.auth` runs `prizmal auth token` in device mode; otherwise `OPENAI_API_KEY`, which the profile names with `env_key` |
 
 The launch selects the profile with `--profile prizmal` and also passes the provider settings and the catalog path as `-c` overrides on the command line, so nothing app-visible in `~/.codex/config.toml` changes. It states the model with `-m`, so Codex runs the model prizmal resolved rather than one of its own.
 
@@ -28,7 +28,11 @@ env -u OPENAI_BASE_URL -u CODEX_API_KEY -u CODEX_ACCESS_TOKEN -u CODEX_HOME \
 
 ## Device login
 
-Codex can't refresh a device token during a session: it reads `OPENAI_API_KEY` once, and a device token expires ten minutes after issue. So a `prizmal codex` launch on a machine signed in with a device key ignores device login and runs on the switch key from the config file, the environment, or `--api-key`. With no switch key, prizmal asks for one, as any unauthenticated launch does.
+Codex refreshes a device token through its command-backed provider auth. On a machine signed in with a device key the launch writes a `[model_providers.<profile>.auth]` table naming this binary as the command, so Codex runs `prizmal auth token` for its bearer token instead of reading a fixed key. The table carries no credential, and the launch writes no `env_key` beside it: Codex rejects a provider that names both a key and a command.
+
+Codex re-runs the command on the refresh interval prizmal sets, four minutes, so a token that expires ten minutes after issue is replaced with time in hand.
+
+Launched without a device key, the profile names `OPENAI_API_KEY` with `env_key` and the launch sets that variable to the switch key, so nothing credential-shaped outlives the launched process. With no switch key, prizmal asks for one, as any unauthenticated launch does.
 
 ## Restore
 

@@ -748,3 +748,87 @@ func TestIssuerTakesPrecedenceOverTheFixedDeviceToken(t *testing.T) {
 		t.Errorf("the issuer's token returned %d, want 200", got)
 	}
 }
+
+func getWithAuth(t *testing.T, url string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+StubKey)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
+// TestCodexModelsAnswersTheCodexShapeOnlyForCodex pins the discovery shape
+// Codex expects, {"models":[ModelInfo]}, on the request Codex makes (it adds
+// client_version), while every other client keeps the OpenAI list.
+func TestCodexModelsAnswersTheCodexShapeOnlyForCodex(t *testing.T) {
+	srv := NewServer(WithModels("prizmal-flash"), WithCodexModels())
+	defer srv.Close()
+
+	resp := getWithAuth(t, srv.URL+"/v1/models?client_version=0.160.0")
+	defer func() { _ = resp.Body.Close() }()
+	var codex struct {
+		Models []map[string]any `json:"models"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&codex); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(codex.Models) != 1 || codex.Models[0]["slug"] != "prizmal-flash" {
+		t.Fatalf("codex models = %v, want one entry with slug prizmal-flash", codex.Models)
+	}
+	for _, field := range []string{"display_name", "supported_reasoning_levels", "shell_type", "visibility", "supported_in_api", "priority", "support_verbosity", "truncation_policy", "experimental_supported_tools", "base_instructions"} {
+		if _, ok := codex.Models[0][field]; !ok {
+			t.Errorf("codex entry lacks required field %q", field)
+		}
+	}
+
+	plain := getWithAuth(t, srv.URL+"/v1/models")
+	defer func() { _ = plain.Body.Close() }()
+	var openai struct {
+		Data []map[string]any `json:"data"`
+	}
+	if err := json.NewDecoder(plain.Body).Decode(&openai); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(openai.Data) != 1 || openai.Data[0]["id"] != "prizmal-flash" {
+		t.Fatalf("openai data = %v, want the id list", openai.Data)
+	}
+}
+
+// TestRejectFirstResponseAnswers401Once: the first turn is refused as an
+// expired credential and the next is served, the sequence a token refresh
+// has to survive.
+func TestRejectFirstResponseAnswers401Once(t *testing.T) {
+	srv := NewServer(WithRejectFirstResponse())
+	defer srv.Close()
+
+	first := postWithAuth(t, srv.URL+"/v1/responses", `{"model":"m"}`)
+	_ = first.Body.Close()
+	if first.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("first turn = %d, want 401", first.StatusCode)
+	}
+	second := postWithAuth(t, srv.URL+"/v1/responses", `{"model":"m"}`)
+	_ = second.Body.Close()
+	if second.StatusCode != http.StatusOK {
+		t.Fatalf("second turn = %d, want 200", second.StatusCode)
+	}
+}
+
+// TestRequestLogSeesEveryRequest: a test can read what credential each call
+// carried.
+func TestRequestLogSeesEveryRequest(t *testing.T) {
+	var seen []Request
+	srv := NewServer(WithRequestLog(func(r Request) { seen = append(seen, r) }))
+	defer srv.Close()
+
+	resp := getWithAuth(t, srv.URL+"/v1/models")
+	_ = resp.Body.Close()
+	if len(seen) != 1 || seen[0].Method != "GET" || seen[0].Path != "/v1/models" || seen[0].Authorization != "Bearer "+StubKey {
+		t.Fatalf("seen = %+v", seen)
+	}
+}
