@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -169,14 +170,11 @@ func runHarnessLaunch(t *testing.T, harness string, mode harnessLaunchKeyMode) {
 	skipHarnessLaunchInShortMode(t)
 	harnessPath := harnessLaunchOnPath(t, harness)
 	// The prompt a launch must put on the wire is Codex's own: the test reads it
-	// from the installed binary, exactly as the launch does.
+	// from the installed binary, with the command the Codex doc gives an
+	// operator who wires the launch by hand.
 	promptText := ""
 	if harness == "codex" {
-		prompt, err := launcher.CodexSystemPrompt()
-		if err != nil {
-			t.Fatalf("read Codex's system prompt: %v", err)
-		}
-		promptText = prompt
+		promptText = codexBundledPrompt(t)
 	}
 
 	recorder := &stubserver.Recorder{}
@@ -354,6 +352,41 @@ func inputItems(body map[string]any) []map[string]any {
 		}
 	}
 	return items
+}
+
+// codexBundledPrompt returns the system prompt of the installed Codex's default
+// model, the lowest-priority entry its bundled catalog lists. The launcher reads
+// the same prompt from the same command, so a launch that put an empty one on
+// the wire fails the assertion this feeds.
+func codexBundledPrompt(t *testing.T) string {
+	t.Helper()
+	out, err := exec.Command("codex", "debug", "models", "--bundled").Output()
+	if err != nil {
+		t.Fatalf("codex debug models --bundled: %v", err)
+	}
+	var bundle struct {
+		Models []struct {
+			Visibility       string `json:"visibility"`
+			Priority         int    `json:"priority"`
+			BaseInstructions string `json:"base_instructions"`
+		} `json:"models"`
+	}
+	if err := json.Unmarshal(out, &bundle); err != nil {
+		t.Fatalf("parse the bundled catalog: %v", err)
+	}
+	best := -1
+	for i, m := range bundle.Models {
+		if m.Visibility != "list" || m.BaseInstructions == "" {
+			continue
+		}
+		if best < 0 || m.Priority < bundle.Models[best].Priority {
+			best = i
+		}
+	}
+	if best < 0 {
+		t.Fatal("the bundled catalog lists no model with a system prompt")
+	}
+	return bundle.Models[best].BaseInstructions
 }
 
 // tail returns the last n lines of s.

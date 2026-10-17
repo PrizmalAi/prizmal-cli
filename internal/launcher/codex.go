@@ -777,14 +777,3 @@ func checkCodexVersion() error {
 
 	return nil
 }
-
-// CodexSystemPrompt returns the system prompt of the installed Codex's default
-// model, the text a launch puts on the wire as the request's instructions. A
-// harness launch test reads it to assert that the prompt reaches the switch.
-func CodexSystemPrompt() (string, error) {
-	prompt, err := readCodexSystemPrompt()
-	if err != nil {
-		return "", err
-	}
-	return prompt.baseInstructions, nil
-}
