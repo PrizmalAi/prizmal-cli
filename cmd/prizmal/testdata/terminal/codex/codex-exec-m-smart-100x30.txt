@@ -1,5 +1,5 @@
 using api key from: config file (~/.prizmal/config.json)
-OpenAI Codex v0.160.0
+OpenAI Codex v0.163.0
 --------
 workdir: <workdir>
 model: smart
