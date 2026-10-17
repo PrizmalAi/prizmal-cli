@@ -14,6 +14,18 @@ The launch selects the profile with `--profile prizmal` and also passes the prov
 
 Codex derives auto-compaction from the context window the catalog declares, 90% of it unless the entry sets `auto_compact_token_limit`, which prizmal doesn't emit. Every model the Switch serves has a 1M window, so the entry declares 1,000,000. Declaring a smaller window makes Codex discard conversation history the Switch would have accepted. `HARNESS_CONTEXT_LENGTH` overrides it for an operator who knows better.
 
+## What the launch changes
+
+Codex's own analytics and feedback upload are off, set with `-c analytics.enabled=false` and `-c feedback.enabled=false` so nothing new is written to your config. The launch also drops four variables inherited from your shell, because each one would send the session somewhere other than the Switch or sign it in as someone else: `OPENAI_BASE_URL`, `CODEX_API_KEY`, `CODEX_ACCESS_TOKEN` and `CODEX_HOME`.
+
+By hand, pass the same two settings and unset those four variables:
+
+```bash
+env -u OPENAI_BASE_URL -u CODEX_API_KEY -u CODEX_ACCESS_TOKEN -u CODEX_HOME \
+  OPENAI_API_KEY="$PRIZMAL_SWITCH_KEY" codex --profile prizmal \
+  -c analytics.enabled=false -c feedback.enabled=false
+```
+
 ## Device login
 
 Codex can't refresh a device token during a session: it reads `OPENAI_API_KEY` once, and a device token expires ten minutes after issue. So a `prizmal codex` launch on a machine signed in with a device key ignores device login and runs on the switch key from the config file, the environment, or `--api-key`. With no switch key, prizmal asks for one, as any unauthenticated launch does.
