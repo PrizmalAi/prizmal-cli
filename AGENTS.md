@@ -46,6 +46,37 @@ variable, a settings field or a model name's spelling, the same pull request
 updates the harness's doc under `docs/`. When the manual setup cannot match
 the launch, the doc says what the launch adds.
 
+The README and the harness docs are read by people, not by agents, so they stay
+short. The README keeps a usage section per harness and a link to that
+harness's doc. A harness doc covers usage and what differs from the harness run
+outside Prizmal, on the assumption a reader already knows how the harness
+works. Internal detail stays out of both: catalog fields, request and response
+shapes, mechanism, and version trivia belong in the code that owns them.
+
+## What a pull request body must carry
+
+A reviewer has not read the ticket and will not open it. The body stands on its
+own, and it opens with the main point: what the change does, and why it matters.
+The mechanism comes after, under its own heading.
+
+Every body carries four things, and says one line when a change has nothing to
+draw rather than leaving the reader to guess:
+
+- **Steps to reproduce.** The commands that show the old behavior and the new
+  one, with values you invented. A defect fix also names the mechanism, the
+  change that introduced it, and the guard it adds.
+- **A before and after.** The wire request, the stored row, the config stanza or
+  the rendered screen, trimmed to the fields that matter, in a fenced block.
+  Never a capture from a real run: invent every tenant, key and amount.
+- **A mermaid diagram** of the one mechanism the change turns on, eight nodes at
+  most. When a request crosses more than one component, draw the hops.
+- **The gates that passed**, and for each one that could not run here, say so in
+  those words with the scope you assumed.
+
+A choice you made yourself goes in an *Assumptions* section, so a reviewer can
+overturn it with a comment. A green check on a stacked pull request is weak
+evidence, and the body says so when the layer below is what the gates ran on.
+
 ## No ticket references in committed files
 
 Never write a `PRI-NNNN` ticket reference in a committed file. Git already
@@ -68,6 +99,15 @@ uses a Switch key or a live model.
 launcher registry has no launch case, or when its workflow does not run the
 case's test with `PRIZMAL_HARNESS_LAUNCH: require`. So a new harness
 comes with a launch case and a workflow of its own.
+
+## Keep a harness pinned to its latest release
+
+Bump a harness to its latest release whenever you notice a newer one, in the
+baselines pin and in what the docs claim. Pin and use an older release only
+when a bug does not reproduce on the latest, and say why in the pull request
+that pins it. The pinned version is
+`cmd/prizmal/testdata/terminal/<harness>/<harness>-version`, and the baselines
+beside it are recorded with it.
 
 ## Terminal baselines
 
