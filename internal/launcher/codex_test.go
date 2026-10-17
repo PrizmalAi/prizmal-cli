@@ -2,8 +2,10 @@ package launch
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -385,7 +387,7 @@ func TestCodexCatalogDeclaresTheWindowTheSwitchPublishes(t *testing.T) {
 // declares no env_key, which Codex rejects next to a command.
 func TestCodexDeviceModeOverridesUseCommandAuth(t *testing.T) {
 	withDeviceMode(t)
-	overrides := strings.Join(codexManagedConfigOverrides(""), "\n")
+	overrides := strings.Join(managedOverrides(t, ""), "\n")
 
 	for _, want := range []string{
 		"model_providers.prizmal.auth.command=",
@@ -403,7 +405,7 @@ func TestCodexDeviceModeOverridesUseCommandAuth(t *testing.T) {
 
 func TestCodexKeyModeOverridesKeepEnvKeyAndNoAuth(t *testing.T) {
 	envconfig.SetDeviceMode(false)
-	overrides := strings.Join(codexManagedConfigOverrides(""), "\n")
+	overrides := strings.Join(managedOverrides(t, ""), "\n")
 	if !strings.Contains(overrides, `env_key="OPENAI_API_KEY"`) {
 		t.Errorf("key-mode overrides lack env_key:\n%s", overrides)
 	}
@@ -469,3 +471,97 @@ func TestCodexKeyModeChildEnvCarriesSwitchKey(t *testing.T) {
 		t.Errorf("key-mode env lacks the switch key: %v", env)
 	}
 }
+
+// TestCodexDeviceModeArgsFailWithoutAnAuthCommand: a device launch whose auth
+// command cannot be resolved has no credential to hand Codex, so it fails
+// instead of starting a session that sends no bearer token.
+func TestCodexDeviceModeArgsFailWithoutAnAuthCommand(t *testing.T) {
+	withDeviceMode(t)
+	previous := codexExecutable
+	codexExecutable = func() (string, error) { return "", errors.New("no executable path") }
+	t.Cleanup(func() { codexExecutable = previous })
+
+	args, err := (&Codex{}).args("gpt-test", "", nil)
+	if err == nil {
+		t.Fatalf("args = %q, want the auth command's error", args)
+	}
+	if !strings.Contains(err.Error(), "no executable path") {
+		t.Errorf("err = %v, want it to carry the executable lookup's error", err)
+	}
+}
+
+// managedOverrides renders the launch's -c overrides, failing the test when the
+// launch cannot resolve what it needs to build them.
+func managedOverrides(t *testing.T, modelCatalogPath string) []string {
+	t.Helper()
+	overrides, err := codexManagedConfigOverrides(modelCatalogPath)
+	if err != nil {
+		t.Fatalf("codexManagedConfigOverrides: %v", err)
+	}
+	return overrides
+}
+
+// TestCodexDeviceModeProfileAndOverridesAgree: the profile file and the -c
+// overrides carry the same provider settings, from one renderer, so a launch
+// that reaches Codex both ways cannot name env_key in one and a command in the
+// other.
+func TestCodexDeviceModeProfileAndOverridesAgree(t *testing.T) {
+	sandboxCodexHome(t)
+	withDeviceMode(t)
+	profilePath := filepath.Join(t.TempDir(), "prizmal.config.toml")
+	if err := writeCodexNamedProfileConfig(profilePath, codexProfileName, "gpt-test", "", ""); err != nil {
+		t.Fatalf("writeCodexNamedProfileConfig: %v", err)
+	}
+	profile, err := os.ReadFile(profilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	overrides := map[string]string{}
+	for _, override := range managedOverrides(t, "") {
+		key, value, ok := strings.Cut(override, "=")
+		if !ok {
+			continue
+		}
+		overrides[key] = value
+	}
+
+	// Each override is parsed as the TOML document it is, and compared to the
+	// value the profile states under the same key path, so the two cannot drift
+	// apart in spelling either.
+	for _, key := range []string{"auth.command", "auth.args", "auth.refresh_interval_ms"} {
+		override, ok := overrides["model_providers."+codexProfileName+"."+key]
+		if !ok {
+			t.Errorf("the overrides lack %s:\n%v", key, overrides)
+			continue
+		}
+		fromOverride, err := codexParseConfig(probeKey + " = " + override)
+		if err != nil {
+			t.Errorf("%s override %q does not parse: %v", key, override, err)
+			continue
+		}
+		fromFile, err := codexParseConfig(string(profile))
+		if err != nil {
+			t.Fatalf("parse the profile: %v", err)
+		}
+		path := append([]string{"model_providers", codexProfileName}, strings.Split(key, ".")...)
+		wantOverride, ok := fromOverride.values[probeKey]
+		if !ok {
+			t.Errorf("%s override %q parsed to nothing", key, override)
+			continue
+		}
+		gotProfile, ok := fromFile.value(path...)
+		if !ok {
+			t.Errorf("the profile lacks %s:\n%s", key, profile)
+			continue
+		}
+		if !reflect.DeepEqual(wantOverride, gotProfile) {
+			t.Errorf("%s = %v in the overrides and %v in the profile", key, wantOverride, gotProfile)
+		}
+	}
+	if _, ok := overrides["model_providers."+codexProfileName+".env_key"]; ok {
+		t.Errorf("device-mode overrides name env_key:\n%v", overrides)
+	}
+}
+
+const probeKey = "__prizmal_test_probe"

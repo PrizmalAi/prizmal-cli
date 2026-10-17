@@ -23,6 +23,13 @@ type Codex struct{}
 
 func (c *Codex) String() string { return "Codex" }
 
+// codexSetting is one provider setting, rendered by both the -c overrides the
+// launch passes and the profile file it writes, so the two cannot disagree.
+type codexSetting struct {
+	key   string
+	value string
+}
+
 // SupportsDeviceMode reports that Codex can run from an enrolled device: a
 // provider's command-backed auth re-runs a command for the bearer token every
 // refresh interval and again after a 401, so the launcher can hand it
@@ -68,8 +75,13 @@ func (c *Codex) args(model, modelCatalogPath string, extra []string) ([]string, 
 		return nil, err
 	}
 
+	overrides, err := codexManagedConfigOverrides(modelCatalogPath)
+	if err != nil {
+		return nil, err
+	}
+
 	args := []string{"--profile", codexProfileName}
-	for _, override := range codexManagedConfigOverrides(modelCatalogPath) {
+	for _, override := range overrides {
 		args = append(args, "-c", override)
 	}
 	for _, override := range codexHygieneOverrides() {
@@ -118,23 +130,12 @@ func (c *Codex) Run(model string, models []LaunchModel, args []string) error {
 	return cmd.Run()
 }
 
-// codexChildEnv returns the environment Codex is launched with.
-//
-// With a switch key, the key travels on OPENAI_API_KEY: the generated profile
-// names that variable via env_key rather than embedding the key, so nothing
-// credential-shaped outlives the launched process.
-//
-// In device mode no credential travels on the environment at all. Codex runs
-// `prizmal auth token` for its bearer token, and an OPENAI_API_KEY the operator
-// exported for OpenAI itself is removed so it can neither reach the Switch nor
-// be mistaken for the provider's key. The Switch URL this launch resolved is
-// pinned for the helper, which resolves its own (see ensureHelperBaseURL).
 // envVars returns the child environment that carries the provider credential.
 // This is the only channel the key travels on: the generated profile names
 // OPENAI_API_KEY via env_key rather than embedding the key, so nothing
 // credential-shaped outlives the launched process.
 //
-// In device mode it carries nothing. The profile names Codex's command-backed
+// In device mode it carries nothing: the profile names Codex's command-backed
 // provider auth instead, and Codex runs `prizmal auth token` for its bearer
 // token rather than reading a fixed key from the environment.
 func (c *Codex) envVars() []string {
@@ -144,11 +145,15 @@ func (c *Codex) envVars() []string {
 	return []string{"OPENAI_API_KEY=" + envconfig.APIKey()}
 }
 
+// codexExecutable is os.Executable behind a variable, so a test can exercise
+// the launch that cannot resolve its own path.
+var codexExecutable = os.Executable
+
 // codexAuthCommand is the command Codex runs for a device token: this binary,
 // and the arguments that select its helper subcommand. Codex executes it
 // directly, not through a shell, so the path needs no quoting.
 func codexAuthCommand() (string, []string, error) {
-	exe, err := os.Executable()
+	exe, err := codexExecutable()
 	if err != nil {
 		return "", nil, fmt.Errorf("find the prizmal executable: %w", err)
 	}
@@ -178,10 +183,16 @@ var codexInheritedVars = []string{
 	"CODEX_HOME",
 }
 
-// codexChildEnv builds Codex's environment: the inherited environment minus
-// codexInheritedVars, then the variables the launch sets. The launch's own
-// names are skipped in the inherited pass, so each appears once and the
-// launch value wins.
+// codexChildEnv returns the environment Codex is launched with: the inherited
+// environment minus codexInheritedVars and minus OPENAI_API_KEY, then the
+// variables the launch sets. A launch's own name is skipped in the inherited
+// pass, so each appears once and the launch value wins.
+//
+// In device mode the environment carries no credential at all. Codex runs
+// `prizmal auth token` for its bearer token, so an OPENAI_API_KEY the operator
+// exported for OpenAI itself is removed rather than passed on, and the Switch
+// URL this launch resolved is pinned for the helper, which resolves its own
+// (see ensureHelperBaseURL).
 func codexChildEnv() []string {
 	drop := make(map[string]bool, len(codexInheritedVars))
 	for _, name := range codexInheritedVars {
@@ -371,30 +382,45 @@ func codexValidateExtraArgs(args []string) error {
 	return nil
 }
 
-func codexManagedConfigOverrides(modelCatalogPath string) []string {
+// codexProviderSettings returns the provider's credential settings: the ones
+// that depend on how the launch authenticates, and the only ones whose value
+// can fail to resolve. The -c overrides and the profile file both render these
+// pairs, so they are built in one place.
+func codexProviderSettings() ([]codexSetting, error) {
+	if !envconfig.DeviceMode() {
+		return []codexSetting{{"env_key", strconv.Quote("OPENAI_API_KEY")}}, nil
+	}
+	// Codex rejects a provider that sets both env_key and a command, so
+	// device mode names the command and leaves env_key out.
+	command, args, err := codexAuthCommand()
+	if err != nil {
+		return nil, err
+	}
+	return []codexSetting{
+		{"auth.command", strconv.Quote(command)},
+		{"auth.args", codexAuthArgsTOML(args)},
+		{"auth.refresh_interval_ms", strconv.Itoa(codexRefreshIntervalMs)},
+	}, nil
+}
+
+func codexManagedConfigOverrides(modelCatalogPath string) ([]string, error) {
+	settings, err := codexProviderSettings()
+	if err != nil {
+		return nil, err
+	}
 	overrides := []string{
 		fmt.Sprintf("%s=%q", codexRootModelProviderKey, codexProfileName),
 		fmt.Sprintf("model_providers.%s.name=%q", codexProfileName, codexProviderName),
 		fmt.Sprintf("model_providers.%s.base_url=%q", codexProfileName, codexBaseURL()),
 		fmt.Sprintf("model_providers.%s.wire_api=%q", codexProfileName, "responses"),
 	}
-	if envconfig.DeviceMode() {
-		// Codex rejects a provider that sets both env_key and a command, so
-		// device mode names the command and leaves env_key out.
-		if command, args, err := codexAuthCommand(); err == nil {
-			overrides = append(overrides,
-				fmt.Sprintf("model_providers.%s.auth.command=%q", codexProfileName, command),
-				fmt.Sprintf("model_providers.%s.auth.args=%s", codexProfileName, codexAuthArgsTOML(args)),
-				fmt.Sprintf("model_providers.%s.auth.refresh_interval_ms=%d", codexProfileName, codexRefreshIntervalMs),
-			)
-		}
-	} else {
-		overrides = append(overrides, fmt.Sprintf("model_providers.%s.env_key=%q", codexProfileName, "OPENAI_API_KEY"))
+	for _, setting := range settings {
+		overrides = append(overrides, "model_providers."+codexProfileName+"."+setting.key+"="+setting.value)
 	}
 	if modelCatalogPath != "" {
 		overrides = append(overrides, fmt.Sprintf("%s=%q", codexRootModelCatalogJSONKey, modelCatalogPath))
 	}
-	return overrides
+	return overrides, nil
 }
 
 func codexConfigOverrideConflicts(value string) bool {
@@ -533,20 +559,14 @@ func writeCodexNamedProfileConfig(profilePath, profileName, model, modelCatalogP
 		fmt.Sprintf("base_url = %q", baseURL),
 		`wire_api = "responses"`,
 	}
-	if envconfig.DeviceMode() {
-		command, args, err := codexAuthCommand()
-		if err != nil {
-			return err
-		}
-		providerLines = append(providerLines,
-			"",
-			fmt.Sprintf("[model_providers.%s.auth]", profileName),
-			fmt.Sprintf("command = %q", command),
-			fmt.Sprintf("args = %s", codexAuthArgsTOML(args)),
-			fmt.Sprintf("refresh_interval_ms = %d", codexRefreshIntervalMs),
-		)
-	} else {
-		providerLines = append(providerLines, fmt.Sprintf("env_key = %q", "OPENAI_API_KEY"))
+	// The profile names the same credential settings the -c overrides carry, so
+	// the two merge key by key instead of disagreeing.
+	settings, err := codexProviderSettings()
+	if err != nil {
+		return err
+	}
+	for _, setting := range settings {
+		providerLines = append(providerLines, fmt.Sprintf("%s = %s", setting.key, setting.value))
 	}
 	text += strings.Join(append(providerLines, ""), "\n")
 
@@ -651,6 +671,23 @@ func (c codexParsedConfig) String(path ...string) (string, bool) {
 		return "", false
 	}
 	return value, true
+}
+
+// value returns the decoded value at path, for a test that compares a rendered
+// override against the profile's own value.
+func (c codexParsedConfig) value(path ...string) (any, bool) {
+	var current any = c.values
+	for _, part := range path {
+		table, ok := current.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		current, ok = table[part]
+		if !ok {
+			return nil, false
+		}
+	}
+	return current, true
 }
 
 func (c codexParsedConfig) Exists(path ...string) bool {

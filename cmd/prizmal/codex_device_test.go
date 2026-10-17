@@ -332,7 +332,7 @@ func TestCodexDeviceLaunchRunsOnTheDeviceToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(profile), "[model_providers.prizmal.auth]") || strings.Contains(string(profile), "env_key") {
+	if !strings.Contains(string(profile), "auth.command = ") || strings.Contains(string(profile), "env_key") {
 		t.Errorf("the profile does not use command auth:\n%s", profile)
 	}
 	if strings.Contains(string(profile), stubserver.DeviceToken) || strings.Contains(string(profile), stubserver.StubKey) {
