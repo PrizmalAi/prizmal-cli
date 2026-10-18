@@ -1,12 +1,10 @@
 
-  >_ OpenAI Codex (v0.160.0)
+  >_ OpenAI Codex (v0.163.0)
      ~/project
-
-  <greeting>
 
 /status
 
-  >_ OpenAI Codex (v0.160.0)
+  >_ OpenAI Codex (v0.163.0)
 
   Model:               smart (reasoning none, summaries auto)
   Model provider:      prizmal
@@ -18,6 +16,8 @@
 
   Token usage:         0 total  (0 input + 0 output)
   Limits:              data not available yet
+
+
 
 
 
