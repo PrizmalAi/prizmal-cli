@@ -2,7 +2,7 @@ name: review
 
 on: pull_request
 
-# Least privilege for Cite (elecnix/cite@9c2964b0298b7ae110a2d4111fd84d7aa5b5b739):
+# Least privilege for Cite (elecnix/cite@534087b12205e442d971bddd7c157354a0c31da1):
 # - contents: read — fetch the PR diff and instruction files from the base ref
 #   via the GitHub API. No write to the repository is ever made (Cite never
 #   pushes commits or opens PRs; docs/security.md).
@@ -30,8 +30,8 @@ jobs:
   review:
     runs-on: ubuntu-latest
     steps:
-      # Pinned to the full commit SHA of tag v0.11.1 (no v1 tag exists upstream).
-      # `version: v0.11.1` additionally pins the downloaded cite binary to the
+      # Pinned to the full commit SHA of tag v0.14.0 (no v1 tag exists upstream).
+      # `version: v0.14.0` additionally pins the downloaded cite binary to the
       # same release instead of tracking releases/latest. Bump both together:
       # each one names the version on its own, and a lone SHA bump would leave
       # the older binary running.
@@ -41,9 +41,12 @@ jobs:
       # that cannot run without reasoning, and GLM 5.3 Flash is one. DeepSeek
       # V4.1 Flash accepts the default, so no override is needed.
       - name: Review pull request
-        uses: elecnix/cite@9c2964b0298b7ae110a2d4111fd84d7aa5b5b739 # v0.11.1
+        uses: elecnix/cite@534087b12205e442d971bddd7c157354a0c31da1  # v0.14.0
         with:
           model_api_key: ${{ secrets.MODEL_API_KEY }}
           model_base_url: https://openrouter.ai/api/v1
           model_id: deepseek/deepseek-v4.1-flash
-          version: v0.11.1
+          version: v0.14.0
+          # Make OpenRouter refuse an endpoint that would drop a request
+          # parameter (such as response_format) instead of degrading silently.
+          require_parameters: true
