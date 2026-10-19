@@ -42,7 +42,7 @@ func deviceKeyExists() bool {
 // deviceLoginApplies decides whether the command about to run may use device
 // login. A device token is a credential the CLI refreshes itself, so a --list
 // and a bare --pick may, whatever a first-run sign-in left behind. A launch of
-// a harness with no refresh contract — Codex, Cline, OpenCode — may not:
+// a harness with no refresh contract — Cline, OpenCode — may not:
 // entering device mode would outrank the switch key the config already holds
 // and then hand the harness a token that expires in ten minutes, so device
 // login is ignored for it and the launch runs on that key. An unknown word is
