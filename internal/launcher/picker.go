@@ -59,7 +59,7 @@ type ModelRow struct {
 	Description string
 
 	// tier is the row's Claude tier, empty for a model with none.
-	tier claudecode.Tier
+	Tier claudecode.Tier
 }
 
 // reservedModelNames are the placeholder rows the picker never offers.
@@ -79,8 +79,8 @@ const (
 	reservedModelNameLegacy = "prizmal/default"
 )
 
-// isReservedModelName reports whether a catalog name is a placeholder row.
-func isReservedModelName(name string) bool {
+// IsReservedModelName reports whether a catalog name is a placeholder row.
+func IsReservedModelName(name string) bool {
 	return name == reservedModelName || name == reservedModelNameLegacy
 }
 
@@ -104,7 +104,7 @@ func ModelRows(models []LaunchModel) []ModelRow {
 
 	for _, m := range models {
 		name := ModelNameWithoutSuffix(m.Name)
-		if name == "" || seen[name] || isReservedModelName(name) || m.FoldedInto != "" {
+		if name == "" || seen[name] || IsReservedModelName(name) || m.FoldedInto != "" {
 			continue
 		}
 		seen[name] = true
@@ -115,7 +115,7 @@ func ModelRows(models []LaunchModel) []ModelRow {
 			tier, ok = claudecode.InferTier(name)
 		}
 		if ok {
-			row.tier = tier
+			row.Tier = tier
 			row.BehavesAs = claudecode.Profiles[tier].BehavesAs
 			if row.Description == "" {
 				row.Description = claudecode.Profiles[tier].Description

@@ -14,14 +14,14 @@ import (
 // suffix yields exactly the name the Switch sends, so the listed name is the
 // one a caller passes back to route.
 func TestParseSwitchCatalogStripsTheSuffixOffTheID(t *testing.T) {
-	models, err := parseSwitchCatalog([]byte(`{"data":[
+	models, err := ParseSwitchCatalog([]byte(`{"data":[
 		{"id":"cheap[1m]","name":"cheap","display_name":"cheap"},
 		{"id":"opus[1m]","name":"opus","display_name":"opus"}
 	]}`))
 	if err != nil {
-		t.Fatalf("parseSwitchCatalog: %v", err)
+		t.Fatalf("ParseSwitchCatalog: %v", err)
 	}
-	if got := launchModelNames(models); len(got) != 2 || got[0] != "cheap" || got[1] != "opus" {
+	if got := LaunchModelNames(models); len(got) != 2 || got[0] != "cheap" || got[1] != "opus" {
 		t.Fatalf("names = %v, want [cheap opus]", got)
 	}
 }
@@ -31,14 +31,14 @@ func TestParseSwitchCatalogStripsTheSuffixOffTheID(t *testing.T) {
 // OpenRouter sends {"id":"openai/gpt-4o-mini","name":"OpenAI: GPT-4o-mini"}.
 // Printing the label would hand the caller a string no request accepts.
 func TestParseSwitchCatalogIgnoresALabelOnlyName(t *testing.T) {
-	models, err := parseSwitchCatalog([]byte(`{"data":[
+	models, err := ParseSwitchCatalog([]byte(`{"data":[
 		{"id":"openai/gpt-4o-mini","name":"OpenAI: GPT-4o-mini"},
 		{"id":"anthropic/claude-sonnet-5","display_name":"Anthropic: Claude Sonnet 5"}
 	]}`))
 	if err != nil {
-		t.Fatalf("parseSwitchCatalog: %v", err)
+		t.Fatalf("ParseSwitchCatalog: %v", err)
 	}
-	got := launchModelNames(models)
+	got := LaunchModelNames(models)
 	want := []string{"openai/gpt-4o-mini", "anthropic/claude-sonnet-5"}
 	if len(got) != len(want) {
 		t.Fatalf("names = %v, want %v", got, want)
@@ -55,11 +55,11 @@ func TestParseSwitchCatalogIgnoresALabelOnlyName(t *testing.T) {
 // the Switch's own decoration is the only thing removed, and only because a
 // bare spelling routes for every dialect.
 func TestParseSwitchCatalogFallsBackToTheIDWithoutDecoration(t *testing.T) {
-	models, err := parseSwitchCatalog([]byte(`{"data":[{"id":"gpt-4o-mini"},{"id":"cheap[1m]"}]}`))
+	models, err := ParseSwitchCatalog([]byte(`{"data":[{"id":"gpt-4o-mini"},{"id":"cheap[1m]"}]}`))
 	if err != nil {
-		t.Fatalf("parseSwitchCatalog: %v", err)
+		t.Fatalf("ParseSwitchCatalog: %v", err)
 	}
-	if got := launchModelNames(models); len(got) != 2 || got[0] != "gpt-4o-mini" || got[1] != "cheap" {
+	if got := LaunchModelNames(models); len(got) != 2 || got[0] != "gpt-4o-mini" || got[1] != "cheap" {
 		t.Fatalf("names = %v, want [gpt-4o-mini cheap]", got)
 	}
 }
@@ -70,11 +70,11 @@ func TestParseSwitchCatalogFallsBackToTheIDWithoutDecoration(t *testing.T) {
 // it when matching because matching tolerates an implicit tag; a listing that
 // prints names must not.
 func TestParseSwitchCatalogKeepsARealTagOnTheID(t *testing.T) {
-	models, err := parseSwitchCatalog([]byte(`{"data":[{"id":"mymodel:latest"},{"id":"other:v2"}]}`))
+	models, err := ParseSwitchCatalog([]byte(`{"data":[{"id":"mymodel:latest"},{"id":"other:v2"}]}`))
 	if err != nil {
-		t.Fatalf("parseSwitchCatalog: %v", err)
+		t.Fatalf("ParseSwitchCatalog: %v", err)
 	}
-	got := launchModelNames(models)
+	got := LaunchModelNames(models)
 	want := []string{"mymodel:latest", "other:v2"}
 	if len(got) != len(want) {
 		t.Fatalf("names = %v, want %v", got, want)
@@ -89,11 +89,11 @@ func TestParseSwitchCatalogKeepsARealTagOnTheID(t *testing.T) {
 // An entry with no id names nothing routable, so it is skipped rather than
 // listed as an empty line a caller would pass back as an empty model.
 func TestParseSwitchCatalogSkipsAnEntryWithNoID(t *testing.T) {
-	models, err := parseSwitchCatalog([]byte(`{"data":[{"name":"a label with no id"},{"id":"cheap[1m]"}]}`))
+	models, err := ParseSwitchCatalog([]byte(`{"data":[{"name":"a label with no id"},{"id":"cheap[1m]"}]}`))
 	if err != nil {
-		t.Fatalf("parseSwitchCatalog: %v", err)
+		t.Fatalf("ParseSwitchCatalog: %v", err)
 	}
-	if got := launchModelNames(models); len(got) != 1 || got[0] != "cheap" {
+	if got := LaunchModelNames(models); len(got) != 1 || got[0] != "cheap" {
 		t.Fatalf("names = %v, want [cheap]", got)
 	}
 }
@@ -101,11 +101,11 @@ func TestParseSwitchCatalogSkipsAnEntryWithNoID(t *testing.T) {
 // An entry naming nothing at all is skipped rather than listed as an empty
 // line, which a caller would pass back as an empty model.
 func TestParseSwitchCatalogSkipsEntriesWithNoName(t *testing.T) {
-	models, err := parseSwitchCatalog([]byte(`{"data":[{"id":""},{"id":"cheap[1m]","name":"cheap"}]}`))
+	models, err := ParseSwitchCatalog([]byte(`{"data":[{"id":""},{"id":"cheap[1m]","name":"cheap"}]}`))
 	if err != nil {
-		t.Fatalf("parseSwitchCatalog: %v", err)
+		t.Fatalf("ParseSwitchCatalog: %v", err)
 	}
-	if got := launchModelNames(models); len(got) != 1 || got[0] != "cheap" {
+	if got := LaunchModelNames(models); len(got) != 1 || got[0] != "cheap" {
 		t.Fatalf("names = %v, want [cheap]", got)
 	}
 }

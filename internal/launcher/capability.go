@@ -20,9 +20,9 @@ import (
 // own spelling of a capability, never its own decision about when to declare
 // it.
 const (
-	harnessCodex    = "codex"
-	harnessOpenCode = "opencode"
-	harnessPi       = "pi"
+	HarnessCodex    = "codex"
+	HarnessOpenCode = "opencode"
+	HarnessPi       = "pi"
 )
 
 // inputCapability is one input modality in the vocabulary. The row carries
@@ -79,9 +79,9 @@ var inputVocabulary = []inputCapability{
 		switchModality: "text",
 		capability:     model.CapabilityCompletion,
 		harnessNames: map[string]string{
-			harnessCodex:    "text",
-			harnessOpenCode: "text",
-			harnessPi:       "text",
+			HarnessCodex:    "text",
+			HarnessOpenCode: "text",
+			HarnessPi:       "text",
 		},
 		always: true,
 	},
@@ -89,16 +89,16 @@ var inputVocabulary = []inputCapability{
 		switchModality: "image",
 		capability:     model.CapabilityVision,
 		harnessNames: map[string]string{
-			harnessCodex:    "image",
-			harnessOpenCode: "image",
-			harnessPi:       "image",
+			HarnessCodex:    "image",
+			HarnessOpenCode: "image",
+			HarnessPi:       "image",
 		},
 	},
 	{
 		switchModality: "file",
 		capability:     model.CapabilityDocument,
 		harnessNames: map[string]string{
-			harnessOpenCode: "pdf",
+			HarnessOpenCode: "pdf",
 		},
 	},
 	{
@@ -126,9 +126,9 @@ var inputVocabulary = []inputCapability{
 // declare for a text-only model, and narrowing it further is what keeping the
 // list unchanged here means.
 var unknownInputs = map[string][]string{
-	harnessCodex:    {"text"},
-	harnessOpenCode: {"text", "image", "pdf"},
-	harnessPi:       {"text"},
+	HarnessCodex:    {"text"},
+	HarnessOpenCode: {"text", "image", "pdf"},
+	HarnessPi:       {"text"},
 }
 
 // modalityCapabilities is the forward half of the vocabulary, derived from
@@ -143,9 +143,9 @@ var modalityCapabilities = func() map[string]model.Capability {
 	return capabilities
 }()
 
-// capabilitiesFromModalities translates one entry's input_modalities array.
+// CapabilitiesFromModalities translates one entry's input_modalities array.
 // An unrecognised modality is dropped rather than guessed at.
-func capabilitiesFromModalities(modalities []string) []model.Capability {
+func CapabilitiesFromModalities(modalities []string) []model.Capability {
 	var capabilities []model.Capability
 	for _, modality := range modalities {
 		c, ok := modalityCapabilities[strings.ToLower(strings.TrimSpace(modality))]
@@ -157,7 +157,7 @@ func capabilitiesFromModalities(modalities []string) []model.Capability {
 	return capabilities
 }
 
-// declaredInputs returns the input modalities one harness declares for a model,
+// DeclaredInputs returns the input modalities one harness declares for a model,
 // in vocabulary order.
 //
 // A model with no capabilities is unknown, not text-only, and gets the
@@ -168,7 +168,7 @@ func capabilitiesFromModalities(modalities []string) []model.Capability {
 //
 // The result is a fresh slice, so a caller that appends to it cannot edit the
 // unknown list every later launch would read.
-func declaredInputs(m LaunchModel, harness string) []string {
+func DeclaredInputs(m LaunchModel, harness string) []string {
 	if len(m.Capabilities) == 0 {
 		return slices.Clone(unknownInputs[harness])
 	}
@@ -188,9 +188,9 @@ func declaredInputs(m LaunchModel, harness string) []string {
 //
 // opencode.go and pi.go both gate a reasoning field on
 // HasCapability(CapabilityThinking), and nothing in the tree can put that
-// capability in a model's list: capabilitiesFromModalities is the only producer
+// capability in a model's list: CapabilitiesFromModalities is the only producer
 // of LaunchModel.Capabilities and no input modality maps to it. The Switch
-// reports reasoning as its own per-entry field, named in switchCatalogEntry's
+// reports reasoning as its own per-entry field, named in SwitchCatalogEntry's
 // comment and deliberately not read — it is a separate boolean beside
 // input_modalities, not a modality, and a reasoning trace is output rather than
 // something the model takes. Nothing in the catalogue the stub server serves

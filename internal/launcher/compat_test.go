@@ -12,11 +12,11 @@ import (
 // immediately at EOF: every answer comes back false, and a test proves nothing.
 func answerPrompt(t *testing.T, answer string) {
 	t.Helper()
-	previous := confirmReader
+	previous := ConfirmInput
 	// Registered before the reader is replaced, so the restore is in place for
 	// the whole test rather than depending on the order of two statements.
-	t.Cleanup(func() { confirmReader = previous })
-	confirmReader = bufio.NewReader(strings.NewReader(answer))
+	t.Cleanup(func() { ConfirmInput = previous })
+	ConfirmInput = bufio.NewReader(strings.NewReader(answer))
 }
 
 // --yes auto-approves without asking. That is the whole point of the flag: a

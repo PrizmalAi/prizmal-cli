@@ -9,14 +9,14 @@ import (
 	"strings"
 )
 
-// errHarnessAbsent is the one Locate or Relocate error the pipeline below reads
+// ErrHarnessAbsent is the one Locate or Relocate error the pipeline below reads
 // as "this harness is not installed here", and the only one it recovers from.
 // Every other error is a fault in discovery itself — pi's guard that stops
 // before it runs npm on a machine with no npm is one — and is handed to the
 // operator as it is, because continuing past a discovery failure ends in the
 // installer's own error ("executable file not found in $PATH") instead of the
 // message naming what to install first.
-var errHarnessAbsent = errors.New("harness is not installed")
+var ErrHarnessAbsent = errors.New("harness is not installed")
 
 // Dependency is one thing the machine must already have for a harness's
 // installer to run.
@@ -32,17 +32,17 @@ type Dependency struct {
 	URL   string
 }
 
-// curlDependency and bashDependency are the two tools the pipe-to-shell
+// CurlDependency and BashDependency are the two tools the pipe-to-shell
 // installers need on macOS and Linux: each reads the script over curl and runs
 // it with bash, so a machine missing either fails the installer with a bare
 // exit status that names neither.
 var (
-	curlDependency = Dependency{Probe: "curl", Label: "curl", URL: "https://curl.se/"}
-	bashDependency = Dependency{Probe: "bash", Label: "bash", URL: "https://www.gnu.org/software/bash/"}
+	CurlDependency = Dependency{Probe: "curl", Label: "curl", URL: "https://curl.se/"}
+	BashDependency = Dependency{Probe: "bash", Label: "bash", URL: "https://www.gnu.org/software/bash/"}
 )
 
-// npmDependency is Node.js, which every npm-based installer needs.
-var npmDependency = Dependency{Probe: "npm", Label: "npm (Node.js)", URL: "https://nodejs.org/"}
+// NpmDependency is Node.js, which every npm-based installer needs.
+var NpmDependency = Dependency{Probe: "npm", Label: "npm (Node.js)", URL: "https://nodejs.org/"}
 
 // Installer is one harness's install story, and the seam every harness's
 // install path runs through: locate the binary, probe the dependencies the
@@ -83,7 +83,7 @@ type Installer struct {
 	GOOS func() string
 
 	// Locate returns the binary to run when the harness is already installed,
-	// and errHarnessAbsent when it is not. It runs before the dependency probe
+	// and ErrHarnessAbsent when it is not. It runs before the dependency probe
 	// and before any confirmation, so it must not install anything a launch
 	// has not agreed to.
 	//
@@ -132,8 +132,8 @@ func (i Installer) goos() string {
 	return runtime.GOOS
 }
 
-// prompt is the confirmation question, defaulted.
-func (i Installer) prompt() string {
+// ConfirmPrompt is the confirmation question, defaulted.
+func (i Installer) ConfirmPrompt() string {
 	if i.Prompt != "" {
 		return i.Prompt
 	}
@@ -188,15 +188,15 @@ func (i Installer) EnsureInstalled() (string, error) {
 	switch {
 	case err == nil:
 		return path, nil
-	case !errors.Is(err, errHarnessAbsent):
+	case !errors.Is(err, ErrHarnessAbsent):
 		return "", err
 	}
 
-	if missing := missingOnPath(i.dependencies(goos)); len(missing) > 0 {
-		return "", missingDependencyError(i.Name, missing)
+	if missing := MissingOnPath(i.RequiredDependencies(goos)); len(missing) > 0 {
+		return "", MissingDependencyError(i.Name, missing)
 	}
 
-	ok, err := ConfirmPrompt(i.prompt())
+	ok, err := ConfirmPrompt(i.ConfirmPrompt())
 	if err != nil {
 		return "", err
 	}
@@ -219,23 +219,24 @@ func (i Installer) EnsureInstalled() (string, error) {
 		return "", fmt.Errorf("%s was installed but the binary was not found on PATH\n\nYou may need to restart your shell", i.Name)
 	}
 
-	fmt.Fprintf(os.Stderr, "%s%s installed successfully%s\n\n", ansiGreen, i.DisplayName, ansiReset)
+	fmt.Fprintf(os.Stderr, "%s%s installed successfully%s\n\n", ansiGreen, i.DisplayName, AnsiReset)
 	return path, nil
 }
 
-// dependencies is the harness's dependency list for this OS, defaulted to none.
-func (i Installer) dependencies(goos string) []Dependency {
+// RequiredDependencies is what the installer needs on this OS, defaulted to
+// none.
+func (i Installer) RequiredDependencies(goos string) []Dependency {
 	if i.Dependencies == nil {
 		return nil
 	}
 	return i.Dependencies(goos)
 }
 
-// missingOnPath returns the dependencies the machine does not have, in the
+// MissingOnPath returns the dependencies the machine does not have, in the
 // order they were listed. The order is the message's: it reads as a list of
 // things to do, and the two pipe-to-shell installers name curl before bash
 // because that is the order the script needs them in.
-func missingOnPath(dependencies []Dependency) []Dependency {
+func MissingOnPath(dependencies []Dependency) []Dependency {
 	var missing []Dependency
 	for _, dependency := range dependencies {
 		if _, err := exec.LookPath(dependency.Probe); err != nil {
@@ -245,13 +246,13 @@ func missingOnPath(dependencies []Dependency) []Dependency {
 	return missing
 }
 
-// missingDependencyError renders the one missing-dependency message every
+// MissingDependencyError renders the one missing-dependency message every
 // harness shares. It names the harness by command word, because the last line
 // is a command the operator is about to type, and lists each missing tool with
 // the page that installs it rather than only its name: the operator who reaches
 // this message is holding a machine that cannot run the installer and has
 // never installed the tool by hand.
-func missingDependencyError(name string, missing []Dependency) error {
+func MissingDependencyError(name string, missing []Dependency) error {
 	lines := make([]string, 0, len(missing))
 	for _, dependency := range missing {
 		lines = append(lines, dependency.Label+": "+dependency.URL)

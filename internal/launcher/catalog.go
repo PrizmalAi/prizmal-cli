@@ -64,12 +64,12 @@ const (
 // Every tag is deliberately kept. ":latest" is a real tag a caller can route
 // by, so stripping it would print a name that resolves to a different model
 // than the one listed. Deciding that two names match anyway is a separate
-// question, answered by modelNamesSame.
+// question, answered by ModelNamesSame.
 func ModelNameWithoutSuffix(name string) string {
 	return claudecode.RoutableName(name)
 }
 
-// modelNamesSame reports whether two model names refer to the same model,
+// ModelNamesSame reports whether two model names refer to the same model,
 // tolerating the :latest tag and the [1m] context-budget suffix on either
 // side. It is the only name-matching rule in the launcher: a caller that
 // compares names itself has to decide again whether a decoration is part of
@@ -80,7 +80,7 @@ func ModelNameWithoutSuffix(name string) string {
 // identity an operator typed. Everything else falls through to the decorated
 // comparison, because the Switch decorates every catalog id with the suffix
 // while a launch sends the bare name, so a bare comparison never matches.
-func modelNamesSame(candidate, name string) bool {
+func ModelNamesSame(candidate, name string) bool {
 	if candidate == name {
 		return true
 	}
@@ -88,11 +88,11 @@ func modelNamesSame(candidate, name string) bool {
 		strings.TrimSuffix(ModelNameWithoutSuffix(name), ":latest")
 }
 
-// switchCatalogEntry is the subset of a GET /v1/models entry the launcher
+// SwitchCatalogEntry is the subset of a GET /v1/models entry the launcher
 // reads. The Switch serves more per entry (name, display_name, owned_by,
 // reasoning, output_modalities); only the parts an entry builder or a listing
 // needs are kept, and the label fields are not among them.
-type switchCatalogEntry struct {
+type SwitchCatalogEntry struct {
 	ID              string   `json:"id"`
 	InputModalities []string `json:"input_modalities"`
 	Tier            string   `json:"tier"`
@@ -114,12 +114,12 @@ type switchCatalogEntry struct {
 // reading the id loses nothing. The [1m] suffix is Claude Code's own
 // context-budget instruction, added for the client's benefit, and it is not
 // part of any model id.
-func (e switchCatalogEntry) routableName() string {
+func (e SwitchCatalogEntry) routableName() string {
 	return ModelNameWithoutSuffix(e.ID)
 }
 
 type switchCatalogResponse struct {
-	Data []switchCatalogEntry `json:"data"`
+	Data []SwitchCatalogEntry `json:"data"`
 }
 
 // cleanDescription keeps only the text of a description the switch sent. The
@@ -136,9 +136,9 @@ func cleanDescription(desc string) string {
 	return strings.Join(strings.Fields(desc), " ")
 }
 
-// parseSwitchCatalog turns a GET /v1/models body into LaunchModels carrying
+// ParseSwitchCatalog turns a GET /v1/models body into LaunchModels carrying
 // only a name and the capabilities its input modalities imply.
-func parseSwitchCatalog(data []byte) ([]LaunchModel, error) {
+func ParseSwitchCatalog(data []byte) ([]LaunchModel, error) {
 	var catalog switchCatalogResponse
 	if err := json.Unmarshal(data, &catalog); err != nil {
 		return nil, fmt.Errorf("parse model catalog: %w", err)
@@ -151,7 +151,7 @@ func parseSwitchCatalog(data []byte) ([]LaunchModel, error) {
 		}
 		models = append(models, LaunchModel{
 			Name:         name,
-			Capabilities: capabilitiesFromModalities(entry.InputModalities),
+			Capabilities: CapabilitiesFromModalities(entry.InputModalities),
 			Tier:         claudecode.KnownTier(entry.Tier),
 			Description:  cleanDescription(entry.Description),
 		})
@@ -200,7 +200,7 @@ func fetchSwitchCatalog(ctx context.Context) ([]LaunchModel, error) {
 	if err != nil {
 		return nil, err
 	}
-	return parseSwitchCatalog(body)
+	return ParseSwitchCatalog(body)
 }
 
 // modelCatalog is the Switch catalog as this process fetched it: at most once
@@ -269,7 +269,7 @@ func withClaudeTiers(catalog []LaunchModel) []LaunchModel {
 	holders := make(map[string]bool, len(claudecode.Tiers))
 	for _, tier := range claudecode.Tiers {
 		name := claudecode.TierModel(tier)
-		entry, ok := findCatalogModel(catalog, name)
+		entry, ok := FindCatalogModel(catalog, name)
 		if !ok {
 			entry = LaunchModel{Name: name}
 		}
@@ -288,7 +288,7 @@ func withClaudeTiers(catalog []LaunchModel) []LaunchModel {
 	}
 	for _, entry := range catalog {
 		if slices.ContainsFunc(models[:len(claudecode.Tiers)], func(tier LaunchModel) bool {
-			return modelNamesSame(entry.Name, tier.Name)
+			return ModelNamesSame(entry.Name, tier.Name)
 		}) {
 			continue
 		}
@@ -300,7 +300,7 @@ func withClaudeTiers(catalog []LaunchModel) []LaunchModel {
 	return models
 }
 
-// findCatalogModel looks a model name up in a list of catalog entries, using
+// FindCatalogModel looks a model name up in a list of catalog entries, using
 // the launcher's one name-matching rule. It replaces the exact-match lookup
 // that used to sit in this package beside the tolerant one: two lookups for one
 // question is how a name quietly stops matching.
@@ -311,9 +311,9 @@ func withClaudeTiers(catalog []LaunchModel) []LaunchModel {
 // indistinguishable from a model the Switch says nothing about: an unknown
 // capabilities list is what makes every entry builder fall back to its
 // permissive default.
-func findCatalogModel(catalog []LaunchModel, name string) (LaunchModel, bool) {
+func FindCatalogModel(catalog []LaunchModel, name string) (LaunchModel, bool) {
 	for _, entry := range catalog {
-		if modelNamesSame(entry.Name, name) {
+		if ModelNamesSame(entry.Name, name) {
 			return entry, true
 		}
 	}

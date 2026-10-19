@@ -14,12 +14,12 @@ func TestLaunchModelsPutTheChosenModelFirst(t *testing.T) {
 	models := LaunchModels("chosen", catalog, true)
 
 	if len(models) != 3 {
-		t.Fatalf("built %d models, want 3: %v", len(models), launchModelNames(models))
+		t.Fatalf("built %d models, want 3: %v", len(models), LaunchModelNames(models))
 	}
 	if models[0].Name != "chosen" {
 		t.Fatalf("models[0] = %q, want the chosen model first; pi and cline read models[0]", models[0].Name)
 	}
-	if got := launchModelNames(models); got[0] != "chosen" || got[1] != "alpha" || got[2] != "zeta" {
+	if got := LaunchModelNames(models); got[0] != "chosen" || got[1] != "alpha" || got[2] != "zeta" {
 		t.Fatalf("names = %v, want [chosen alpha zeta]", got)
 	}
 }
@@ -33,7 +33,7 @@ func TestLaunchModelsWithoutTheCatalogAreJustTheChosenModel(t *testing.T) {
 	models := LaunchModels("chosen", catalog, false)
 
 	if len(models) != 1 || models[0].Name != "chosen" {
-		t.Fatalf("models = %v, want only [chosen]", launchModelNames(models))
+		t.Fatalf("models = %v, want only [chosen]", LaunchModelNames(models))
 	}
 }
 
@@ -41,7 +41,7 @@ func TestLaunchModelsWithoutTheCatalogAreJustTheChosenModel(t *testing.T) {
 // the entry builders read to decide what the model can take as input.
 func TestLaunchModelsCarryCapabilitiesForTheChosenModel(t *testing.T) {
 	catalog := []LaunchModel{
-		{Name: "vision-model", Capabilities: capabilitiesFromModalities([]string{"text", "image"})},
+		{Name: "vision-model", Capabilities: CapabilitiesFromModalities([]string{"text", "image"})},
 	}
 
 	models := LaunchModels("vision-model", catalog, true)
@@ -64,7 +64,7 @@ func TestLaunchModelsDoNotDuplicateTheChosenModel(t *testing.T) {
 		}
 	}
 	if seen != 1 {
-		t.Fatalf("the chosen model appears %d times: %v", seen, launchModelNames(models))
+		t.Fatalf("the chosen model appears %d times: %v", seen, LaunchModelNames(models))
 	}
 }
 
@@ -72,7 +72,7 @@ func TestLaunchModelsDoNotDuplicateTheChosenModel(t *testing.T) {
 // bare choice still finds its catalog entry and its capabilities.
 func TestLaunchModelsMatchChosenAcrossTheSuffix(t *testing.T) {
 	catalog := []LaunchModel{
-		{Name: "vision-model", Capabilities: capabilitiesFromModalities([]string{"image"})},
+		{Name: "vision-model", Capabilities: CapabilitiesFromModalities([]string{"image"})},
 	}
 
 	models := LaunchModels("vision-model[1m]", catalog, true)
