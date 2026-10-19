@@ -47,6 +47,21 @@ func (c *Claude) ResolvesTierWords() bool { return true }
 // --subagent-model names.
 func (c *Claude) TakesSubagentModel() bool { return true }
 
+// RunsHeadless reports that Claude Code's print mode runs one prompt and
+// exits. It is the mode a script uses, so there is no session for a model menu
+// to start.
+func (c *Claude) RunsHeadless(args []string) bool {
+	for _, arg := range args {
+		if arg == "--" {
+			return false
+		}
+		if arg == "-p" || arg == "--print" {
+			return true
+		}
+	}
+	return false
+}
+
 // SupportsDeviceMode reports that Claude Code can run from an enrolled device:
 // its apiKeyHelper re-runs a command to refresh the credential, so the
 // launcher can hand it a helper instead of a fixed key. Every other harness

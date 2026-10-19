@@ -286,6 +286,12 @@ func withClaudeTiers(catalog []LaunchModel) []LaunchModel {
 			if len(entry.Capabilities) == 0 {
 				entry.Capabilities = holder.Capabilities
 			}
+			// The row's subtitle names the config it stands for. The config is
+			// folded out of the rows, so without its name here a name `--list`
+			// prints goes missing from every picker with no trace of where it
+			// went.
+			entry.Description = strings.TrimSpace(holder.Name + " · " + entry.Description)
+			entry.Description = strings.TrimSpace(strings.TrimSuffix(entry.Description, "·"))
 		}
 		models = append(models, entry)
 	}

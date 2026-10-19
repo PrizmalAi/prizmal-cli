@@ -200,6 +200,26 @@ type SubagentModelRunner interface {
 	TakesSubagentModel() bool
 }
 
+// HeadlessRunner is a runner whose harness can run one prompt and exit, such
+// as `claude -p` or `codex exec`. It reads the arguments written after the
+// integration name and says whether this launch is such a run.
+//
+// A headless run has no session to choose a model for. A menu cannot open on
+// the pipe a script connects, and asking on a terminal would stop a command
+// that was meant to finish on its own, so the launch fails with the names it
+// routes instead of asking.
+type HeadlessRunner interface {
+	RunsHeadless(args []string) bool
+}
+
+// RunsHeadless reports whether the runner's harness runs this launch
+// headlessly. A runner that does not implement HeadlessRunner has no
+// non-interactive mode to read, so its launches are treated as interactive.
+func RunsHeadless(runner Runner, args []string) bool {
+	r, ok := runner.(HeadlessRunner)
+	return ok && r.RunsHeadless(args)
+}
+
 // TierWordRunner is a runner whose harness resolves a tier word (`sonnet`,
 // `best`, `opusplan`) to its own model id inside the client, before it sends a
 // request. Claude Code does; the Switch never sees the word. The other

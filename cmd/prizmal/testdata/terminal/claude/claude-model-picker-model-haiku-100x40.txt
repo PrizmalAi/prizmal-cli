@@ -32,7 +32,7 @@
    other/previous model names, specify with --model.
 
      1. Default (recommended)  Use the default model (currently tier-haiku)
-   ❯ 2. tier-haiku ✔           Quick answers
+   ❯ 2. tier-haiku ✔           flash · Quick answers
      3. smart                  Custom model (smart[1m])
 
    ● High effort (default) ←/→ to adjust

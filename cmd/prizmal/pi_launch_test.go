@@ -140,3 +140,10 @@ export default function (pi) {
 		t.Fatalf("the user's extension ran but wrote nothing: %q", marker)
 	}
 }
+
+// TestHarnessLaunchPiWithoutAModel runs Pi's one-shot mode on a pipe
+// with no model named: the menu cannot open, so the launch sends the config
+// the stub's switch key is bound to.
+func TestHarnessLaunchPiWithoutAModel(t *testing.T) {
+	runHarnessLaunchWithoutAModel(t, "pi")
+}

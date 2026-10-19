@@ -14,6 +14,10 @@ The `"$PRIZMAL_SWITCH_KEY"` value is a reference, not the key, so the file doesn
 
 Each model entry states a `contextWindow` and a `maxTokens`. Pi budgets the session and compacts from the declared window, and it sends the declared output budget as the request's maximum. The Switch's catalog doesn't report a window, so the launch states one rather than leaving Pi's 128000 default, which would compact a session at a fraction of the 1M window the Switch serves. Set `HARNESS_CONTEXT_LENGTH` to override the window for a model whose real one differs. The output budget is the whole window, the most any route allows, and the Switch caps each request to the limit of the route that serves it.
 
+## Model
+
+`prizmal pi` takes the model from `--model`, from the default an earlier `--pick` saved, or from the picker. `prizmal pi --print` runs one prompt and exits, and a launch on a pipe has no terminal, so neither opens the picker: with no model named they stop with an error that lists the names `prizmal --list` prints.
+
 ## Device login
 
 Pi can refresh a device token during a session, so a `prizmal pi` launch runs in device mode on a machine signed in with a device key.

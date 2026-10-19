@@ -28,10 +28,10 @@
    other/previous model names, specify with --model.
 
      1. Default (recommended)  Use the default model (currently tier-opus)
-   ❯ 2. tier-opus ✔            Everyday coding
-     3. tier-sonnet            Balanced cost and speed
-     4. tier-haiku             Quick answers
-     5. tier-fable             Long, hard tasks
+   ❯ 2. tier-opus ✔            smart · Everyday coding
+     3. tier-sonnet            balanced · Balanced cost and speed
+     4. tier-haiku             flash · Quick answers
+     5. tier-fable             deep · Long, hard tasks
      6. experimental           Custom model (experimental[1m])
      7. team-opus-blend        Team blend for refactors
 

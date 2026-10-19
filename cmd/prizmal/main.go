@@ -82,11 +82,6 @@ names that key can route to: the Claude tier aliases your tenant holds first,
 since those route even though the Switch does not list them, then the tenant's
 own entries.
 
-A launch always runs a real model, and never a placeholder. It takes the model
-from --model, or from the default saved by an earlier --pick, or asks with the
-interactive picker when neither names one. There is no default model name, and
-the launch never sends the Switch's bound-config default: with nothing to run
-it stops, and the error lists the names --list prints.
 
 Examples:
   prizmal                                   # list integrations
@@ -339,8 +334,7 @@ func runnerShowsModelList(runner launcher.Runner) bool {
 // resolveLaunchModel decides which model this launch runs.
 //
 // It is the whole precedence, in one place: --model wins, then the default the
-// last pick saved, then the picker. Nothing falls back to a placeholder name:
-// every path either names a real model or stops.
+// last pick saved, then the picker. A launch that cannot ask stops.
 //
 // --pick skips the saved default: asking to choose means choosing, not reusing,
 // which is what makes `prizmal --pick claude` open the menu on a machine that
@@ -365,7 +359,9 @@ func runnerShowsModelList(runner launcher.Runner) bool {
 // whether a person is there to answer, and the menu that asks them. It is a
 // parameter rather than a package variable so the launch says which it uses,
 // and so a test states its own without restoring anything afterwards.
-func resolveLaunchModel(cfg *config.Config, harnessModel string, ask launcher.Asking) (string, []launcher.LaunchModel, error) {
+//
+// headless says the harness runs one prompt and exits, so there is no session
+func resolveLaunchModel(cfg *config.Config, harnessModel string, ask launcher.Asking, headless bool) (string, []launcher.LaunchModel, error) {
 	ctx := context.Background()
 
 	switch {
@@ -379,14 +375,17 @@ func resolveLaunchModel(cfg *config.Config, harnessModel string, ask launcher.As
 		return cfg.DefaultModel, launcher.BestEffortCatalog(ctx, os.Stderr), nil
 	}
 
-	// The operator is choosing: either they asked with --pick, or nothing
-	// names a model and a terminal is there to ask on. Both need a person and
-	// a list, so both are refused before a menu could open empty.
-	if !ask.CanAsk() {
-		if pickFlag {
-			return "", nil, fmt.Errorf(
-				"--pick needs an interactive terminal: pass --model MODEL instead, or run it on a terminal")
-		}
+	// --pick is the operator asking for the menu, and nothing else can answer
+	// for them, so it is refused without a terminal.
+	if pickFlag && !ask.CanAsk() {
+		return "", nil, fmt.Errorf(
+			"--pick needs an interactive terminal: pass --model MODEL instead, or run it on a terminal")
+	}
+
+	// Nothing names a model and nobody can be asked. A scripted run, or one
+	// whose harness prints and exits, cannot open a menu, so it stops with the
+	// names it can choose from. A person at a terminal still gets the menu.
+	if !pickFlag && (headless || !ask.CanAsk()) {
 		return "", nil, noModelSelectedError(ctx)
 	}
 
@@ -715,10 +714,11 @@ func launch(name string, extraArgs []string, cfg *config.Config, ask launcher.As
 	extraArgs = dropSeparators(extraArgs)
 
 	// Every launch runs a real model: the model flag in either position, the
-	// saved default, or a choice the operator makes here. Nothing falls back to
-	// a placeholder name, so an empty model is a stopped launch rather than a
-	// request the switch has to interpret.
-	chosen, catalog, err := resolveLaunchModel(cfg, harnessModel, ask)
+	// saved default, or a choice the operator makes here. A harness run that
+	// prints its answer and exits has no session for a menu to start, so it
+	// never asks, and a launch with no model stops with the names it can use.
+	headless := launcher.RunsHeadless(runner, extraArgs)
+	chosen, catalog, err := resolveLaunchModel(cfg, harnessModel, ask, headless)
 	if err != nil {
 		return err
 	}

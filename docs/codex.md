@@ -6,6 +6,10 @@
 
 `prizmal codex --model your-model` and `prizmal codex -m your-model` choose the model, as `prizmal claude --model` does. Text after a `--` separator goes to Codex untouched.
 
+`prizmal codex exec` and `prizmal codex review` run one turn and exit, so there is no session for a model menu. With no model named by `--model` or a saved default, the launch stops and lists the names `prizmal --list` prints, so a script passes one of them with `-m`. Any launch on a pipe behaves the same way. An interactive session on a terminal still opens the picker.
+
+Without `prizmal`, a scripted Codex run needs a model your key routes, so pass `-m <config>` from `GET /v1/models`: Codex has no `default` name of its own.
+
 ## Provider wiring
 
 | What | Where |

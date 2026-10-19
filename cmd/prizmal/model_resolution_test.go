@@ -168,7 +168,7 @@ func TestDefaultModelIsUsedWhenNoFlagIsGiven(t *testing.T) {
 	setPick(t, false)
 	ask := askNobody
 
-	chosen, _, err := resolveLaunchModel(cfg, "", ask)
+	chosen, _, err := resolveLaunchModel(cfg, "", ask, false)
 	if err != nil {
 		t.Fatalf("resolveLaunchModel: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestSavedDefaultOfDefaultIsNeverSent(t *testing.T) {
 	setModel(t, "")
 	setPick(t, false)
 
-	chosen, _, err := resolveLaunchModel(cfg, "", askNobody)
+	chosen, _, err := resolveLaunchModel(cfg, "", askNobody, false)
 	if err == nil {
 		t.Fatalf("resolved %q, want the launch to stop", chosen)
 	}
@@ -210,7 +210,7 @@ func TestSavedDefaultOfDefaultOpensThePicker(t *testing.T) {
 	setPick(t, false)
 	var rows []string
 
-	chosen, _, err := resolveLaunchModel(cfg, "", askWith(true, "picked-model", &rows))
+	chosen, _, err := resolveLaunchModel(cfg, "", askWith(true, "picked-model", &rows), false)
 	if err != nil {
 		t.Fatalf("resolveLaunchModel: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestModelFlagOverridesDefaultModel(t *testing.T) {
 	setPick(t, false)
 	ask := askNobody
 
-	chosen, _, err := resolveLaunchModel(cfg, "", ask)
+	chosen, _, err := resolveLaunchModel(cfg, "", ask, false)
 	if err != nil {
 		t.Fatalf("resolveLaunchModel: %v", err)
 	}
@@ -254,7 +254,7 @@ func TestPickSavesTheChosenModelAsDefault(t *testing.T) {
 	setPick(t, true)
 	ask := askWith(true, "picked-model", nil)
 
-	chosen, _, err := resolveLaunchModel(cfg, "", ask)
+	chosen, _, err := resolveLaunchModel(cfg, "", ask, false)
 	if err != nil {
 		t.Fatalf("resolveLaunchModel: %v", err)
 	}
@@ -276,7 +276,7 @@ func TestPickSkipsTheSavedDefault(t *testing.T) {
 	setPick(t, true)
 	ask := askWith(true, "fresh-choice", nil)
 
-	chosen, _, err := resolveLaunchModel(cfg, "", ask)
+	chosen, _, err := resolveLaunchModel(cfg, "", ask, false)
 	if err != nil {
 		t.Fatalf("resolveLaunchModel: %v", err)
 	}
@@ -447,7 +447,7 @@ func TestModelFlagIsUnambiguousInALaunch(t *testing.T) {
 	setPick(t, true)
 	ask := askNobody
 
-	chosen, _, err := resolveLaunchModel(cfg, "", ask)
+	chosen, _, err := resolveLaunchModel(cfg, "", ask, false)
 	if err != nil {
 		t.Fatalf("resolveLaunchModel: %v", err)
 	}
@@ -456,23 +456,90 @@ func TestModelFlagIsUnambiguousInALaunch(t *testing.T) {
 	}
 }
 
-// With no model, no default, and no terminal, the launch stops with a message
-// naming what to do. It must not hang waiting on a menu nobody can answer.
-func TestNoModelAndNoTerminalFails(t *testing.T) {
+// With no model, no default, and no terminal, the launch stops with an error
+// that lists the names the key routes. A scripted run gets its choice from the
+// same text `prizmal --list` prints, without opening a menu nobody can answer.
+func TestNoModelAndNoTerminalFailsNamingTheRoutedModels(t *testing.T) {
 	useStubSwitch(t)
-	cfg, _ := writeConfig(t, map[string]any{"version": 1})
+	cfg, home := writeConfig(t, map[string]any{"version": 1})
 	setModel(t, "")
 	setPick(t, false)
 	ask := askNobody
 
-	_, _, err := resolveLaunchModel(cfg, "", ask)
+	_, _, err := resolveLaunchModel(cfg, "", ask, false)
 	if err == nil {
 		t.Fatal("a launch with no model and no terminal must fail")
 	}
-	for _, want := range []string{"--model", "--pick", "default_model"} {
+	for _, want := range []string{"--model", "--pick", "default_model", "saved-model", "picked-model", "flag-model"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error does not name %q: %v", want, err)
 		}
+	}
+	if got := readDefaultModel(t, home); got != "" {
+		t.Errorf("default_model = %q, want a failed launch to save nothing", got)
+	}
+}
+
+// A harness one-shot run is headless even when a terminal is attached: the
+// command prints its answer and exits, so there is no session to pick a model
+// for. The menu must not open, and the launch stops with the routed names.
+func TestHeadlessRunDoesNotOpenTheMenu(t *testing.T) {
+	useStubSwitch(t)
+	cfg, home := writeConfig(t, map[string]any{"version": 1})
+	setModel(t, "")
+	setPick(t, false)
+	// A menu that returns a choice the test would notice: reaching it fails
+	// the assertions below.
+	ask := askWith(true, "picked-model", nil)
+
+	_, _, err := resolveLaunchModel(cfg, "", ask, true)
+	if err == nil {
+		t.Fatal("a headless launch with no model must fail rather than pick")
+	}
+	for _, want := range []string{"saved-model", "picked-model", "flag-model"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error does not name the routed model %q: %v", want, err)
+		}
+	}
+	if got := readDefaultModel(t, home); got != "" {
+		t.Errorf("default_model = %q, want the headless run to save nothing", got)
+	}
+}
+
+// --pick is the operator asking for the menu. On a terminal it still opens
+// for a headless run, because nothing else can answer for it.
+func TestPickStillOpensOnATerminalForAHeadlessRun(t *testing.T) {
+	useStubSwitch(t)
+	cfg, home := writeConfig(t, map[string]any{"version": 1})
+	setModel(t, "")
+	setPick(t, true)
+	ask := askWith(true, "picked-model", nil)
+
+	chosen, _, err := resolveLaunchModel(cfg, "", ask, true)
+	if err != nil {
+		t.Fatalf("resolveLaunchModel: %v", err)
+	}
+	if chosen != "picked-model" {
+		t.Fatalf("resolved %q, want the pick", chosen)
+	}
+	if got := readDefaultModel(t, home); got != "picked-model" {
+		t.Errorf("default_model = %q, want the pick saved", got)
+	}
+}
+
+// A saved default is the operator's earlier choice, so a headless run uses it.
+func TestSavedDefaultIsUsedInAHeadlessRun(t *testing.T) {
+	useStubSwitch(t)
+	cfg, _ := writeConfig(t, map[string]any{"version": 1, "default_model": "saved-model"})
+	setModel(t, "")
+	setPick(t, false)
+
+	chosen, _, err := resolveLaunchModel(cfg, "", askNobody, true)
+	if err != nil {
+		t.Fatalf("resolveLaunchModel: %v", err)
+	}
+	if chosen != "saved-model" {
+		t.Fatalf("resolved %q, want saved-model", chosen)
 	}
 }
 
@@ -504,7 +571,7 @@ func TestBareLaunchOnATerminalOpensThePicker(t *testing.T) {
 	var sawRows []string
 	ask := askWith(true, "chosen-here", &sawRows)
 
-	chosen, catalog, err := resolveLaunchModel(cfg, "", ask)
+	chosen, catalog, err := resolveLaunchModel(cfg, "", ask, false)
 	if err != nil {
 		t.Fatalf("resolveLaunchModel: %v", err)
 	}
@@ -544,7 +611,7 @@ func TestNoLaunchPathResolvesPrizmalDefault(t *testing.T) {
 			setPick(t, false)
 			ask := askWith(true, "picked-model", nil)
 
-			chosen, _, err := resolveLaunchModel(cfg, "", ask)
+			chosen, _, err := resolveLaunchModel(cfg, "", ask, false)
 			if err != nil {
 				t.Fatalf("resolveLaunchModel: %v", err)
 			}
@@ -563,7 +630,7 @@ func TestPickWithoutAConfigStillLaunches(t *testing.T) {
 	setPick(t, true)
 	ask := askWith(true, "picked-model", nil)
 
-	chosen, _, err := resolveLaunchModel(nil, "", ask)
+	chosen, _, err := resolveLaunchModel(nil, "", ask, false)
 	if err != nil {
 		t.Fatalf("resolveLaunchModel(nil, empty): %v", err)
 	}
@@ -610,7 +677,7 @@ func TestPickerRefusesAKeylessRemoteFetch(t *testing.T) {
 	setPick(t, true)
 	ask := askWith(true, "picked-model", nil)
 
-	_, _, err := resolveLaunchModel(cfg, "", ask)
+	_, _, err := resolveLaunchModel(cfg, "", ask, false)
 	if err == nil {
 		t.Fatal("a keyless picker run must be refused")
 	}
@@ -634,7 +701,7 @@ func TestCatalogFetchFailureDoesNotStopAModelFlagLaunch(t *testing.T) {
 	setPick(t, false)
 	ask := askNobody
 
-	chosen, catalog, err := resolveLaunchModel(cfg, "", ask)
+	chosen, catalog, err := resolveLaunchModel(cfg, "", ask, false)
 	if err != nil {
 		t.Fatalf("resolveLaunchModel: %v", err)
 	}
@@ -655,7 +722,7 @@ func TestCatalogFetchFailureStopsThePicker(t *testing.T) {
 	setPick(t, true)
 	ask := askWith(true, "picked-model", nil)
 
-	_, _, err := resolveLaunchModel(cfg, "", ask)
+	_, _, err := resolveLaunchModel(cfg, "", ask, false)
 	if err == nil {
 		t.Fatal("the picker must not open when the model list could not be read")
 	}

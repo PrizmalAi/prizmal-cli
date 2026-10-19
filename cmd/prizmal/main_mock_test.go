@@ -703,11 +703,10 @@ func TestMockHarnessBareCodexLaunchUsesTheSavedDefault(t *testing.T) {
 
 	exitCode, stdout, stderr := runPrizmalSubprocessArgs(t, prizmalBin, home, expDir, exp.name, "--yes")
 	if exitCode != 0 {
-		t.Fatalf("bare prizmal codex exited %d\nstdout: %s\nstderr: %s", exitCode, stdout, stderr)
+		t.Fatalf("prizmal codex exited %d\nstdout: %s\nstderr: %s", exitCode, stdout, stderr)
 	}
 
-	argsFile := filepath.Join(expDir, "codex.called.args")
-	argsData, err := os.ReadFile(argsFile)
+	argsData, err := os.ReadFile(filepath.Join(expDir, "codex.called.args"))
 	if err != nil {
 		t.Fatalf("codex mock not invoked: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
 	}
@@ -722,8 +721,8 @@ func TestMockHarnessBareCodexLaunchUsesTheSavedDefault(t *testing.T) {
 
 // TestMockHarnessBareCodexLaunchFailsWithoutAModel is the other half of the
 // precedence: with no --model and no saved default, a non-interactive launch
-// stops and names the ways out. It must never reach the switch with the sunset
-// prizmal/default name.
+// stops and names the models the key routes. It must never reach the switch
+// with the sunset prizmal/default name.
 func TestMockHarnessBareCodexLaunchFailsWithoutAModel(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping subprocess test in short mode")
@@ -775,9 +774,9 @@ func TestMockHarnessBareCodexLaunchFailsWithoutAModel(t *testing.T) {
 	if strings.Contains(stdout+stderr, "prizmal/default") {
 		t.Errorf("the refusal names the sunset prizmal/default model:\nstdout: %s\nstderr: %s", stdout, stderr)
 	}
-	for _, want := range []string{"--model", "--pick", "default_model"} {
+	for _, want := range []string{"--model", "--pick", "default_model", "prizmal/stub"} {
 		if !strings.Contains(stderr, want) {
-			t.Errorf("refusal does not name %q: %s", want, stderr)
+			t.Errorf("the refusal does not name %q: %s", want, stderr)
 		}
 	}
 	// The launch asks Codex for its version before anything else, so the mock

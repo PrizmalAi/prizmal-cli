@@ -221,34 +221,73 @@ func TestModelRowsSkipEmptyNames(t *testing.T) {
 	}
 }
 
-// The picker offers no default row. The reserved placeholder is being sunset,
-// so a tenant catalog that still lists it must not put it in the menu.
-//
-// The switch publishes the row as `default`, not `prizmal/default`: it serves
-// {"id":"default[1m]","name":"default"} with owned_by prizmal.ai. The filter
-// therefore has to match the name the catalog actually uses, or it silently
-// does nothing and the row reaches the menu.
-func TestModelRowsSkipTheReservedPlaceholder(t *testing.T) {
-	rows := ModelRows([]LaunchModel{
+// A name `--list` prints is never dropped from the picker without a trace. A
+// config that holds a tier is folded into that tier's row, and the row says
+// which config it stands for; every other listed name keeps its own row. The
+// one exception is `default`, the bound-config placeholder a launch never
+// sends, so a row for it would offer a route the CLI refuses.
+func TestModelRowsShowEveryListedName(t *testing.T) {
+	catalog := withClaudeTiers([]LaunchModel{
 		{Name: "default"},
-		{Name: "default[1m]"},
-		{Name: "real-model"},
+		{Name: "advisor-router"},
+		{Name: "poet-config", Tier: "fable"},
+		{Name: "balanced-config", Tier: "sonnet"},
+		{Name: "flash-config", Tier: "haiku"},
+		{Name: "smart-config", Tier: "opus"},
 	})
 
-	if len(rows) != 1 || rows[0].Model != "real-model" {
-		t.Fatalf("rows = %+v, want only real-model; the picker must offer no default row", rows)
+	// The fold leaves the bare name when the catalog has no description for
+	// the config. No separator hangs off the end of the text the row carries.
+	if entry, ok := FindCatalogModel(catalog, "claude-tier-haiku"); !ok || entry.Description != "flash-config" {
+		t.Errorf("haiku tier description = %q, want just the folded config name", entry.Description)
 	}
+
+	rows := ModelRows(catalog)
+
+	// Four tier rows and the one config that holds no tier. `default` is
+	// reserved and gets none.
+	if len(rows) != 5 {
+		t.Fatalf("built %d rows, want 5: %+v", len(rows), rows)
+	}
+
+	byModel := map[string]ModelRow{}
 	for _, row := range rows {
-		if row.Model == "default" || row.Label == "default" {
-			t.Fatalf("row %+v is the sunset default row", row)
+		byModel[row.Model] = row
+	}
+	if _, ok := byModel["advisor-router"]; !ok {
+		t.Errorf("advisor-router is listed but has no row: %+v", rows)
+	}
+
+	for tier, folded := range map[string]string{
+		"claude-tier-fable":  "poet-config",
+		"claude-tier-sonnet": "balanced-config",
+		"claude-tier-haiku":  "flash-config",
+		"claude-tier-opus":   "smart-config",
+	} {
+		row, ok := byModel[tier]
+		if !ok {
+			t.Errorf("%s has no row", tier)
+			continue
+		}
+		// The folded config is what the row stands for, so its name is the
+		// subtitle whether or not the Switch also described it.
+		if !strings.Contains(row.Description, folded) {
+			t.Errorf("%s row is described %q; it must name the folded config %q", tier, row.Description, folded)
+		}
+		// When the Switch described nothing, the row is exactly the config's
+		// name: the fold text counts as the description, so the tier's stock
+		// text is not appended behind it.
+		if tier == "claude-tier-haiku" && row.Description != "flash-config" {
+			t.Errorf("haiku row is described %q, want just the folded config name", row.Description)
 		}
 	}
 }
 
-// A catalog that lists only the reserved name leaves nothing to choose, which
-// is an error rather than an empty menu.
+// The legacy spelling of the placeholder is still the same placeholder, and a
+// catalog that lists only it leaves nothing to choose, which is an error rather
+// than an empty menu.
 func TestModelRowsOfOnlyThePlaceholderAreEmpty(t *testing.T) {
-	if rows := ModelRows([]LaunchModel{{Name: "default"}}); len(rows) != 0 {
+	if rows := ModelRows([]LaunchModel{{Name: "prizmal/default"}}); len(rows) != 0 {
 		t.Fatalf("rows = %+v, want none", rows)
 	}
 }

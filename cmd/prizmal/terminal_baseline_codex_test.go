@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"testing"
+
+	"github.com/PrizmalAi/prizmal-cli/internal/stubserver"
 )
 
 // The Codex screens live under testdata/terminal/codex. The codex workflow
@@ -38,6 +40,19 @@ var codexBaselineCases = []baselineCase{
 	{
 		name: "codex-model-picker-m-smart-100x30", cols: 100, rows: 30,
 		args: []string{"-m", "smart", "codex"}, codex: true,
+		steps: []baselineStep{stepCodexPrompt, stepCodexOpenModel, stepCodexModelPicker},
+	},
+	// Codex's /model lists the same rows as the prizmal picker, so a config
+	// folded into a tier row shows the row's subtitle here too.
+	{
+		name: "codex-model-picker-tier-fold-m-smart-100x30", cols: 100, rows: 30,
+		args: []string{"-m", "smart", "codex"}, codex: true,
+		entries: []stubserver.Entry{
+			{ID: "smart", Tier: "opus", Description: "Balanced blend"},
+			{ID: "flash", Tier: "haiku"},
+			{ID: "advisor-router"},
+			{ID: "default"},
+		},
 		steps: []baselineStep{stepCodexPrompt, stepCodexOpenModel, stepCodexModelPicker},
 	},
 	{

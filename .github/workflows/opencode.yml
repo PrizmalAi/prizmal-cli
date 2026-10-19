@@ -39,4 +39,4 @@ jobs:
       - name: Launch opencode through prizmal
         env:
           PRIZMAL_HARNESS_LAUNCH: require
-        run: go test -count=1 -v -run 'TestHarnessLaunchOpencode$' ./cmd/prizmal
+        run: go test -count=1 -v -run 'TestHarnessLaunchOpencode$|TestHarnessLaunchOpencodeWithoutAModel$' ./cmd/prizmal
