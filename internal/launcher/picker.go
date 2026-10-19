@@ -84,7 +84,8 @@ type ModelRow struct {
 	Tier claudecode.Tier
 }
 
-// reservedModelNames are the placeholder rows the picker never offers.
+// reservedModelNames are the placeholder rows a menu never offers and a launch
+// never sends.
 //
 // The switch publishes this row as `default`: GET /v1/models answers
 // {"id":"default[1m]","name":"default","owned_by":"prizmal.ai"}, so the name to
@@ -101,8 +102,9 @@ const (
 	reservedModelNameLegacy = "prizmal/default"
 )
 
-// isReservedModelName reports whether a catalog name is a placeholder row.
-func isReservedModelName(name string) bool {
+// IsReservedModelName reports whether a name is the bound-config placeholder.
+// A launch never sends it, and no menu offers it.
+func IsReservedModelName(name string) bool {
 	return name == reservedModelName || name == reservedModelNameLegacy
 }
 
@@ -126,7 +128,7 @@ func ModelRows(models []LaunchModel) []ModelRow {
 
 	for _, m := range models {
 		name := ModelNameWithoutSuffix(m.Name)
-		if name == "" || seen[name] || isReservedModelName(name) || m.FoldedInto != "" {
+		if name == "" || seen[name] || IsReservedModelName(name) || m.FoldedInto != "" {
 			continue
 		}
 		seen[name] = true

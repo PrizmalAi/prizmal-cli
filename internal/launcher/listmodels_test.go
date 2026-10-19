@@ -112,8 +112,9 @@ func TestParseSwitchCatalogSkipsEntriesWithNoName(t *testing.T) {
 
 // ListSwitchModels answers the same question the picker does, so the tier
 // aliases the Switch does not list, for the tiers its configs hold, lead the way they lead --pick. The
-// Switch's own entries keep its order underneath: `default` first and the rest
-// sorted, and re-sorting here would fight that.
+// Switch's own entries keep its order underneath, and re-sorting here would
+// fight that. `default` is left out: it names the key's bound config, and a
+// launch never sends it.
 //
 // Every listing test resets the catalog cache: the listing and the launch
 // readers share one fetch, so a test that pointed at a server earlier in the
@@ -132,7 +133,7 @@ func TestListSwitchModelsOffersEveryClaudeTierFirst(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListSwitchModels: %v", err)
 	}
-	want := []string{"claude-tier-opus", "claude-tier-haiku", "default", "alpha", "zeta"}
+	want := []string{"claude-tier-opus", "claude-tier-haiku", "alpha", "zeta"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("names = %v, want %v", names, want)
 	}

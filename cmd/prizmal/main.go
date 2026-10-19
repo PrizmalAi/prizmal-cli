@@ -84,8 +84,9 @@ own entries.
 
 A launch always runs a real model, and never a placeholder. It takes the model
 from --model, or from the default saved by an earlier --pick, or asks with the
-interactive picker when neither names one. There is no default model name: a
-launch with nothing to send stops rather than guessing.
+interactive picker when neither names one. There is no default model name, and
+the launch never sends the Switch's bound-config default: with nothing to run
+it stops, and the error lists the names --list prints.
 
 Examples:
   prizmal                                   # list integrations
@@ -374,7 +375,7 @@ func resolveLaunchModel(cfg *config.Config, harnessModel string, ask launcher.As
 	case harnessModel != "":
 		return harnessModel, launcher.BestEffortCatalog(ctx, os.Stderr), nil
 
-	case cfg != nil && cfg.DefaultModel != "" && !pickFlag:
+	case cfg != nil && cfg.DefaultModel != "" && !pickFlag && !launcher.IsReservedModelName(cfg.DefaultModel):
 		return cfg.DefaultModel, launcher.BestEffortCatalog(ctx, os.Stderr), nil
 	}
 
@@ -386,8 +387,7 @@ func resolveLaunchModel(cfg *config.Config, harnessModel string, ask launcher.As
 			return "", nil, fmt.Errorf(
 				"--pick needs an interactive terminal: pass --model MODEL instead, or run it on a terminal")
 		}
-		return "", nil, fmt.Errorf(
-			"no model selected: pass --model MODEL, run --pick to choose one, or set default_model in the config file")
+		return "", nil, noModelSelectedError(ctx)
 	}
 
 	// The credential gate runs here, before the fetch, and launch() runs it
@@ -421,6 +421,22 @@ func resolveLaunchModel(cfg *config.Config, harnessModel string, ask launcher.As
 		}
 	}
 	return chosen, catalog, nil
+}
+
+// noModelSelectedError names the ways to give a launch a model, and the models
+// this key routes. The CLI never sends `default`, the bound-config
+// placeholder, so a launch with nothing to run stops here instead. When the
+// list cannot be read, the error says where to read it.
+func noModelSelectedError(ctx context.Context) error {
+	msg := "no model selected: pass --model MODEL, run --pick to choose one, or set default_model in the config file"
+	catalog, err := launcher.FetchCatalog(ctx)
+	if err != nil {
+		return fmt.Errorf("%s; run `prizmal --list` for the names this key routes", msg)
+	}
+	if names := launcher.LaunchableNames(catalog); len(names) > 0 {
+		return fmt.Errorf("%s; this key routes: %s", msg, strings.Join(names, ", "))
+	}
+	return fmt.Errorf("%s; run `prizmal --list` for the names this key routes", msg)
 }
 
 // pickDefaultModel opens the picker, saves the choice as the default, and

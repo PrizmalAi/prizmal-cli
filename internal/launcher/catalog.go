@@ -320,8 +320,6 @@ func HoldsTier(catalog []LaunchModel, tier claudecode.Tier) bool {
 // The rule is the Switch's router-config selection, not the listing alone: a
 // name routes when
 //
-//   - it is `default`, which selects the config the key is bound to without
-//     reading the catalogue;
 //   - it is a name the listing carries;
 //   - it is a Claude vendor id whose lineage maps onto a tier the tenant
 //     holds, because the Switch rewrites `claude-<family>...` to
@@ -335,15 +333,25 @@ func HoldsTier(catalog []LaunchModel, tier claudecode.Tier) bool {
 // holds its tier. It does not when the tier is unheld: the launch's own
 // mapping points the word at the launch model, which is the word itself.
 //
+// `default` and its legacy `prizmal/default` spelling are refused whatever the
+// catalogue lists. They name the config the key is bound to, the Switch is
+// dropping that binding, and a launch never falls back to them.
+//
 // An unread catalog passes everything. The launch path reads the catalog on a
 // best effort, and an endpoint that serves no model list is a supported target,
 // so the absence of a list is not evidence of a wrong name.
 func CheckRoutable(name string, catalog []LaunchModel, tierWords bool) error {
-	if len(catalog) == 0 || name == "" {
+	if name == "" {
 		return nil
 	}
+	// The bound-config placeholder is refused whatever the catalogue says,
+	// including when it could not be read: no catalogue makes the name right.
 	bare := ModelNameWithoutSuffix(name)
-	if isReservedModelName(bare) {
+	if IsReservedModelName(bare) {
+		return fmt.Errorf("model %q names the router config the key is bound to, and the Switch is dropping that binding; "+
+			"run `prizmal --list` for the names it routes", name)
+	}
+	if len(catalog) == 0 {
 		return nil
 	}
 	if _, ok := FindCatalogModel(catalog, name); ok {
@@ -484,6 +492,10 @@ func BestEffortCatalog(ctx context.Context, warn io.Writer) []LaunchModel {
 // them under-reported by four names an operator could use, while the README
 // promised it printed the models this key serves. One question, one answer.
 //
+// The bound-config placeholder the Switch lists as `default` is left out. It
+// selects the config the key is bound to, the Switch is dropping that binding,
+// and a launch refuses the name: printing it would offer what a launch rejects.
+//
 // The list is the tenant's, resolved by the Switch from the bearer key alone.
 // No request parameter selects a tenant, so one key can never read another's.
 func ListSwitchModels(ctx context.Context) ([]string, error) {
@@ -491,13 +503,22 @@ func ListSwitchModels(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	return LaunchableNames(catalog), nil
+}
+
+// LaunchableNames returns the names in catalog that a launch can send, in the
+// order the list carries them. The bound-config placeholder is left out: a
+// launch never sends it, so a menu that offered it or a listing that printed it
+// would name something every launch refuses.
+func LaunchableNames(catalog []LaunchModel) []string {
 	names := make([]string, 0, len(catalog))
 	for _, m := range catalog {
-		if m.Name != "" {
-			names = append(names, m.Name)
+		if m.Name == "" || IsReservedModelName(m.Name) {
+			continue
 		}
+		names = append(names, m.Name)
 	}
-	return names, nil
+	return names
 }
 
 // CatalogError describes a failed catalog fetch in one line: the endpoint, the

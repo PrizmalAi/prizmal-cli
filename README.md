@@ -195,6 +195,8 @@ prizmal --restore codex
 # from the key alone, so it holds your tenant's models and no other tenant's.
 # The Claude tier aliases your tenant holds lead, because they route too even
 # though the Switch does not list them; the same aliases head the --pick menu.
+# `default` is left out: it names the key's bound config, and a launch never
+# sends it.
 prizmal --list
 ```
 
@@ -209,8 +211,9 @@ through the same way.
 
 A launch always runs a real model. It takes the model from `--model`, from the
 default an earlier `--pick` saved, or from the interactive picker when neither
-supplies one. When a launch has no model and no terminal to choose on, it stops
-and asks you to pass `--model`.
+supplies one. When a launch has no model and no terminal to choose on, it stops,
+and the error lists the names `--list` prints. The launch never sends the
+Switch's `default` placeholder, which selects the config the key is bound to.
 
 `--model` takes a name your switch key routes, or the label `--list` and the
 pickers print for it. A label drops the `claude-` prefix from the model's name, so

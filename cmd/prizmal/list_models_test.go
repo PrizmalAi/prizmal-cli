@@ -99,8 +99,10 @@ func dirExists(path string) bool {
 // Claude tier aliases first, because they route even though the Switch does not
 // list them, then the Switch's own entries in its order. The alias lines are
 // the point of the expectation — a --list that dropped them would under-report
-// what `prizmal --model claude-tier-opus claude` launches.
-const deployedListing = "claude-tier-opus\nclaude-tier-haiku\ndefault\ncheap\nopus\n"
+// what `prizmal --model claude-tier-opus claude` launches. The `default` entry
+// the Switch sends is left out: it names the key's bound config, which a launch
+// never sends.
+const deployedListing = "claude-tier-opus\nclaude-tier-haiku\ncheap\nopus\n"
 
 // claudeTiers are the alias names withClaudeTiers supplies, in tierWords order.
 // They are pinned here rather than imported because the point of the test is

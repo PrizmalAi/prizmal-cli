@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -177,6 +178,50 @@ func TestDefaultModelIsUsedWhenNoFlagIsGiven(t *testing.T) {
 	// Using the saved default must not rewrite it.
 	if got := readDefaultModel(t, home); got != "saved-model" {
 		t.Errorf("default_model = %q, want it unchanged", got)
+	}
+}
+
+// A saved default_model of `default` names the key's bound config, which the
+// CLI no longer sends. A non-interactive launch that would fall back on it
+// stops, and the error names the models this key routes.
+func TestSavedDefaultOfDefaultIsNeverSent(t *testing.T) {
+	useStubSwitch(t)
+	cfg, _ := writeConfig(t, map[string]any{"version": 1, "default_model": "default"})
+	setModel(t, "")
+	setPick(t, false)
+
+	chosen, _, err := resolveLaunchModel(cfg, "", askNobody)
+	if err == nil {
+		t.Fatalf("resolved %q, want the launch to stop", chosen)
+	}
+	for _, want := range []string{"no model selected", "saved-model", "picked-model", "flag-model"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the error does not name %q: %v", want, err)
+		}
+	}
+}
+
+// On a terminal the same saved default is ignored rather than sent: the
+// picker asks, and the choice replaces it.
+func TestSavedDefaultOfDefaultOpensThePicker(t *testing.T) {
+	useStubSwitch(t)
+	cfg, home := writeConfig(t, map[string]any{"version": 1, "default_model": "default"})
+	setModel(t, "")
+	setPick(t, false)
+	var rows []string
+
+	chosen, _, err := resolveLaunchModel(cfg, "", askWith(true, "picked-model", &rows))
+	if err != nil {
+		t.Fatalf("resolveLaunchModel: %v", err)
+	}
+	if chosen != "picked-model" {
+		t.Fatalf("resolved %q, want the picker's choice", chosen)
+	}
+	if !slices.Contains(rows, "saved-model") {
+		t.Errorf("the picker offered %v, want the catalog's rows", rows)
+	}
+	if got := readDefaultModel(t, home); got != "picked-model" {
+		t.Errorf("default_model = %q, want the picker's choice saved", got)
 	}
 }
 
