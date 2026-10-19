@@ -230,6 +230,24 @@ func TestCodexSendsOnlyRoutableNames(t *testing.T) {
 		}
 	})
 
+	// Codex reads the later of two -c settings for one key, and the launch
+	// appends the operator's arguments last. So a -c the operator passes for a
+	// model slot the launch also sets is the value Codex uses.
+	t.Run("operator-config-over-the-pin", func(t *testing.T) {
+		rec := &stubserver.Recorder{}
+		runCodexNames(t, codexNamesCase("operator-config", rec,
+			[]string{"-m", namesFlash, "--subagent-model", namesFlash, "codex"},
+			[]string{"-c", "review_model=" + namesCore, "exec", "review", "--uncommitted"}, stepPrizmalExit))
+		assertServed(t, rec)
+		call, ok := callWith(rec, reviewPrompt)
+		if !ok {
+			t.Fatalf("no request carried the review prompt: %q", modelsOf(rec))
+		}
+		if call.Model != namesCore {
+			t.Errorf("the review ran on %q, want the operator's %q", call.Model, namesCore)
+		}
+	})
+
 	t.Run("subagent-on-the-subagent-model", func(t *testing.T) {
 		rec := &stubserver.Recorder{}
 		runCodexNames(t, codexNamesCase("subagent-sub", rec, []string{"-m", namesFlash, "--subagent-model", namesCore, "codex"},
