@@ -13,7 +13,7 @@ import (
 
 	"github.com/PrizmalAi/prizmal-cli/internal/device"
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
-	launcher "github.com/PrizmalAi/prizmal-cli/internal/launcher"
+	"github.com/PrizmalAi/prizmal-cli/internal/launcher/registry"
 )
 
 // captureStdout runs f with os.Stdout redirected to a pipe and returns what it
@@ -206,7 +206,7 @@ func TestDeviceLoginAppliesByHarness(t *testing.T) {
 			}
 		})
 	}
-	for _, spec := range launcher.ListAllIntegrationSpecs() {
+	for _, spec := range registry.ListAllIntegrationSpecs() {
 		want := spec.Name == "claude" || spec.Name == "pi" || spec.Name == "codex"
 		if got := deviceLoginApplies(false, []string{spec.Name}); got != want {
 			t.Errorf("deviceLoginApplies for %q = %v, want %v", spec.Name, got, want)

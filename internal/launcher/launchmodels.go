@@ -25,7 +25,7 @@ var ErrNoModel = errors.New("no model selected")
 // lost the catalog still runs the model it was given, without capabilities.
 func LaunchModels(chosen string, catalog []LaunchModel, includeCatalog bool) []LaunchModel {
 	models := []LaunchModel{{Name: chosen}}
-	if entry, ok := findCatalogModel(catalog, chosen); ok {
+	if entry, ok := FindCatalogModel(catalog, chosen); ok {
 		models[0].Capabilities = entry.Capabilities
 		models[0].Tier = entry.Tier
 		models[0].Description = entry.Description
@@ -34,7 +34,7 @@ func LaunchModels(chosen string, catalog []LaunchModel, includeCatalog bool) []L
 		return models
 	}
 	for _, entry := range catalog {
-		if modelNamesSame(entry.Name, chosen) {
+		if ModelNamesSame(entry.Name, chosen) {
 			continue
 		}
 		models = append(models, entry)

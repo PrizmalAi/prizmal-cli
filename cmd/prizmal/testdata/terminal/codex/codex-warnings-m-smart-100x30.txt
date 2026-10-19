@@ -2,7 +2,7 @@
   >_ OpenAI Codex (v0.160.0)
      ~/project
 
-  <greeting>
+
 
 
 
@@ -27,4 +27,4 @@
 
 
 
-  k keep & next · esc dismiss & close · ctrl+o copy · ←/→ warning · ↓ scroll
+  k keep & next · esc dismiss & close · ^o copy · ←/→ warning · ↓ scroll

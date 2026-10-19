@@ -74,21 +74,21 @@ func newCountingSwitch(t *testing.T, body string, calls *int, status ...int) str
 
 func capsOf(t *testing.T, models []LaunchModel, name string) []model.Capability {
 	t.Helper()
-	m, ok := findCatalogModel(models, name)
+	m, ok := FindCatalogModel(models, name)
 	if !ok {
-		t.Fatalf("no model %q in %v", name, launchModelNames(models))
+		t.Fatalf("no model %q in %v", name, LaunchModelNames(models))
 	}
 	return m.Capabilities
 }
 
 // An entry that lists "image" is the only one that may carry vision.
 func TestParseSwitchCatalogMapsInputModalities(t *testing.T) {
-	models, err := parseSwitchCatalog([]byte(switchCatalogJSON))
+	models, err := ParseSwitchCatalog([]byte(switchCatalogJSON))
 	if err != nil {
-		t.Fatalf("parseSwitchCatalog: %v", err)
+		t.Fatalf("ParseSwitchCatalog: %v", err)
 	}
 	if len(models) != 4 {
-		t.Fatalf("parsed %d models, want 4: %v", len(models), launchModelNames(models))
+		t.Fatalf("parsed %d models, want 4: %v", len(models), LaunchModelNames(models))
 	}
 
 	vision := capsOf(t, models, "vision-model")
@@ -111,9 +111,9 @@ func TestParseSwitchCatalogMapsInputModalities(t *testing.T) {
 // A missing or empty input_modalities array means the Switch said nothing, so
 // the entry must carry no capabilities at all: unknown, not text-only.
 func TestParseSwitchCatalogLeavesUnknownEntriesEmpty(t *testing.T) {
-	models, err := parseSwitchCatalog([]byte(switchCatalogJSON))
+	models, err := ParseSwitchCatalog([]byte(switchCatalogJSON))
 	if err != nil {
-		t.Fatalf("parseSwitchCatalog: %v", err)
+		t.Fatalf("ParseSwitchCatalog: %v", err)
 	}
 	for _, name := range []string{"empty-model", "silent-model"} {
 		if caps := capsOf(t, models, name); len(caps) != 0 {
@@ -124,9 +124,9 @@ func TestParseSwitchCatalogLeavesUnknownEntriesEmpty(t *testing.T) {
 
 // An unrecognised modality string is dropped rather than guessed at.
 func TestParseSwitchCatalogDropsUnknownModalities(t *testing.T) {
-	models, err := parseSwitchCatalog([]byte(`{"data":[{"id":"m","input_modalities":["video","hologram"]}]}`))
+	models, err := ParseSwitchCatalog([]byte(`{"data":[{"id":"m","input_modalities":["video","hologram"]}]}`))
 	if err != nil {
-		t.Fatalf("parseSwitchCatalog: %v", err)
+		t.Fatalf("ParseSwitchCatalog: %v", err)
 	}
 	if caps := capsOf(t, models, "m"); len(caps) != 0 {
 		t.Fatalf("capabilities = %v, want none", caps)
@@ -137,13 +137,13 @@ func TestParseSwitchCatalogDropsUnknownModalities(t *testing.T) {
 // out independently of "image": a row can carry both, either, or neither.
 // "file" is the only signal that a router config can take a PDF.
 func TestParseSwitchCatalogMapsFileToDocument(t *testing.T) {
-	models, err := parseSwitchCatalog([]byte(`{"data":[
+	models, err := ParseSwitchCatalog([]byte(`{"data":[
 		{"id":"file-model","input_modalities":["file","text"]},
 		{"id":"both-model","input_modalities":["file","image","text"]},
 		{"id":"image-model","input_modalities":["image","text"]}
 	]}`))
 	if err != nil {
-		t.Fatalf("parseSwitchCatalog: %v", err)
+		t.Fatalf("ParseSwitchCatalog: %v", err)
 	}
 
 	file := capsOf(t, models, "file-model")
@@ -168,8 +168,8 @@ func TestParseSwitchCatalogMapsFileToDocument(t *testing.T) {
 }
 
 func TestParseSwitchCatalogRejectsGarbage(t *testing.T) {
-	if _, err := parseSwitchCatalog([]byte("not json")); err == nil {
-		t.Fatal("parseSwitchCatalog accepted non-JSON")
+	if _, err := ParseSwitchCatalog([]byte("not json")); err == nil {
+		t.Fatal("ParseSwitchCatalog accepted non-JSON")
 	}
 }
 
@@ -233,7 +233,7 @@ func TestBestEffortCatalogWarnsAndReturnsNothing(t *testing.T) {
 	catalog := BestEffortCatalog(context.Background(), &warn)
 
 	if catalog != nil {
-		t.Fatalf("catalog = %v, want nil after a failed fetch", launchModelNames(catalog))
+		t.Fatalf("catalog = %v, want nil after a failed fetch", LaunchModelNames(catalog))
 	}
 	line := warn.String()
 	for _, want := range []string{srv.URL, "500"} {
@@ -259,7 +259,7 @@ func TestBestEffortCatalogSkipsFetchWithoutKey(t *testing.T) {
 
 	var warn strings.Builder
 	if catalog := BestEffortCatalog(context.Background(), &warn); catalog != nil {
-		t.Fatalf("catalog = %v, want nil with no credential present", launchModelNames(catalog))
+		t.Fatalf("catalog = %v, want nil with no credential present", LaunchModelNames(catalog))
 	}
 	if called {
 		t.Fatal("fetched the catalog with no credential present")
@@ -326,7 +326,7 @@ func TestBestEffortCatalogReportsAnEmptyListingAsAFailure(t *testing.T) {
 
 	var warn strings.Builder
 	if got := BestEffortCatalog(context.Background(), &warn); got != nil {
-		t.Fatalf("catalog = %v, want nil for a tenant that serves none", launchModelNames(got))
+		t.Fatalf("catalog = %v, want nil for a tenant that serves none", LaunchModelNames(got))
 	}
 	if !strings.Contains(warn.String(), envconfig.BaseURL()) {
 		t.Errorf("warning = %q, want it to name the endpoint", warn.String())
@@ -353,13 +353,13 @@ func TestBestEffortCatalogWarningOmitsKey(t *testing.T) {
 // across the suffix in both directions, the way it already tolerates :latest,
 // or every launch model falls through to the unknown-capabilities path.
 func TestFindCatalogModelMatchesAcrossOneMillionSuffix(t *testing.T) {
-	catalog, err := parseSwitchCatalog([]byte(`{"data":[
+	catalog, err := ParseSwitchCatalog([]byte(`{"data":[
 		{"id":"vision-config[1m]","input_modalities":["image","text","video"]},
 		{"id":"text-config[1m]","input_modalities":["text"]},
 		{"id":"bare-config","input_modalities":["file","text"]}
 	]}`))
 	if err != nil {
-		t.Fatalf("parseSwitchCatalog: %v", err)
+		t.Fatalf("ParseSwitchCatalog: %v", err)
 	}
 
 	for _, tc := range []struct {
@@ -371,18 +371,18 @@ func TestFindCatalogModelMatchesAcrossOneMillionSuffix(t *testing.T) {
 		{"bare-config[1m]", []model.Capability{model.CapabilityDocument, model.CapabilityCompletion}},
 		{"vision-config[1m]", []model.Capability{model.CapabilityVision, model.CapabilityCompletion}},
 	} {
-		entry, ok := findCatalogModel(catalog, tc.launch)
+		entry, ok := FindCatalogModel(catalog, tc.launch)
 		if !ok {
-			t.Errorf("findCatalogModel(%q) found nothing; catalog ids: %v", tc.launch, launchModelNames(catalog))
+			t.Errorf("FindCatalogModel(%q) found nothing; catalog ids: %v", tc.launch, LaunchModelNames(catalog))
 			continue
 		}
 		if !slices.Equal(entry.Capabilities, tc.want) {
-			t.Errorf("findCatalogModel(%q) capabilities = %v, want %v", tc.launch, entry.Capabilities, tc.want)
+			t.Errorf("FindCatalogModel(%q) capabilities = %v, want %v", tc.launch, entry.Capabilities, tc.want)
 		}
 	}
 
-	if _, ok := findCatalogModel(catalog, "other-config"); ok {
-		t.Error("findCatalogModel matched a name the catalog does not hold")
+	if _, ok := FindCatalogModel(catalog, "other-config"); ok {
+		t.Error("FindCatalogModel matched a name the catalog does not hold")
 	}
 }
 
@@ -448,8 +448,8 @@ func TestModelNamesSameAcrossDecorations(t *testing.T) {
 		{"cheap", "", false},
 		{"cheap", "cheap-preview", false},
 	} {
-		if got := modelNamesSame(tc.a, tc.b); got != tc.want {
-			t.Errorf("modelNamesSame(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
+		if got := ModelNamesSame(tc.a, tc.b); got != tc.want {
+			t.Errorf("ModelNamesSame(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
 		}
 	}
 }
@@ -457,7 +457,7 @@ func TestModelNamesSameAcrossDecorations(t *testing.T) {
 // The strip a printed or sent name gets removes the suffix and nothing else:
 // ":latest" is a real tag a caller can route by, so stripping it would print a
 // name that resolves to a different model than the one listed. Tolerating the
-// tag when comparing names is a separate decision, in modelNamesSame.
+// tag when comparing names is a separate decision, in ModelNamesSame.
 func TestModelNameWithoutSuffixKeepsTags(t *testing.T) {
 	for _, tc := range []struct{ name, want string }{
 		{"cheap", "cheap"},
@@ -507,12 +507,12 @@ func TestBestEffortCatalogNamesKeySourceAndStatusOnFailure(t *testing.T) {
 // The Switch can tag a router config with the Claude tier it serves, and give
 // it a description. An unknown tier is dropped rather than guessed at.
 func TestParseSwitchCatalogReadsTierAndDescription(t *testing.T) {
-	models, err := parseSwitchCatalog([]byte(`{"data":[
+	models, err := ParseSwitchCatalog([]byte(`{"data":[
 		{"id":"smart[1m]","tier":"Opus","description":"Fast and cheap"},
 		{"id":"flash[1m]","tier":"mythos"},
 		{"id":"plain[1m]"}]}`))
 	if err != nil {
-		t.Fatalf("parseSwitchCatalog: %v", err)
+		t.Fatalf("ParseSwitchCatalog: %v", err)
 	}
 	if len(models) != 3 {
 		t.Fatalf("parsed %d models, want 3", len(models))
@@ -533,9 +533,9 @@ func TestParseSwitchCatalogReadsTierAndDescription(t *testing.T) {
 // one line.
 func TestParseSwitchCatalogCleansTheDescription(t *testing.T) {
 	body := `{"data":[{"id":"smart[1m]","description":"Fast\n cheap\u001b]0;title\u0007 \u001b[31mred\u001b[0m\t"}]}`
-	models, err := parseSwitchCatalog([]byte(body))
+	models, err := ParseSwitchCatalog([]byte(body))
 	if err != nil {
-		t.Fatalf("parseSwitchCatalog: %v", err)
+		t.Fatalf("ParseSwitchCatalog: %v", err)
 	}
 	if got := models[0].Description; got != "Fast cheap red" {
 		t.Fatalf("description = %q, want %q", got, "Fast cheap red")

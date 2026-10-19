@@ -56,10 +56,15 @@ const (
 	baselineShotsEnv = "PRIZMAL_TERMINAL_SHOTS"
 
 	// claudeTimeout bounds each wait for a Claude Code screen. Claude Code
-	// takes about ten seconds to draw its prompt, and parallel cases share the
-	// CPU. The prizmal picker draws in well under a second.
+	// takes about ten seconds to draw its prompt. pickerTimeout bounds each
+	// wait for a screen prizmal draws, which takes well under a second on an
+	// idle machine. Both are long because a wait returns the moment its text
+	// shows, so the bound only matters when the machine is busy: parallel
+	// cases, another package's tests or a second checkout's run share the
+	// CPU, and a bound near the idle time made the baselines depend on what
+	// else was running.
 	claudeTimeout = 60 * time.Second
-	pickerTimeout = 10 * time.Second
+	pickerTimeout = 60 * time.Second
 )
 
 var (

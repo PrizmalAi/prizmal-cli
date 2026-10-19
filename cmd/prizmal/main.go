@@ -26,6 +26,7 @@ import (
 	"github.com/spf13/pflag"
 
 	launcher "github.com/PrizmalAi/prizmal-cli/internal/launcher"
+	"github.com/PrizmalAi/prizmal-cli/internal/launcher/registry"
 )
 
 var (
@@ -284,7 +285,7 @@ func listTenantModels() error {
 }
 
 func listIntegrations() error {
-	specs := launcher.ListVisibleIntegrationSpecs()
+	specs := registry.ListVisibleIntegrationSpecs()
 	fmt.Fprintf(os.Stderr, "Supported integrations:\n\n")
 	for _, spec := range specs {
 		line := fmt.Sprintf("  %-14s %s", spec.Name, spec.Description)
@@ -586,7 +587,7 @@ func reconcileModel(flagModel string, harnessModels []string) (string, error) {
 // threaded from the command that started the launch so the launch names the way
 // it asks, rather than reaching for a package variable.
 func launch(name string, extraArgs []string, cfg *config.Config, ask launcher.Asking) error {
-	spec, err := launcher.LookupIntegrationSpec(name)
+	spec, err := registry.LookupIntegrationSpec(name)
 	if err != nil {
 		return fmt.Errorf("%w\nRun `prizmal` to see available integrations", err)
 	}
@@ -639,7 +640,7 @@ func launch(name string, extraArgs []string, cfg *config.Config, ask launcher.As
 		return nil
 	}
 
-	if err := launcher.EnsureIntegrationInstalled(spec.Name, runner); err != nil {
+	if err := registry.EnsureIntegrationInstalled(spec.Name, runner); err != nil {
 		return err
 	}
 

@@ -25,7 +25,7 @@ const (
 // carries only what prizmal can actually learn about a model.
 //
 // Every field here has exactly one writer: the Switch's GET /v1/models
-// catalog fills Name, Capabilities, Tier and Description (parseSwitchCatalog),
+// catalog fills Name, Capabilities, Tier and Description (ParseSwitchCatalog),
 // and withClaudeTiers fills FoldedInto. The server-backed inventory of the
 // original launcher is gone, so a field with no writer is a field nothing can
 // read meaningfully — a context window, an output-token limit or a format that
@@ -59,23 +59,23 @@ func (m LaunchModel) HasCapability(capability model.Capability) bool {
 	return false
 }
 
-// fallbackLaunchModel builds a bare LaunchModel for a model name.
-func fallbackLaunchModel(name string) LaunchModel {
+// FallbackLaunchModel builds a bare LaunchModel for a model name.
+func FallbackLaunchModel(name string) LaunchModel {
 	return LaunchModel{Name: name}
 }
 
-// confirmReader is where the confirmation gate reads an answer, and confirmOut
+// ConfirmInput is where the confirmation gate reads an answer, and ConfirmOutput
 // where it writes the question. Both are variables so a test can stand in for
 // the operator without a terminal: the reader supplies the reply, and the
 // writer is what lets a test assert the question it was asked. They are the
 // pair, and neither replaces any behaviour of its own.
 var (
-	confirmReader           = bufio.NewReader(os.Stdin)
-	confirmOut    io.Writer = os.Stderr
+	ConfirmInput  *bufio.Reader = bufio.NewReader(os.Stdin)
+	ConfirmOutput io.Writer     = os.Stderr
 )
 
-// ansiGray dims text.
-const ansiGray = "\033[37m"
+// AnsiGray dims text.
+const AnsiGray = "\033[37m"
 
 // ErrCancelled is returned when the user cancels a prompt.
 var ErrCancelled = errors.New("cancelled")
@@ -135,8 +135,8 @@ func plainConfirmPrompt(prompt string, options ConfirmOptions) (bool, error) {
 	// Explicit discard, like the other best-effort writes to a terminal: a
 	// prompt that cannot be written still reads an answer, and the gate's own
 	// decision is what the caller acts on.
-	_, _ = fmt.Fprintf(confirmOut, "%s %s ", prompt, suffix)
-	line, err := confirmReader.ReadString('\n')
+	_, _ = fmt.Fprintf(ConfirmOutput, "%s %s ", prompt, suffix)
+	line, err := ConfirmInput.ReadString('\n')
 	if err != nil && line == "" {
 		return false, err
 	}
@@ -147,8 +147,8 @@ func plainConfirmPrompt(prompt string, options ConfirmOptions) (bool, error) {
 	return answer == "y" || answer == "yes", nil
 }
 
-// launchModelNames extracts non-empty model names from a LaunchModel list.
-func launchModelNames(models []LaunchModel) []string {
+// LaunchModelNames extracts non-empty model names from a LaunchModel list.
+func LaunchModelNames(models []LaunchModel) []string {
 	names := make([]string, 0, len(models))
 	for _, m := range models {
 		if m.Name != "" {
@@ -158,9 +158,9 @@ func launchModelNames(models []LaunchModel) []string {
 	return names
 }
 
-// SupportedIntegration lets an integration report platform support separately
-// from installation state.
-type SupportedIntegration interface {
+// SupportChecker is what a runner implements when the platform it runs on
+// decides whether it is supported.
+type SupportChecker interface {
 	Supported() error
 }
 
@@ -250,8 +250,8 @@ type Installed interface {
 	Installed() bool
 }
 
-// AnsiRed, AnsiGreen, AnsiReset and AnsiBold are exported ANSI helpers for
-// the CLI entrypoint.
+// AnsiRed, AnsiGreen, AnsiYellow, AnsiReset, AnsiGray and AnsiBold are
+// exported ANSI helpers for the CLI entrypoint and the harness packages.
 const (
 	AnsiRed    = ansiRed
 	AnsiGreen  = ansiGreen
@@ -260,11 +260,11 @@ const (
 	AnsiBold   = ansiBold
 )
 
-// readJSONFile returns nil, nil when the file is absent (there is nothing to
+// ReadJSONFile returns nil, nil when the file is absent (there is nothing to
 // restore) and an error otherwise, parsed as a generic JSON object. The
 // restore paths of pi and cline share it: both remove what their Edit added
 // and must treat an absent config as nothing to do.
-func readJSONFile(path string) (map[string]any, error) {
+func ReadJSONFile(path string) (map[string]any, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -279,10 +279,10 @@ func readJSONFile(path string) (map[string]any, error) {
 	return config, nil
 }
 
-// writeJSONFile0600 marshals and writes a JSON config at 0600 without taking
+// WriteJSONFile0600 marshals and writes a JSON config at 0600 without taking
 // a backup. The restore paths use it in place of fileutil.WriteWithBackup,
 // because that helper would copy the key being removed into ~/.prizmal/backup.
-func writeJSONFile0600(path string, config map[string]any) error {
+func WriteJSONFile0600(path string, config map[string]any) error {
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return err
