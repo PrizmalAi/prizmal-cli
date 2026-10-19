@@ -58,6 +58,9 @@ func (c *Codex) args(model, modelCatalogPath string, extra []string) ([]string, 
 	for _, override := range codexManagedConfigOverrides(modelCatalogPath) {
 		args = append(args, "-c", override)
 	}
+	for _, override := range codexHygieneOverrides() {
+		args = append(args, "-c", override)
+	}
 	if model != "" {
 		args = append(args, "-m", model)
 	}
@@ -71,6 +74,10 @@ func (c *Codex) Installed() bool {
 }
 
 func (c *Codex) Run(model string, models []LaunchModel, args []string) error {
+	codexPath, err := codexInstaller.EnsureInstalled()
+	if err != nil {
+		return err
+	}
 	if err := checkCodexVersion(); err != nil {
 		return err
 	}
@@ -89,11 +96,11 @@ func (c *Codex) Run(model string, models []LaunchModel, args []string) error {
 		return fmt.Errorf("failed to configure codex: %w", err)
 	}
 
-	cmd := exec.Command("codex", codexArgs...)
+	cmd := exec.Command(codexPath, codexArgs...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Env = append(os.Environ(), c.envVars()...)
+	cmd.Env = codexChildEnv()
 	return cmd.Run()
 }
 
@@ -103,6 +110,108 @@ func (c *Codex) Run(model string, models []LaunchModel, args []string) error {
 // credential-shaped outlives the launched process.
 func (c *Codex) envVars() []string {
 	return []string{"OPENAI_API_KEY=" + envconfig.APIKey()}
+}
+
+// codexInheritedVars are the variables the CLI never passes on to Codex.
+//
+// Each one would send the session somewhere other than the Switch, or sign it
+// in as someone other than the Switch key: CODEX_API_KEY and CODEX_ACCESS_TOKEN
+// override the credential Codex resolves, OPENAI_BASE_URL names another
+// endpoint for the tools that read it, and CODEX_HOME moves Codex to a
+// configuration directory that holds none of the files a launch writes.
+var codexInheritedVars = []string{
+	"OPENAI_BASE_URL",
+	"CODEX_API_KEY",
+	"CODEX_ACCESS_TOKEN",
+	"CODEX_HOME",
+}
+
+// codexChildEnv builds Codex's environment: the inherited environment minus
+// codexInheritedVars, then the variables the launch sets. The launch's own
+// names are skipped in the inherited pass, so each appears once and the
+// launch value wins.
+func codexChildEnv() []string {
+	drop := make(map[string]bool, len(codexInheritedVars))
+	for _, name := range codexInheritedVars {
+		drop[name] = true
+	}
+	fixed := (&Codex{}).envVars()
+	for _, kv := range fixed {
+		name, _, _ := strings.Cut(kv, "=")
+		drop[name] = true
+	}
+
+	env := make([]string, 0, len(os.Environ())+len(fixed))
+	for _, kv := range os.Environ() {
+		name, _, _ := strings.Cut(kv, "=")
+		if drop[name] {
+			continue
+		}
+		env = append(env, kv)
+	}
+	return append(env, fixed...)
+}
+
+// codexHygieneOverrides are the -c settings that keep a launch quiet: Codex
+// analytics and the feedback upload are off, and --subagent-model, when given,
+// names the model for both slots Codex reads for work it delegates.
+// agents.default_subagent_model is the model a spawned subagent runs when the
+// spawn call names none, which is the slot the flag's own name means;
+// review_model is the model /review runs. They travel on the command line, so
+// nothing is written to disk.
+func codexHygieneOverrides() []string {
+	overrides := []string{
+		"analytics.enabled=false",
+		"feedback.enabled=false",
+	}
+	if sub := selectedSubagentModel(); sub != "" {
+		overrides = append(overrides,
+			fmt.Sprintf("agents.default_subagent_model=%q", sub),
+			fmt.Sprintf("review_model=%q", sub),
+		)
+	}
+	return overrides
+}
+
+// codexInstaller is Codex's install story. It is the plain one, like Cline's:
+// npm puts the binary on PATH when it works, so there is no fallback directory
+// to read, and Node.js is the only thing the installer needs on every
+// platform.
+var codexInstaller = Installer{
+	Name:         "codex",
+	DisplayName:  "Codex",
+	Prompt:       "Codex is not installed. Install with npm?",
+	Locate:       locateCodex,
+	Dependencies: codexInstallerDependencies,
+	Command:      codexInstallerCommand,
+}
+
+// locateCodex returns the codex binary when it is on PATH. It returns the bare
+// command name rather than the path LookPath resolved, which is what a codex
+// launch has always exec'd.
+func locateCodex(string) (string, error) {
+	if _, err := exec.LookPath("codex"); err != nil {
+		return "", errHarnessAbsent
+	}
+	return "codex", nil
+}
+
+// codexInstallerDependencies lists what Codex's installer needs: npm installs
+// Codex on every platform alike, so Node.js is the whole list.
+func codexInstallerDependencies(string) []Dependency {
+	return []Dependency{npmDependency}
+}
+
+// codexInstallerCommand is the npm install Codex ships, on every platform.
+func codexInstallerCommand(string) (string, []string, error) {
+	return "npm", []string{"install", "-g", "@openai/codex"}, nil
+}
+
+// ensureCodexInstalled installs Codex when it is missing, after the operator
+// confirms.
+func ensureCodexInstalled() error {
+	_, err := codexInstaller.EnsureInstalled()
+	return err
 }
 
 func (c *Codex) Restore() (RestoreOutcome, error) {

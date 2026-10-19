@@ -59,8 +59,9 @@ var integrationSpecs = []*IntegrationSpec{
 		Runner:      &Codex{},
 		Description: "OpenAI's open-source coding agent",
 		Install: IntegrationInstallSpec{
-			URL:     "https://developers.openai.com/codex/cli/",
-			Command: []string{"npm", "install", "-g", "@openai/codex"},
+			EnsureInstalled: ensureCodexInstalled,
+			URL:             "https://developers.openai.com/codex/cli/",
+			Command:         []string{"npm", "install", "-g", "@openai/codex"},
 		},
 	},
 	{
