@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"github.com/PrizmalAi/prizmal-cli/internal/internaltest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -202,7 +203,7 @@ func TestGateLocalhostKeylessLaunches(t *testing.T) {
 	if err == nil {
 		envDump := string(envData)
 		if !strings.Contains(envDump, "ANTHROPIC_AUTH_TOKEN=") {
-			t.Errorf("mock saw no ANTHROPIC_AUTH_TOKEN at all: %s", envDump)
+			t.Errorf("mock saw no ANTHROPIC_AUTH_TOKEN at all: %s", internaltest.RedactEnvDump(envDump))
 		}
 	}
 }

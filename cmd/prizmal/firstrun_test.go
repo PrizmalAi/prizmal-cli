@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"github.com/PrizmalAi/prizmal-cli/internal/internaltest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +19,7 @@ func useTempHome(t *testing.T) string {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home) // windows
+	internaltest.ClearCredentialEnv(t)
 	return home
 }
 
