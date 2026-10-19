@@ -5,6 +5,7 @@ package main
 import (
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -163,6 +164,66 @@ func TestClaudeSendsOnlyRoutableNames(t *testing.T) {
 			}
 		})
 	}
+
+	// A bare tier word is a name Claude Code resolves itself. On a tenant that
+	// holds the tier, the launch maps its ids onto the tier's alias, so the
+	// session and its background calls carry names the tenant routes. A held
+	// haiku tier is the exception: the launch leaves haiku out of
+	// modelOverrides, because a haiku profile would refuse auto mode, so the
+	// session's id reaches the Switch as the vendor id it maps onto the alias.
+	for _, tc := range []struct{ word, wire string }{
+		{"sonnet", "claude-tier-sonnet"},
+		{"opus", "claude-tier-opus"},
+		{"haiku", "claude-haiku-4-5-20251001"},
+		{"best", "claude-tier-fable"},
+	} {
+		t.Run("held-tiers/launch-"+tc.word, func(t *testing.T) {
+			t.Parallel()
+			rec := &stubserver.Recorder{}
+			entries := namesHeldTiers
+			if tc.word == "best" {
+				// best runs the fable tier, which this tenant holds too.
+				entries = append(slices.Clone(namesHeldTiers), stubserver.Entry{ID: "prizmal-fable", Tier: "fable"})
+			}
+			runClaudeNames(t, claudeNamesCase("launch-"+tc.word, rec, entries, []string{"-m", tc.word, "claude"},
+				stepClaudeReady, stepClaudeSend("hi"), stepClaudeEnter))
+			assertServed(t, rec)
+			if !slices.Contains(modelsOf(rec), tc.wire) {
+				t.Errorf("-m %s sent %q, want %q among them", tc.word, modelsOf(rec), tc.wire)
+			}
+		})
+	}
+
+	// A name copied off a picker row reads "tier-opus" and routes as the
+	// catalog's own name, which carries the prefix the label drops.
+	t.Run("held-tiers/launch-picker-label", func(t *testing.T) {
+		t.Parallel()
+		rec := &stubserver.Recorder{}
+		runClaudeNames(t, claudeNamesCase("launch-picker-label", rec, namesHeldTiers, []string{"-m", "tier-opus", "claude"},
+			stepClaudeReady, stepClaudeSend("hi"), stepClaudeEnter))
+		assertServed(t, rec)
+		if !slices.Contains(modelsOf(rec), "claude-tier-opus") {
+			t.Errorf("-m tier-opus sent %q, want claude-tier-opus among them", modelsOf(rec))
+		}
+	})
+
+	// A subagent tier word resolves through the same chain: a held tier onto
+	// its alias, an unheld one onto the launch model.
+	t.Run("held-tiers/subagent-model-sonnet", func(t *testing.T) {
+		t.Parallel()
+		rec := &stubserver.Recorder{}
+		runClaudeNames(t, claudeNamesCase("subagent-model-sonnet", rec, namesHeldTiers,
+			[]string{"-m", namesFrontier, "--subagent-model", "sonnet", "claude"},
+			stepClaudeReady, stepClaudeSend(stubserver.SpawnGeneralTrigger), stepClaudeEnter))
+		child, ok := subagentCall(rec)
+		if !ok {
+			t.Fatalf("Claude Code spawned no subagent; it sent %q", modelsOf(rec))
+		}
+		assertServed(t, rec)
+		if child.Model != "claude-tier-sonnet" {
+			t.Errorf("the subagent ran on %q, want claude-tier-sonnet", child.Model)
+		}
+	})
 
 	t.Run("subagent-model", func(t *testing.T) {
 		t.Parallel()

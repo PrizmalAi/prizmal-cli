@@ -17,7 +17,7 @@ A launch states the model twice, in the inline settings JSON and as the `--model
 
 Subagents run the session model by default. `--subagent-model` gives them a different one; there is no settings-JSON equivalent, so that variable is the only channel.
 
-The Switch refuses a model name that is not one of your tenant's router configs or an alias, so every name Claude Code can send has to be one of those. The launch refuses a `--model`, a saved default or a `--subagent-model` that your tenant does not route, and it lists only the tier aliases your tenant holds. Claude Code also turns a tier word (`/model sonnet`, a built-in agent's model, the small model behind background calls) into its own model id. For a tier your tenant holds, `modelOverrides` maps those ids to the alias. For a tier it does not hold, the launch sets `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL` or `ANTHROPIC_DEFAULT_FABLE_MODEL` to the launch model, so the word resolves to a name your tenant routes. `ANTHROPIC_DEFAULT_OPUS_MODEL` is always the launch model.
+The Switch refuses a model name that is not one of your tenant's router configs or an alias, so every name Claude Code can send has to be one of those. The launch refuses a `--model`, a saved default or a `--subagent-model` that your tenant does not route, and it lists only the tier aliases your tenant holds. Claude Code also turns a tier word (`/model sonnet`, a built-in agent's model, the small model behind background calls) into its own model id. When your tenant holds the tier, `modelOverrides` maps those ids to the alias, and when it does not, the launch sets `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL` or `ANTHROPIC_DEFAULT_FABLE_MODEL` to the launch model, so the word resolves to a name your tenant routes. `ANTHROPIC_DEFAULT_OPUS_MODEL` is always the launch model, unless the launch model is itself a held tier word, which resolves to that tier's alias.
 
 ## Device login
 
@@ -67,7 +67,9 @@ Pass the model with `--model` and append `[1m]`, so Claude Code budgets the 1M-t
 claude --model 'claude-tier-haiku[1m]'
 ```
 
-A tier alias routes only when your tenant assigned a router config to that tier. Without that, the Switch refuses the name. Use the alias for the haiku tier, and avoid `--model haiku`. Claude Code reads `haiku` as Claude Haiku 4.5, and it turns auto mode off for every model released before Claude Opus 4.6, Haiku 4.5 among them.
+A name copied off a `/model` row works too, because `tier-opus` is another spelling of `claude-tier-opus`. A tier alias routes only when your tenant assigned a router config to that tier. Without that, the Switch refuses the name, and a launch refuses a tier word for a tier your tenant does not hold.
+
+Prefer the alias for the haiku tier over `--model haiku`. A held haiku tier routes `haiku` too. Claude Code reads the word as Claude Haiku 4.5, the Switch maps that id to your `claude-tier-haiku` config, and the session starts without auto mode, because Claude Code turns auto mode off for every model released before Claude Opus 4.6.
 
 To get the tier rows in `/model` with the window and model profile `prizmal claude` gives them, save these settings as `prizmal-claude.json`:
 

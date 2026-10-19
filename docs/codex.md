@@ -40,7 +40,7 @@ Subagents run the session model by default. `--subagent-model` gives them a diff
 
 ## Model names
 
-The Switch refuses a model name that is not one of your tenant's router configs or an alias. Codex fills most model settings from the session model, and the launch sets the rest, so every request carries a name your tenant routes. `/review`, compaction, the auto reviewer and spawned subagents run the session model unless `--subagent-model` says otherwise. The memory pipeline defaults to two OpenAI model ids that Codex sends whether or not the catalog lists them, so the launch sets `memories.extract_model` and `memories.consolidation_model` to the launch model. The launch also refuses a `-m` or `--subagent-model` that your tenant does not route.
+The Switch refuses a model name that is not one of your tenant's router configs or an alias. Codex fills most model settings from the session model, and the launch sets the rest, so every request carries a name your tenant routes. `/review`, compaction, the auto reviewer and spawned subagents run the session model unless `--subagent-model` says otherwise. The memory pipeline defaults to two OpenAI model ids that Codex sends whether or not the catalog lists them, so the launch sets `memories.extract_model` and `memories.consolidation_model` to the launch model. The launch also refuses a `-m` or `--subagent-model` that your tenant does not route. A name copied off Codex's `/model` list or footer works: the row reads `tier-opus` and routes as `claude-tier-opus`.
 
 ## Edit tool
 

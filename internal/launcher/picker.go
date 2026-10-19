@@ -49,6 +49,28 @@ func modelDisplayLabel(name string) string {
 	return label
 }
 
+// RouteName returns the catalog's name for a name an operator typed. A picker
+// row's label drops the claude- prefix its model carries, so a person copying
+// a row off the screen types "tier-opus" for the model the catalog lists as
+// "claude-tier-opus". The prefix goes back on, and a name the catalog already
+// carries is returned unchanged: a tenant whose config is named "tier-opus"
+// keeps that spelling routing to its own config.
+//
+// Only a name the catalog lists is decorated. Anything else is the operator's
+// own text, which the CLI does not rewrite.
+func RouteName(catalog []LaunchModel, name string) string {
+	if len(catalog) == 0 || name == "" {
+		return name
+	}
+	if _, ok := FindCatalogModel(catalog, name); ok {
+		return name
+	}
+	if _, ok := FindCatalogModel(catalog, claudecode.ModelPrefix+name); ok {
+		return claudecode.ModelPrefix + name
+	}
+	return name
+}
+
 // ModelRow is one row of the model picker, and one option of the launched
 // harness's own picker. Label is what a person reads and Model is the id that
 // routes. BehavesAs and Description are empty for a model with no tier word.

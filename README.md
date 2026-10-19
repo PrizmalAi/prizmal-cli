@@ -212,6 +212,12 @@ default an earlier `--pick` saved, or from the interactive picker when neither
 supplies one. When a launch has no model and no terminal to choose on, it stops
 and asks you to pass `--model`.
 
+`--model` takes a name your switch key routes, or the label `--list` and the
+pickers print for it. A label drops the `claude-` prefix from the model's name, so
+`tier-opus` and `claude-tier-opus` name the same router config. Claude Code
+launches also take its tier words (`sonnet`, `opus`, `haiku`, `fable`, `best`,
+`opusplan`, in any case) for a tier your tenant holds.
+
 Backups of any modified config files are kept in `~/.prizmal/backup/`.
 Each launch, `--persist` and `--restore` deletes any backup there that
 has a Switch key in it, and prints the path of each file it deletes. A

@@ -214,6 +214,22 @@ func TestCodexSendsOnlyRoutableNames(t *testing.T) {
 		}
 	})
 
+	// The footer and /model read "tier-opus" for the claude-tier-opus config,
+	// so a name copied off the screen has to launch as the catalog's own name.
+	t.Run("picker-label", func(t *testing.T) {
+		rec := &stubserver.Recorder{}
+		tc := codexNamesCase("picker-label", rec, []string{"-m", "tier-opus", "codex"}, nil,
+			stepCodexPrompt, stepCodexSendHi, stepCodexSubmit)
+		tc.entries = []stubserver.Entry{{ID: "claude-tier-opus", Tier: "opus"}, {ID: namesFlash}}
+		runCodexNames(t, tc)
+		assertServed(t, rec)
+		for _, m := range modelsOf(rec) {
+			if m != "claude-tier-opus" {
+				t.Errorf("a request named %q, want the decorated config %q", m, "claude-tier-opus")
+			}
+		}
+	})
+
 	t.Run("subagent-on-the-subagent-model", func(t *testing.T) {
 		rec := &stubserver.Recorder{}
 		runCodexNames(t, codexNamesCase("subagent-sub", rec, []string{"-m", namesFlash, "--subagent-model", namesCore, "codex"},

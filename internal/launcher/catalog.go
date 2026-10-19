@@ -317,25 +317,76 @@ func HoldsTier(catalog []LaunchModel, tier claudecode.Tier) bool {
 // them, so a name outside it is a router config the tenant has no copy of, and
 // the Switch answers it with an error instead of a model.
 //
-// `default` is refused whatever the catalog lists. It names the router config
-// the key is bound to, and the Switch is dropping that binding.
+// The rule is the Switch's router-config selection, not the listing alone: a
+// name routes when
+//
+//   - it is `default`, which selects the config the key is bound to without
+//     reading the catalogue;
+//   - it is a name the listing carries;
+//   - it is a Claude vendor id whose lineage maps onto a tier the tenant
+//     holds, because the Switch rewrites `claude-<family>...` to
+//     `claude-tier-<family>`. A lineage whose holder this CLI cannot read,
+//     mythos, is passed: the CLI carries no tier for it, and a catalogue it
+//     cannot see a holder in is no evidence of a missing one.
+//
+// tierWords says the harness resolves a tier word (`sonnet`, `best`,
+// `opusplan`) to its own id for the tier before it sends it, and the launch
+// maps that id onto the tenant's alias. Such a word routes when the tenant
+// holds its tier. It does not when the tier is unheld: the launch's own
+// mapping points the word at the launch model, which is the word itself.
 //
 // An unread catalog passes everything. The launch path reads the catalog on a
 // best effort, and an endpoint that serves no model list is a supported target,
 // so the absence of a list is not evidence of a wrong name.
-func CheckRoutable(name string, catalog []LaunchModel) error {
+func CheckRoutable(name string, catalog []LaunchModel, tierWords bool) error {
 	if len(catalog) == 0 || name == "" {
 		return nil
 	}
 	bare := ModelNameWithoutSuffix(name)
 	if isReservedModelName(bare) {
-		return fmt.Errorf("model %q names the router config the key is bound to, which the Switch is dropping; "+
-			"run `prizmal --list` for the names it routes", name)
+		return nil
 	}
 	if _, ok := FindCatalogModel(catalog, name); ok {
 		return nil
 	}
+	if tierWords {
+		if tier, ok := claudecode.TierWord(bare); ok {
+			if HoldsTier(catalog, tier) {
+				return nil
+			}
+			return fmt.Errorf("model %q runs the %s tier, which this Switch holds no router config for; "+
+				"run `prizmal --list` for the names it does route", name, tier)
+		}
+	}
+	if family := claudecode.VendorFamily(bare); family != "" {
+		if !TierKnown(family) {
+			return nil
+		}
+		if HoldsTier(catalog, claudecode.Tier(family)) {
+			return nil
+		}
+		return fmt.Errorf("model %q is a %s id, and this Switch holds no router config for the %s tier; "+
+			"run `prizmal --list` for the names it does route", name, family, family)
+	}
 	return fmt.Errorf("model %q is not a name this Switch routes; run `prizmal --list` for the names it does", name)
+}
+
+// TierKnown reports whether this CLI carries the tier a Switch family names.
+func TierKnown(family string) bool {
+	return slices.Contains(claudecode.Tiers, claudecode.Tier(family))
+}
+
+// CheckSubagentRoutable is CheckRoutable for a subagent model. A tier word is
+// always a name the launch can send: it resolves through the same chain, and
+// an unheld tier's word lands on the launch model, which the launch check
+// already accepted.
+func CheckSubagentRoutable(name string, catalog []LaunchModel, tierWords bool) error {
+	if tierWords {
+		if _, ok := claudecode.TierWord(ModelNameWithoutSuffix(name)); ok {
+			return nil
+		}
+	}
+	return CheckRoutable(name, catalog, tierWords)
 }
 
 // FindCatalogModel looks a model name up in a list of catalog entries, using

@@ -38,6 +38,11 @@ func (c *Claude) ShowsModelList() bool { return true }
 // unknown.
 func (c *Claude) OwnsModelFlag() bool { return true }
 
+// ResolvesTierWords reports that Claude Code resolves a tier word to its own
+// id for the tier, inside the client, so the Switch receives the id rather
+// than the word. The launch maps that id onto the tenant's alias for the tier.
+func (c *Claude) ResolvesTierWords() bool { return true }
+
 // TakesSubagentModel reports that Claude Code gives subagents the model
 // --subagent-model names.
 func (c *Claude) TakesSubagentModel() bool { return true }
@@ -351,7 +356,7 @@ func claudeChildEnv(model string, rows []launch.ModelRow) []string {
 	// It also makes the "opus" alias resolve to the pinned model, the one
 	// target this launch routes to.
 	if model != "" {
-		fixed = append(fixed, "ANTHROPIC_DEFAULT_OPUS_MODEL="+claudeLaunchModelName(model, rows))
+		fixed = append(fixed, "ANTHROPIC_DEFAULT_OPUS_MODEL="+claudeEnvModelName(model, rows))
 		fixed = append(fixed, claudeUnheldTierDefaults(model, rows)...)
 	}
 
@@ -382,7 +387,7 @@ func claudeChildEnv(model string, rows []launch.ModelRow) []string {
 // the /model picker's Default row.
 func claudeUnheldTierDefaults(model string, rows []launch.ModelRow) []string {
 	held := claudeHeldTiers(rows)
-	name := claudeLaunchModelName(model, rows)
+	name := claudeEnvModelName(model, rows)
 	var vars []string
 	for _, tier := range claudecode.Tiers {
 		if tier == claudecode.Opus || held[tier] {
@@ -391,6 +396,26 @@ func claudeUnheldTierDefaults(model string, rows []launch.ModelRow) []string {
 		vars = append(vars, "ANTHROPIC_DEFAULT_"+strings.ToUpper(string(tier))+"_MODEL="+name)
 	}
 	return vars
+}
+
+// claudeEnvModelName is the name a tier variable carries for a launch: the
+// name the launch model resolves to, as far as the tier chain is concerned.
+//
+// A tier word is the one name that differs. Claude Code resolves a tier word
+// to its own id for the tier, so a tier variable pointing at the word itself
+// would make the word resolve to itself and reach the Switch unchanged. A held
+// tier's word points at that tier's alias instead, which is the name the
+// launch maps the tier's ids onto and the Switch routes. Any other launch
+// model names itself.
+func claudeEnvModelName(model string, rows []launch.ModelRow) string {
+	if tier, ok := claudecode.TierWord(model); ok {
+		for _, row := range rows {
+			if row.Model == claudecode.TierModel(tier) {
+				return claudeRowModelName(row)
+			}
+		}
+	}
+	return claudeLaunchModelName(model, rows)
 }
 
 // claudeHeldTiers reports which tiers have an alias row, so a config on the

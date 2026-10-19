@@ -33,7 +33,20 @@ func TestLaunchStopsOnANameTheSwitchDoesNotRoute(t *testing.T) {
 		{name: "a held tier alias", args: []string{"-m", "claude-tier-haiku"}, wantRuns: true},
 		{name: "an unknown name", args: []string{"-m", "gpt-5.6-luna"}, wantErr: `"gpt-5.6-luna" is not a name this Switch routes`},
 		{name: "a tier the tenant does not hold", args: []string{"-m", "claude-tier-opus"}, wantErr: `"claude-tier-opus" is not a name this Switch routes`},
-		{name: "default", args: []string{"-m", "default"}, wantErr: "names the router config the key is bound to"},
+		// `default` selects the config the key is bound to, which is a launch
+		// with no model at all.
+		{name: "default", args: []string{"-m", "default"}, wantRuns: true},
+		{name: "the legacy default spelling", args: []string{"-m", "prizmal/default"}, wantRuns: true},
+		// Claude Code resolves a tier word itself, to the id the tenant's
+		// alias maps: held here for haiku, not for sonnet.
+		{name: "a held tier word", args: []string{"-m", "haiku"}, wantRuns: true},
+		{name: "an unheld tier word", args: []string{"-m", "sonnet"}, wantErr: `"sonnet" runs the sonnet tier`},
+		{name: "a vendor id of a held tier", args: []string{"-m", "claude-haiku-4-5-20251001"}, wantRuns: true},
+		{name: "a subagent tier word", args: []string{"-m", "prizmal-core", "--subagent-model", "sonnet"}, wantRuns: true},
+		// The picker's row reads "tier-haiku"; the name that routes carries
+		// the claude- prefix the label drops.
+		{name: "a picker label", args: []string{"-m", "tier-haiku"}, wantRuns: true},
+		{name: "a picker label of an unheld tier", args: []string{"-m", "tier-opus"}, wantErr: `"tier-opus" is not a name this Switch routes`},
 		{name: "an unknown subagent model", args: []string{"-m", "prizmal-core", "--subagent-model", "gpt-5.6-luna"}, wantErr: `--subagent-model: model "gpt-5.6-luna"`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

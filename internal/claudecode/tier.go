@@ -198,3 +198,54 @@ func RoutableNameAll(name string) string {
 		bare = stripped
 	}
 }
+
+// TierWord resolves a tier word to the tier Claude Code resolves it to.
+//
+// Claude Code resolves these words itself, inside the client, before it sends
+// a request: `--model sonnet` and `/model sonnet` both become the client's own
+// id for the tier. The resolution is case-insensitive and happens after the
+// [1m] suffix is stripped, so `Opus` and `sonnet[1m]` resolve the same way.
+// `best` runs the fable tier, and `opusplan` runs the opus tier in plan mode
+// and the sonnet tier otherwise; the opus tier is the one it cannot run
+// without.
+//
+// The words are the client's vocabulary, not the Switch's: the Switch sees the
+// id the word resolved to, never the word.
+func TierWord(name string) (Tier, bool) {
+	word := strings.TrimSpace(name)
+	// The suffix is matched the way the client matches it, without regard to
+	// case, because `Opus[1M]` is the same request.
+	if len(word) > len(OneMillionSuffix) && strings.EqualFold(word[len(word)-len(OneMillionSuffix):], OneMillionSuffix) {
+		word = word[:len(word)-len(OneMillionSuffix)]
+	}
+	word = strings.ToLower(word)
+	switch word {
+	case "opus", "sonnet", "haiku", "fable":
+		return Tier(word), true
+	case "best":
+		return Fable, true
+	case "opusplan":
+		return Opus, true
+	}
+	return "", false
+}
+
+// vendorFamilies are the lineage tokens the Switch maps a Claude vendor id
+// onto: it rewrites a `claude-<family>...` id the tenant did not store to that
+// family's `claude-tier-<family>` config. Tiers is the subset this CLI has a
+// rendering for, and mythos is a family the Switch names without the CLI
+// carrying a tier for it.
+var vendorFamilies = []string{"opus", "sonnet", "haiku", "fable", "mythos"}
+
+// VendorFamily returns the lineage a Claude vendor id belongs to, or "" for a
+// name that is not one. The match is the Switch's: a case-sensitive prefix on
+// `claude-<family>`, so a name the tenant stored always wins, and
+// `claude-fable-5-mythos-5` reads as a fable id.
+func VendorFamily(name string) string {
+	for _, family := range vendorFamilies {
+		if strings.HasPrefix(name, ModelPrefix+family) {
+			return family
+		}
+	}
+	return ""
+}

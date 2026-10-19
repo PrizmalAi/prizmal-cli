@@ -347,6 +347,32 @@ func TestClaudeChildEnvSetsOpusModelToPinnedModel(t *testing.T) {
 	}
 }
 
+// A tier word is a name Claude Code resolves, not one it sends. The launch's
+// tier variables carry the name the launch model resolves to, so a tier word
+// the launch model itself is does not point a tier at itself: a held tier's
+// word resolves to that tier's alias, which the Switch routes.
+func TestClaudeTierEnvCarriesTheResolvedNameForATierWordLaunch(t *testing.T) {
+	resetAPIKey(t)
+	held := []launch.ModelRow{{Label: "Sonnet", Model: claudecode.TierModel(claudecode.Sonnet), Tier: claudecode.Sonnet}}
+
+	env := claudeChildEnv("sonnet", held)
+	for _, name := range []string{"ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_DEFAULT_FABLE_MODEL"} {
+		if got := launchtest.EnvValue(env, name+"="); got != "claude-tier-sonnet[1m]" {
+			t.Errorf("%s = %q, want claude-tier-sonnet[1m]", name, got)
+		}
+	}
+	// A held tier keeps no variable: its ids are remapped by modelOverrides.
+	if got := launchtest.EnvValue(env, "ANTHROPIC_DEFAULT_SONNET_MODEL="); got != "" {
+		t.Errorf("ANTHROPIC_DEFAULT_SONNET_MODEL = %q, want it unset for a held tier", got)
+	}
+
+	opusHeld := []launch.ModelRow{{Label: "Opus", Model: claudecode.TierModel(claudecode.Opus), Tier: claudecode.Opus}}
+	env = claudeChildEnv("Opus[1m]", opusHeld)
+	if got := launchtest.EnvValue(env, "ANTHROPIC_DEFAULT_OPUS_MODEL="); got != "claude-tier-opus[1m]" {
+		t.Errorf("ANTHROPIC_DEFAULT_OPUS_MODEL = %q, want claude-tier-opus[1m]", got)
+	}
+}
+
 func TestClaudeEnvVarsBaseURLDropsTrailingV1(t *testing.T) {
 	resetAPIKey(t)
 	envconfig.SetBaseURL("https://switch.example.com/v1")

@@ -78,8 +78,9 @@ be read as a prizmal flag.
 
 --list answers a different question: it prints the models this switch key's
 tenant serves, one per line, and exits without launching. It holds exactly the
-names that key can route to: the four Claude tier aliases first, since those
-route even though the Switch does not list them, then the tenant's own entries.
+names that key can route to: the Claude tier aliases your tenant holds first,
+since those route even though the Switch does not list them, then the tenant's
+own entries.
 
 A launch always runs a real model, and never a placeholder. It takes the model
 from --model, or from the default saved by an earlier --pick, or asks with the
@@ -706,13 +707,20 @@ func launch(name string, extraArgs []string, cfg *config.Config, ask launcher.As
 		return err
 	}
 
+	// A name copied off a picker row reads without the claude- prefix the
+	// row's label drops, and the catalog carries the prefixed name that
+	// routes. A name the catalog carries is left as it is.
+	chosen = launcher.RouteName(catalog, chosen)
+	subagentModel = launcher.RouteName(catalog, subagentModel)
+
 	// A name the Switch does not route is refused here, with the way to list
 	// the names, instead of reaching the Switch as a request it answers with an
 	// error. The subagent model is a name the launch sends too.
-	if err := launcher.CheckRoutable(chosen, catalog); err != nil {
+	tierWords := launcher.ResolvesTierWords(runner)
+	if err := launcher.CheckRoutable(chosen, catalog, tierWords); err != nil {
 		return err
 	}
-	if err := launcher.CheckRoutable(subagentModel, catalog); err != nil {
+	if err := launcher.CheckSubagentRoutable(subagentModel, catalog, tierWords); err != nil {
 		return fmt.Errorf("--subagent-model: %w", err)
 	}
 
