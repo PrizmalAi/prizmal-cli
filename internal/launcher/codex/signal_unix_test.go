@@ -62,7 +62,11 @@ while :; do /bin/sleep 0.05; done`})
 				t.Fatal(err)
 			}
 			select {
-			case <-done:
+			case err := <-done:
+				// The launch ended because this test signalled it, so the
+				// exit status names the signal. Recorded rather than
+				// asserted: what this test checks is the cleanup below.
+				t.Logf("the launch returned after %s: %v", sig, err)
 			case <-time.After(10 * time.Second):
 				t.Fatal("the launch did not return after the signal")
 			}
@@ -145,7 +149,11 @@ while [ ! -e '` + stop + `' ]; do /bin/sleep 0.05; done`})
 		t.Fatal(err)
 	}
 	select {
-	case <-done:
+	case err := <-done:
+		// The launch returned because the stand-in Codex exited, so its
+		// status is what stopped it. Recorded rather than asserted: what
+		// this test checks is the cleanup below.
+		t.Logf("the launch returned after codex exited: %v", err)
 	case <-time.After(10 * time.Second):
 		t.Fatal("the launch did not return after codex exited")
 	}
