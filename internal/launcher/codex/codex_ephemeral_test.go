@@ -27,7 +27,7 @@ func runFakeCodex(t *testing.T) (home, seen, recorded string) {
 	t.Setenv("PRIZMAL_TEST_BUNDLE", bundle)
 	script := `#!/bin/sh
 case "$1 $2 $3" in "debug models --bundled") exec cat "$PRIZMAL_TEST_BUNDLE";; esac
-if [ "$1" = "--version" ]; then echo codex-cli 0.160.1; exit 0; fi
+if [ "$1" = "--version" ]; then echo codex-cli 0.163.0; exit 0; fi
 for a in "$@"; do
   case "$a" in model_catalog_json=*) p="${a#model_catalog_json=}"; p="${p#\"}"; p="${p%\"}"; echo "$p" > "` + pathFile + `"; cp "$p" "` + seen + `";; esac
 done

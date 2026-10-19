@@ -79,8 +79,8 @@ const (
 	reservedModelNameLegacy = "prizmal/default"
 )
 
-// IsReservedModelName reports whether a catalog name is a placeholder row.
-func IsReservedModelName(name string) bool {
+// isReservedModelName reports whether a catalog name is a placeholder row.
+func isReservedModelName(name string) bool {
 	return name == reservedModelName || name == reservedModelNameLegacy
 }
 
@@ -104,7 +104,7 @@ func ModelRows(models []LaunchModel) []ModelRow {
 
 	for _, m := range models {
 		name := ModelNameWithoutSuffix(m.Name)
-		if name == "" || seen[name] || IsReservedModelName(name) || m.FoldedInto != "" {
+		if name == "" || seen[name] || isReservedModelName(name) || m.FoldedInto != "" {
 			continue
 		}
 		seen[name] = true

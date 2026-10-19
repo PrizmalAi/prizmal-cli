@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"github.com/PrizmalAi/prizmal-cli/internal/launcher/codex"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -127,14 +128,11 @@ func runCodexDirect(t *testing.T, srv *httptest.Server, command string, withCata
 	}
 	if withCatalog {
 		catalog := filepath.Join(sb.root, "model.json")
-		writeJSONFile(t, catalog, map[string]any{"models": []any{map[string]any{
-			"slug": harnessLaunchModel, "display_name": harnessLaunchModel, "context_window": 128000,
-			"shell_type": "default", "visibility": "list", "supported_in_api": true, "priority": 0,
-			"truncation_policy": map[string]any{"mode": "bytes", "limit": 10000}, "input_modalities": []string{"text"},
-			"base_instructions": "", "support_verbosity": true, "default_verbosity": "low",
-			"supports_parallel_tool_calls": false, "supports_reasoning_summaries": false,
-			"supported_reasoning_levels": []any{}, "experimental_supported_tools": []any{},
-		}}})
+		// The production builder writes it, so the entry cannot drift from what a
+		// launch hands Codex.
+		if err := codex.WriteModelCatalog(catalog, harnessLaunchModel, nil); err != nil {
+			t.Fatalf("write the model catalog: %v", err)
+		}
 		args = append(args, "-c", `model_catalog_json="`+catalog+`"`)
 	}
 	args = append(args, "-m", harnessLaunchModel, harnessLaunchPrompt)

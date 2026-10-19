@@ -283,9 +283,9 @@ func TestCodexCatalogListsTheTenantCatalogWithEffortLevels(t *testing.T) {
 	}
 }
 
-// TestCodexCatalogDeclaresTheWindowTheSwitchPublishes pins the 1M window: an
-// id the Switch decorates with [1m] becomes a bare slug whose entry declares
-// 1000000, and an undecorated id keeps the fallback window.
+// TestCodexCatalogDeclaresTheWindowTheSwitchPublishes pins the window every
+// entry declares. The catalog states no window, so the fallback is what a Codex
+// session budgets and compacts against.
 func TestCodexCatalogDeclaresTheWindowTheSwitchPublishes(t *testing.T) {
 	fakeCodexBundle(t, fakeCodexCatalog)
 	t.Setenv("HARNESS_CONTEXT_LENGTH", "")
@@ -309,7 +309,7 @@ func TestCodexCatalogDeclaresTheWindowTheSwitchPublishes(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]int{"prizmal-flash": 1_000_000, "prizmal-core": codexFallbackContextWindow}
+	want := map[string]int{"prizmal-flash": codexFallbackContextWindow, "prizmal-core": codexFallbackContextWindow}
 	if len(got.Models) != 2 {
 		t.Fatalf("entries = %+v", got.Models)
 	}
@@ -338,6 +338,20 @@ func TestCodexDeviceModeOverridesUseCommandAuth(t *testing.T) {
 	}
 	if strings.Contains(overrides, "env_key") {
 		t.Errorf("device-mode overrides name env_key:\n%s", overrides)
+	}
+}
+
+// A device-mode launch that cannot find its own executable fails, because the
+// provider would otherwise carry neither a key nor an auth command and Codex
+// would start unable to sign in.
+func TestCodexDeviceModeFailsWhenTheExecutableIsUnknown(t *testing.T) {
+	launchtest.WithDeviceMode(t)
+	previous := executablePath
+	executablePath = func() (string, error) { return "", errors.New("no executable") }
+	t.Cleanup(func() { executablePath = previous })
+
+	if _, err := (&Codex{}).args("smart", "", nil); err == nil || !strings.Contains(err.Error(), "find the prizmal executable") {
+		t.Fatalf("args error = %v, want one naming the missing executable", err)
 	}
 }
 
@@ -392,9 +406,9 @@ func TestCodexKeyModeChildEnvCarriesSwitchKey(t *testing.T) {
 // instead of starting a session that sends no bearer token.
 func TestCodexDeviceModeArgsFailWithoutAnAuthCommand(t *testing.T) {
 	launchtest.WithDeviceMode(t)
-	previous := codexExecutable
-	codexExecutable = func() (string, error) { return "", errors.New("no executable path") }
-	t.Cleanup(func() { codexExecutable = previous })
+	previous := executablePath
+	executablePath = func() (string, error) { return "", errors.New("no executable path") }
+	t.Cleanup(func() { executablePath = previous })
 
 	args, err := (&Codex{}).args("gpt-test", "", nil)
 	if err == nil {
