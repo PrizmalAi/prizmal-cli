@@ -12,7 +12,9 @@
 
 The launch passes `--no-daemon` and the provider settings as `-c` overrides. Nothing app-visible in `~/.codex/config.toml` changes, and `CODEX_HOME` makes no difference to the launch. It states the model with `-m`, so Codex runs the model prizmal resolved rather than one of its own.
 
-Codex's `/model` lists the same rows as the prizmal picker, in the same order and with the same labels and descriptions: a tier alias is a row, and the router config folded into it is not a second one. Each catalog entry sets `display_name` to the row's label and `description` to its text. A model you launch with `-m` that no row shows still gets an entry, because Codex reads it for the model's window and prompt.
+Codex's `/model` lists the same rows as the prizmal picker, in the same order and with the same labels and descriptions: a tier alias is a row, and the model folded into it is not a second one. Each catalog entry sets `display_name` to the row's label and `description` to its text. A model you launch with `-m` that no row shows still gets an entry, because Codex reads it for the model's window and prompt.
+
+Each catalog entry sets `supports_search_tool`, which makes Codex defer its less-used tools behind a `tool_search` tool, as `ENABLE_TOOL_SEARCH=true` does for Claude Code. A manual setup that writes its own catalog sets the same field on each entry. It needs a Switch that supports Codex's tool search.
 
 Codex derives auto-compaction from the context window the catalog declares, 90% of it unless the entry sets `auto_compact_token_limit`, which prizmal doesn't emit. Every model the Switch serves has a 1M window, so the entry declares 1,000,000. Declaring a smaller window makes Codex discard conversation history the Switch would have accepted. `HARNESS_CONTEXT_LENGTH` overrides it for an operator who knows better.
 
