@@ -108,6 +108,17 @@ Examples:
 				}
 			}
 
+			// A harness that is missing, or too old to serve a launch, stops
+			// the launch here, before the sign-in and the model pick that
+			// would otherwise come first and be wasted. A name prizmal does
+			// not know falls through to launch(), which reports it.
+			if len(args) > 0 && !listFlag && !restore && !persistOnly {
+				launcher.SetConfirmPolicy(yes)
+				if err := ensureHarnessUsable(args[0]); err != nil {
+					return err
+				}
+			}
+
 			envconfig.SetBaseURL(url)
 			envconfig.SetAPIKey(apiKey)
 
@@ -229,7 +240,7 @@ func registerFlags(flags *pflag.FlagSet) {
 	// claiming it here would turn `prizmal claude -p "prompt"` into a picker
 	// prompt instead of the print run they meant. Long form only.
 	flags.BoolVar(&pickFlag, "pick", false, "choose a model from this switch key's tenant, and save it as the default")
-	flags.StringVar(&subagentModel, "subagent-model", "", "model for subagents, which default to the session model")
+	flags.StringVar(&subagentModel, "subagent-model", "", "model for subagents, which default to the session model (Claude Code and Codex)")
 	flags.StringVarP(&url, "url", "u", "", "provider base URL (or $"+envconfig.EnvVar+")")
 	flags.StringVarP(&apiKey, "api-key", "k", "", "provider API key (or $"+envconfig.KeyEnvVar+")")
 	flags.BoolVarP(&yes, "yes", "y", false, "auto-approve confirmation prompts")
@@ -525,8 +536,9 @@ func restoreReport(name, removed string, outcome launcher.RestoreOutcome) string
 // the harness's own flag outrank the settings prizmal wrote, which is how a
 // launch lost its 1M window and warned that the model was unknown.
 //
-// Tokens after a `--` separator are harness text, not prizmal's flags, so the
-// scan stops there. A trailing --model with no value is left for the harness to
+// -m is prizmal's short form of --model, so it is taken the same way. Tokens
+// after a `--` separator are harness text, not prizmal's flags, so the scan
+// stops there. A trailing --model or -m with no value is left for the harness to
 // reject: the operator aimed it at the harness, not at prizmal.
 func takeModelFlag(extra *[]string) []string {
 	var found []string
@@ -538,7 +550,7 @@ func takeModelFlag(extra *[]string) []string {
 			out = append(out, args[i:]...)
 			*extra = out
 			return found
-		case args[i] == "--model":
+		case args[i] == "--model" || args[i] == "-m":
 			if i+1 == len(args) {
 				out = append(out, args[i])
 				break
@@ -581,6 +593,17 @@ func reconcileModel(flagModel string, harnessModels []string) (string, error) {
 	return harness, nil
 }
 
+// ensureHarnessUsable installs the named harness when it is missing and checks
+// that the installed one can serve a launch. An unknown name is left for
+// launch() to report.
+func ensureHarnessUsable(name string) error {
+	spec, err := registry.LookupIntegrationSpec(name)
+	if err != nil {
+		return nil
+	}
+	return registry.EnsureIntegrationInstalled(spec.Name, spec.Runner)
+}
+
 // launch configures the named integration and hands it to the harness.
 //
 // ask is how it reaches the operator when nothing else names a model. It is
@@ -612,6 +635,15 @@ func launch(name string, extraArgs []string, cfg *config.Config, ask launcher.As
 	// launch, --persist and --restore alike, and says what it removed.
 	for _, path := range fileutil.SweepBackups() {
 		fmt.Fprintf(os.Stderr, "Removed a backup that held a Switch key: %s\n", path)
+	}
+
+	// --subagent-model has a meaning for Claude Code and Codex only. A harness
+	// without a subagent setting would ignore it and run a model the operator
+	// did not mean, so refuse it.
+	if subagentModel != "" && !restore {
+		if sub, ok := runner.(launcher.SubagentModelRunner); !ok || !sub.TakesSubagentModel() {
+			return fmt.Errorf("--subagent-model is not supported for %s: it applies to Claude Code and Codex", spec.Name)
+		}
 	}
 
 	// Restore mode: undo configuration changes and exit. It never resolves a
