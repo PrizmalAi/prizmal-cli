@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -68,6 +69,11 @@ const (
 	codexRootModelKey            = "model"
 	codexRootModelProviderKey    = "model_provider"
 	codexRootModelCatalogJSONKey = "model_catalog_json"
+
+	// codexAgentsSubagentModelKey is the setting Codex reads for the model a
+	// spawned subagent runs when the spawn call names none. Codex checks it
+	// against the models its catalog lists.
+	codexAgentsSubagentModelKey = "agents.default_subagent_model"
 )
 
 func (c *Codex) args(model, modelCatalogPath string, extra []string) ([]string, error) {
@@ -244,7 +250,7 @@ func codexHygieneOverrides() []string {
 	}
 	if sub := launch.SelectedSubagentModel(); sub != "" {
 		overrides = append(overrides,
-			fmt.Sprintf("agents.default_subagent_model=%q", sub),
+			fmt.Sprintf("%s=%q", codexAgentsSubagentModelKey, sub),
 			fmt.Sprintf("review_model=%q", sub),
 		)
 	}
@@ -589,6 +595,10 @@ func codexCatalogModels(modelName string, models []launch.LaunchModel) []launch.
 		entry := codexCatalogModel(modelName, models)
 		entry.FoldedInto = ""
 		out = append(out, entry)
+	}
+	// Codex rejects a subagent model its catalog doesn't list.
+	if sub := launch.SelectedSubagentModel(); sub != "" && !slices.ContainsFunc(out, func(m launch.LaunchModel) bool { return launch.ModelNamesSame(m.Name, sub) }) {
+		out = append(out, codexCatalogModel(sub, models))
 	}
 	return out
 }
