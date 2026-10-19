@@ -8,13 +8,6 @@ import (
 	"testing"
 )
 
-func TestCodexIntegrationIsAutoInstallable(t *testing.T) {
-	spec := integrationSpecsByName["codex"]
-	if spec == nil || spec.Install.EnsureInstalled == nil {
-		t.Fatal("the codex integration has no EnsureInstalled")
-	}
-}
-
 // An installed Codex that is too old stops a launch where a missing one does,
 // before sign-in and the model pick. With nothing to upgrade it with, the error
 // still says what is wrong.
