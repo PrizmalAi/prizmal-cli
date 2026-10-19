@@ -34,3 +34,18 @@ func TestCodexNonVisionModelsDeclareTextOnly(t *testing.T) {
 		}
 	}
 }
+
+// TestCodexDeclaresTheVocabularyRowForACatalogEntry walks every shape the
+// Switch's input_modalities array takes through the catalog and out through
+// codex's writer, so the row that reaches codex is the one launchtest declares
+// for it rather than a list this package spells on its own.
+func TestCodexDeclaresTheVocabularyRowForACatalogEntry(t *testing.T) {
+	for _, row := range launchtest.VocabularyRows {
+		t.Run(row.Name, func(t *testing.T) {
+			m := launch.LaunchModel{Name: "router-config", Capabilities: row.Capabilities}
+			if got := codexInputModalities(t, m); !slices.Equal(got, row.Codex) {
+				t.Fatalf("codex declared inputs = %v, want %v", got, row.Codex)
+			}
+		})
+	}
+}

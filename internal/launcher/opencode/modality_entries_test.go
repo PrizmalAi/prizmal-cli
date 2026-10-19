@@ -55,3 +55,18 @@ func TestOpenCodeUnknownModelStaysPermissive(t *testing.T) {
 		t.Fatalf("modalities.input = %v, want [text image pdf]", input)
 	}
 }
+
+// TestOpenCodeDeclaresTheVocabularyRowForACatalogEntry walks every shape the
+// Switch's input_modalities array takes through the catalog and out through
+// opencode's writer. The unknown row is opencode's own posture: permissive, so
+// an attachment is not newly refused.
+func TestOpenCodeDeclaresTheVocabularyRowForACatalogEntry(t *testing.T) {
+	for _, row := range launchtest.VocabularyRows {
+		t.Run(row.Name, func(t *testing.T) {
+			m := launch.LaunchModel{Name: "router-config", Capabilities: row.Capabilities}
+			if got := opencodeInputModalities(t, opencodeModelEntry(t, m)); !slices.Equal(got, row.OpenCode) {
+				t.Fatalf("opencode declared inputs = %v, want %v", got, row.OpenCode)
+			}
+		})
+	}
+}

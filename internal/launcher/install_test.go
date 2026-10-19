@@ -3,38 +3,13 @@ package launch
 import (
 	"bufio"
 	"errors"
-	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/PrizmalAi/prizmal-cli/internal/internaltest"
 )
-
-// withEmptyPATH puts an empty directory on PATH for the test, so every lookup
-// misses: the state of a machine that has none of the tools an installer
-// needs. It returns that directory, for a test that wants a binary in it.
-func withEmptyPATH(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	t.Setenv("PATH", dir)
-	return dir
-}
-
-// writeFakeBinary puts an executable named name in dir, with the extension the
-// platform resolves it by: a bare name on Unix, .exe on Windows, where
-// exec.LookPath only finds a name a PATHEXT entry spells.
-func writeFakeBinary(t *testing.T, dir, name string) string {
-	t.Helper()
-	if runtime.GOOS == "windows" {
-		name += ".exe"
-	}
-	path := filepath.Join(dir, name)
-	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	return path
-}
 
 // answerPrompts makes the confirmation prompt answer with the given replies in
 // order and record what it was asked, standing in for the operator. It fails
@@ -245,7 +220,7 @@ func TestInstallerAutoApprovesWithYesFlag(t *testing.T) {
 // install and where to get them, and must not be asked to confirm an install
 // that cannot run.
 func TestInstallerNamesTheMissingDependencies(t *testing.T) {
-	withEmptyPATH(t)
+	internaltest.WithEmptyPATH(t)
 	asked := answerPrompts(t, true)
 	fake := newRecordingInstaller(t, "claude", "Claude Code")
 	fake.installer.Dependencies = func(string) []Dependency {
@@ -347,7 +322,7 @@ func TestInstallerRelocatesAfterInstalling(t *testing.T) {
 // before bash because that is the order the pipe-to-shell installers need them
 // in, so an operator installing one at a time gets there in one pass.
 func TestMissingOnPathKeepsItsOrder(t *testing.T) {
-	withEmptyPATH(t)
+	internaltest.WithEmptyPATH(t)
 
 	missing := MissingOnPath([]Dependency{CurlDependency, BashDependency, NpmDependency})
 	want := []string{"curl", "bash", "npm (Node.js)"}

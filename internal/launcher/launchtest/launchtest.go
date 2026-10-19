@@ -82,3 +82,90 @@ func WithDeviceMode(t *testing.T) {
 func StubEndpoint(raw string) string {
 	return strings.Replace(raw, "127.0.0.1", "localhost", 1)
 }
+
+// VocabularyRow is one row of the launcher's input-modality vocabulary with
+// what each harness writer must declare for a model that carries it. The table
+// lives here so each harness package checks its own column without importing
+// another harness; Capabilities is what the Switch's array becomes, and the
+// launcher's own test pins that translation against its vocabulary.
+type VocabularyRow struct {
+	Name         string
+	Modalities   []string
+	Capabilities []model.Capability
+	Codex        []string
+	OpenCode     []string
+	Pi           []string
+}
+
+// VocabularyRows walks every shape an input_modalities array takes: each
+// meaning the Switch serves, a modality it serves that no harness declares, and
+// the empty array of a model whose capabilities the catalog cannot describe.
+// The empty row is the unknown case, not text-only, and it is the row where the
+// three postures differ: opencode stays permissive so an attachment is not
+// newly refused, codex and pi declare text alone.
+var VocabularyRows = []VocabularyRow{
+	{
+		Name:         "text-only",
+		Modalities:   []string{"text"},
+		Capabilities: []model.Capability{model.CapabilityCompletion},
+		Codex:        []string{"text"},
+		OpenCode:     []string{"text"},
+		Pi:           []string{"text"},
+	},
+	{
+		Name:         "image",
+		Modalities:   []string{"text", "image"},
+		Capabilities: []model.Capability{model.CapabilityCompletion, model.CapabilityVision},
+		Codex:        []string{"text", "image"},
+		OpenCode:     []string{"text", "image"},
+		Pi:           []string{"text", "image"},
+	},
+	{
+		// Document and image are separate signals on both sides, so the
+		// document row declares nothing but text and pdf: image does not
+		// stand in for a PDF.
+		Name:         "file",
+		Modalities:   []string{"text", "file"},
+		Capabilities: []model.Capability{model.CapabilityCompletion, model.CapabilityDocument},
+		Codex:        []string{"text"},
+		OpenCode:     []string{"text", "pdf"},
+		Pi:           []string{"text"},
+	},
+	{
+		// The catalogue's common row, and the one that used to be
+		// reachable only through opencode's own branch.
+		Name:         "file and image",
+		Modalities:   []string{"text", "file", "image"},
+		Capabilities: []model.Capability{model.CapabilityCompletion, model.CapabilityDocument, model.CapabilityVision},
+		Codex:        []string{"text", "image"},
+		OpenCode:     []string{"text", "image", "pdf"},
+		Pi:           []string{"text", "image"},
+	},
+	{
+		// Audio travels and is declared nowhere: no harness has an audio
+		// input modality, so the capability must not turn one into text
+		// plus a key the schema does not have.
+		Name:         "audio",
+		Modalities:   []string{"text", "audio"},
+		Capabilities: []model.Capability{model.CapabilityCompletion, model.CapabilityAudio},
+		Codex:        []string{"text"},
+		OpenCode:     []string{"text"},
+		Pi:           []string{"text"},
+	},
+	{
+		Name:         "unknown",
+		Modalities:   nil,
+		Capabilities: nil,
+		Codex:        []string{"text"},
+		OpenCode:     []string{"text", "image", "pdf"},
+		Pi:           []string{"text"},
+	},
+	{
+		Name:         "unrecognised modality dropped",
+		Modalities:   []string{"text", "video"},
+		Capabilities: []model.Capability{model.CapabilityCompletion},
+		Codex:        []string{"text"},
+		OpenCode:     []string{"text"},
+		Pi:           []string{"text"},
+	},
+}
