@@ -18,8 +18,34 @@ var strictPaths = map[string]string{
 
 func post(t *testing.T, srv string, path, model string) *http.Response {
 	t.Helper()
-	body := strings.Replace(strictPaths[path], "%q", `"`+model+`"`, 1)
+	quoted, err := json.Marshal(model)
+	if err != nil {
+		t.Fatalf("marshal model %q: %v", model, err)
+	}
+	body := strings.Replace(strictPaths[path], "%q", string(quoted), 1)
 	return postWithAuth(t, srv+path, body)
+}
+
+// The helper writes a well-formed JSON body for any model name, so a name
+// carrying a quote is judged on the model-name rule instead of being read as a
+// parse failure. Every caller passes a plain name today; the helper is the one
+// entry point, and a body built by concatenation would only be wrong here.
+func TestStrictPostEscapesTheModelName(t *testing.T) {
+	srv := NewWithModels("prizmal-flash")
+	defer srv.Close()
+
+	model := `quote"model`
+	resp := post(t, srv.URL, "/v1/messages", model)
+	defer func() { _ = resp.Body.Close() }()
+	var body map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("the stub answered a body that is not JSON: %v", err)
+	}
+	errObj, _ := body["error"].(map[string]any)
+	message, _ := errObj["message"].(string)
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(message, "not a router config") {
+		t.Fatalf("got %d %v, want 400 naming the model", resp.StatusCode, body)
+	}
 }
 
 func TestUnknownModelIsRefusedOnEveryInferenceRoute(t *testing.T) {
