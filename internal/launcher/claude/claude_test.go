@@ -956,7 +956,10 @@ func TestClaudeModelOverridesCoverOnlyTheHeldTiers(t *testing.T) {
 		t.Fatal("a held sonnet tier has no overrides")
 	}
 	for key, value := range overrides {
-		if !strings.HasPrefix(key, "claude-sonnet") && !strings.HasPrefix(key, "claude-3-") {
+		// The override keys are the first-party ids of the held tier and
+		// nothing else, so the assertion names that set rather than a prefix
+		// that could also match another lineage.
+		if !slices.Contains(claudecode.FamilyIDs[claudecode.Sonnet], key) {
 			t.Errorf("modelOverrides[%q] = %q, but only the sonnet tier is held", key, value)
 		}
 		if value != "claude-tier-sonnet[1m]" {
