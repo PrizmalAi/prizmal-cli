@@ -91,7 +91,7 @@ var codexBaselineCases = []baselineCase{
 // through prizmal against the stub switch. Add a screen with a case in
 // codexBaselineCases and run with -update-baselines.
 func TestTerminalBaselinesCodex(t *testing.T) {
-	runBaselineCases(t, codexBaselineCases, codexBaselineDir, false, true)
+	runBaselineCases(t, codexBaselineCases, codexBaselineDir, codexBaselineHarness)
 }
 
 // codexVersionPattern matches the version in Codex's banner, in the TUI and in
@@ -130,6 +130,13 @@ func withBaselineCodexVersion(got, want string) string {
 		return got
 	}
 	return codexVersionPattern.ReplaceAllLiteralString(got, recorded)
+}
+
+// codexBaselineHarness is the real Codex, run by the cases that set codex.
+var codexBaselineHarness = baselineHarness{
+	name:      "codex",
+	pinnedDir: pinnedCodexDir,
+	runs:      func(tc baselineCase) bool { return tc.codex },
 }
 
 // pinnedCodexDir returns the directory of the codex binary on PATH when its

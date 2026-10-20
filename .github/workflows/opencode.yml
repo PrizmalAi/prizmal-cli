@@ -4,11 +4,15 @@ name: opencode
 # this kind, so the harnesses run in parallel and report under their own
 # names.
 #
-# launch runs the latest opencode through prizmal with a one-shot prompt,
+# launch runs opencode through prizmal with a one-shot prompt,
 # against a stub switch that answers every turn with a placeholder reply, and
 # passes when that reply reaches stdout. No Switch key is involved.
 # PRIZMAL_HARNESS_LAUNCH=require turns a missing harness into a failure, so
 # the job cannot pass by skipping.
+#
+# The job installs the opencode release recorded in
+# cmd/prizmal/testdata/terminal/opencode/opencode-version, the oldest one a
+# launch accepts.
 
 on:
   push:
@@ -32,9 +36,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Install opencode
+      - name: Install the pinned opencode
         run: |
-          curl -fsSL https://opencode.ai/install | bash
+          curl -fsSL https://opencode.ai/install | bash -s -- --version "$(cat cmd/prizmal/testdata/terminal/opencode/opencode-version)"
           echo "$HOME/.opencode/bin" >>"$GITHUB_PATH"
       - name: Launch opencode through prizmal
         env:
