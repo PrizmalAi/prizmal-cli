@@ -146,7 +146,7 @@ var prizmalBaselineCases = []baselineCase{
 // first-run prompt and the device-login flow. It needs no harness, so it runs
 // wherever tmux is, and its screens live under testdata/terminal/prizmal.
 func TestTerminalBaselinesPrizmal(t *testing.T) {
-	runBaselineCases(t, append(append([]baselineCase{}, prizmalBaselineCases...), updateBaselineCases...), prizmalBaselineDir, false, false)
+	runBaselineCases(t, append(append([]baselineCase{}, prizmalBaselineCases...), updateBaselineCases...), prizmalBaselineDir)
 }
 
 // updateBaselineCases are the screens of the update check. Each case poses as

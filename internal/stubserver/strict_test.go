@@ -153,3 +153,41 @@ func TestRecorderKeepsEveryModelWithItsVerdict(t *testing.T) {
 		t.Errorf("RefusedModels = %v, want [nope]", refused)
 	}
 }
+
+// OpenCode and Cline speak /v1/chat/completions, so the recorder keeps the
+// model of a chat request, streamed or not, the way it keeps a responses or
+// messages request's, and a refused chat name shows in RefusedModels.
+func TestRecorderKeepsTheModelOfEveryChatRequest(t *testing.T) {
+	rec := &Recorder{}
+	srv := NewServer(WithModels("prizmal-flash"), WithRecorder(rec))
+	defer srv.Close()
+
+	for _, body := range []string{
+		`{"model":"prizmal-flash","messages":[{"role":"user","content":"hi"}]}`,
+		`{"model":"prizmal-flash","stream":true,"messages":[{"role":"user","content":"hi"}]}`,
+		`{"model":"nope","messages":[{"role":"user","content":"hi"}]}`,
+	} {
+		resp := postWithAuth(t, srv.URL+"/v1/chat/completions", body)
+		_ = resp.Body.Close()
+	}
+
+	got := rec.ModelCalls()
+	if len(got) != 3 {
+		t.Fatalf("recorded %d chat calls, want 3: %+v", len(got), got)
+	}
+	for i, want := range []struct {
+		model  string
+		served bool
+	}{{"prizmal-flash", true}, {"prizmal-flash", true}, {"nope", false}} {
+		call := got[i]
+		if call.Path != "/v1/chat/completions" || call.Model != want.model || call.Served != want.served {
+			t.Errorf("call %d = {Path:%s Model:%s Served:%v}, want {/v1/chat/completions %s %v}", i, call.Path, call.Model, call.Served, want.model, want.served)
+		}
+		if call.Body["model"] != want.model {
+			t.Errorf("call %d body model = %v, want %s", i, call.Body["model"], want.model)
+		}
+	}
+	if refused := rec.RefusedModels(); len(refused) != 1 || refused[0] != "nope" {
+		t.Errorf("RefusedModels = %v, want [nope]", refused)
+	}
+}

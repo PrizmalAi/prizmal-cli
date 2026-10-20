@@ -62,7 +62,8 @@ var integrationSpecs = []*IntegrationSpec{
 				_, err := cline.ClineInstaller.EnsureInstalled()
 				return err
 			},
-			Command: []string{"npm", "install", "-g", "cline@latest"},
+			CheckUsable: cline.CheckUsable,
+			Command:     []string{"npm", "install", "-g", "cline@latest"},
 		},
 	},
 	{
@@ -85,7 +86,8 @@ var integrationSpecs = []*IntegrationSpec{
 				_, err := opencode.OpenCodeInstaller.EnsureInstalled()
 				return err
 			},
-			URL: "https://opencode.ai",
+			CheckUsable: opencode.CheckUsable,
+			URL:         "https://opencode.ai",
 		},
 	},
 	{

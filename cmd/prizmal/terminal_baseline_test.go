@@ -33,7 +33,9 @@ import (
 // the comparison. Each harness owns its cases, its normalization and its
 // pinned version in its own file: terminal_baseline_claude_test.go,
 // terminal_baseline_codex_test.go, and terminal_baseline_prizmal_test.go for
-// prizmal's own screens. A new harness adds a file of its own.
+// prizmal's own screens. A new harness adds a file of its own, which declares
+// a baselineHarness, tags its cases with its name and passes both to
+// runBaselineCases.
 //
 // Regenerate a group's files with:
 //
@@ -101,7 +103,14 @@ type baselineCase struct {
 	codex bool
 	// codexDir is set by the runner: where the pinned codex binary lives.
 	codexDir string
-	steps    []baselineStep
+	// harness names the baselineHarness a case runs, for a harness that has
+	// no field of its own here. The harness's file declares it and passes it
+	// to runBaselineCases, and its cases seed their state with setup.
+	harness string
+	// harnessDir is set by the runner: where the pinned binary of harness
+	// lives. It goes on PATH ahead of the system directories.
+	harnessDir string
+	steps      []baselineStep
 	// entries replaces catalog when the stub must send a tier or description.
 	entries []stubserver.Entry
 	// argsAfter are appended after a `--` separator, so a case can pass text
@@ -169,11 +178,37 @@ func launchArgs(tc baselineCase) []string {
 	return args
 }
 
+// baselineHarness is a real harness that a group of cases runs. Each harness
+// declares one in its own baseline file and passes it to runBaselineCases,
+// which finds the pinned binary once and skips, or under
+// PRIZMAL_TERMINAL_BASELINES=require fails, the cases that run it when the
+// pinned version is not installed.
+type baselineHarness struct {
+	// name is what a case sets in its harness field to run this harness.
+	name string
+	// pinnedDir returns the directory of the pinned binary, or "" and the
+	// reason it cannot be used.
+	pinnedDir func(t *testing.T) (string, string)
+	// runs reports whether a case runs this harness. Nil means the case's
+	// harness field names it.
+	runs func(tc baselineCase) bool
+	// stable replaces the per-run values on this harness's screens with a
+	// placeholder. Nil leaves the screen as drawn.
+	stable func(screen string) string
+}
+
+func (h baselineHarness) usedBy(tc baselineCase) bool {
+	if h.runs != nil {
+		return h.runs(tc)
+	}
+	return tc.harness == h.name
+}
+
 // runBaselineCases renders one group of cases in parallel and compares each to
-// its baseline. needsClaude and needsCodex mark a group that runs that real
-// harness and so needs its pinned version installed; the others skip when tmux
-// is absent.
-func runBaselineCases(t *testing.T, cases []baselineCase, dir string, needsClaude, needsCodex bool) {
+// its baseline. harnesses are the real harnesses the group's cases run, each
+// needing its pinned version installed; a group with none, such as prizmal's
+// own screens, only needs tmux.
+func runBaselineCases(t *testing.T, cases []baselineCase, dir string, harnesses ...baselineHarness) {
 	if testing.Short() {
 		t.Skip("skipping terminal baselines in short mode")
 	}
@@ -196,15 +231,12 @@ func runBaselineCases(t *testing.T, cases []baselineCase, dir string, needsClaud
 		t.Fatalf("build prizmal: %v\n%s", err, out)
 	}
 
-	claudeDir, claudeReason := "", ""
-	if needsClaude {
-		claudeDir, claudeReason = pinnedClaudeDir(t)
+	harnessDirs := make(map[string]string, len(harnesses))
+	harnessReasons := make(map[string]string, len(harnesses))
+	for _, h := range harnesses {
+		harnessDirs[h.name], harnessReasons[h.name] = h.pinnedDir(t)
 	}
-
-	codexDir, codexReason := "", ""
-	if needsCodex {
-		codexDir, codexReason = pinnedCodexDir(t)
-	}
+	claudeDir := harnessDirs[claudeBaselineHarness.name]
 
 	updateOld, updateNew := "", ""
 	for _, tc := range cases {
@@ -218,21 +250,33 @@ func runBaselineCases(t *testing.T, cases []baselineCase, dir string, needsClaud
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			// Only a case that runs the real Claude Code needs the pinned
-			// version. The prizmal picker cases in the same suite do not, so
-			// they still run on a machine with another version installed.
-			if tc.claude && claudeDir == "" {
-				skipOrFail(t, "%s", claudeReason)
+			// Only a case that runs a real harness needs its pinned version.
+			// The prizmal picker cases in the same suite do not, so they still
+			// run on a machine with another version installed.
+			var stable []func(string) string
+			for _, h := range harnesses {
+				if !h.usedBy(tc) {
+					continue
+				}
+				if harnessDirs[h.name] == "" {
+					skipOrFail(t, "%s", harnessReasons[h.name])
+				}
+				if tc.harness == h.name {
+					tc.harnessDir = harnessDirs[h.name]
+				}
+				if h.stable != nil {
+					stable = append(stable, h.stable)
+				}
 			}
-			if tc.codex && codexDir == "" {
-				skipOrFail(t, "%s", codexReason)
-			}
-			tc.codexDir = codexDir
+			tc.codexDir = harnessDirs[codexBaselineHarness.name]
 			tc.updateOld, tc.updateNew = updateOld, updateNew
 			got, ansi := renderBaseline(t, tmuxPath, prizmalBin, claudeDir, tc)
 			got = withStableElapsed(got)
 			got = withStableCodexValues(got)
 			got = withStableDeviceValues(got)
+			for _, fn := range stable {
+				got = fn(got)
+			}
 
 			if shots := os.Getenv(baselineShotsEnv); shots != "" {
 				// The saved capture is the one a screenshot is drawn from, so
@@ -392,6 +436,9 @@ func renderBaseline(t *testing.T, tmuxPath, prizmalBin, claudeDir string, tc bas
 	}
 
 	path := binDir
+	if tc.harnessDir != "" {
+		path += ":" + tc.harnessDir
+	}
 	if tc.codex {
 		path += ":" + tc.codexDir
 		seedCodexState(t, home, project)
