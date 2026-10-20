@@ -488,11 +488,21 @@ func TestHeadlessRunDoesNotOpenTheMenu(t *testing.T) {
 	cfg, home := writeConfig(t, map[string]any{"version": 1})
 	setModel(t, "")
 	setPick(t, false)
-	// A menu that returns a choice the test would notice: reaching it fails
-	// the assertions below.
-	ask := askWith(true, "picked-model", nil)
+	// The menu records that it was reached, so the test fails on a menu that
+	// opens whether or not it would have returned a choice or an error.
+	menuOpened := false
+	ask := launcher.Asking{
+		Interactive: func() bool { return true },
+		Menu: func([]launcher.ModelRow) (string, error) {
+			menuOpened = true
+			return "picked-model", nil
+		},
+	}
 
 	_, _, err := resolveLaunchModel(cfg, "", ask, true)
+	if menuOpened {
+		t.Fatal("the headless launch opened the menu")
+	}
 	if err == nil {
 		t.Fatal("a headless launch with no model must fail rather than pick")
 	}
