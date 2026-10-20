@@ -105,9 +105,12 @@ type ModelRow struct {
 	// row that names a router config.
 	Generic tiers.Tier
 	// keepLabel exempts the row from disambiguation. A Codex tier row is
-	// named after its config, and its description tells it from the config's
-	// own row and from the config's other tiers.
+	// named after its config, and its like word tells it from the config's
+	// other tiers.
 	keepLabel bool
+	// like is the tier word a Codex tier row adds to its name when another
+	// tier row shows the same config: "Sol-like".
+	like string
 }
 
 // reservedModelNames are the placeholder rows a menu never offers and a launch
@@ -195,6 +198,7 @@ func ModelRowsFor(models []LaunchModel, vocab tiers.Vocabulary) []ModelRow {
 			if vocab.LabelsByConfig() {
 				row.Label, row.Description = configLabel(m, vocab, generic)
 				row.keepLabel = true
+				row.like = vocab.Like(generic)
 			}
 		}
 		tier, ok := claudecode.Tier(m.Tier), m.Tier != ""
@@ -215,7 +219,26 @@ func ModelRowsFor(models []LaunchModel, vocab tiers.Vocabulary) []ModelRow {
 	}
 
 	disambiguateLabels(rows)
+	nameSharedConfigRows(rows)
 	return rows
+}
+
+// nameSharedConfigRows adds the tier word to every tier row whose config name
+// another tier row shows too, so a config that holds two tiers reads
+// "smart (Sol-like)" and "smart (Terra-like)". A name only one tier row shows
+// stays plain.
+func nameSharedConfigRows(rows []ModelRow) {
+	counts := make(map[string]int, len(rows))
+	for _, row := range rows {
+		if row.like != "" {
+			counts[row.Label]++
+		}
+	}
+	for i := range rows {
+		if rows[i].like != "" && counts[rows[i].Label] > 1 {
+			rows[i].Label += " (" + rows[i].like + ")"
+		}
+	}
 }
 
 // configLabel is a tier row's label and description in a vocabulary that

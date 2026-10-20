@@ -22,12 +22,26 @@ func TestCodexCatalogSlugsAreAliasesAndNamesAreConfigs(t *testing.T) {
 	if want := []string{"frontier", "core", "flash", "premier", "advisor-router"}; !slices.Equal(slugs, want) {
 		t.Errorf("slugs = %v, want %v", slugs, want)
 	}
-	if want := []string{"glm", "glm", "glm", "glm", "advisor-router"}; !slices.Equal(names, want) {
+	if want := []string{"glm (Sol-like)", "glm (Terra-like)", "glm (Luna-like)", "glm (Astra-like)", "advisor-router"}; !slices.Equal(names, want) {
 		t.Errorf("display names = %v, want %v", names, want)
 	}
 	want := []string{"Sol-like · One model", "Terra-like · One model", "Luna-like · One model", "Astra-like · One model", ""}
 	if !slices.Equal(descriptions, want) {
 		t.Errorf("descriptions = %q, want %q", descriptions, want)
+	}
+}
+
+// Two rows that would show one config's name each carry the tier word, and a
+// config name that appears once stays plain.
+func TestCodexCatalogNamesSharedConfigRowsWithTheTierWord(t *testing.T) {
+	catalog := launch.WithTierRows([]launch.LaunchModel{
+		{Name: "smart", Tiers: []tiers.Tier{tiers.Frontier, tiers.Core}},
+		{Name: "quick", Tiers: []tiers.Tier{tiers.Flash}},
+		{Name: "advisor-router"},
+	})
+	_, names, _ := codexCatalogEntries(t, "frontier", launch.LaunchModels("frontier", catalog, true))
+	if want := []string{"smart (Sol-like)", "smart (Terra-like)", "quick", "advisor-router"}; !slices.Equal(names, want) {
+		t.Errorf("display names = %v, want %v", names, want)
 	}
 }
 
