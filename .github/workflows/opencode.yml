@@ -12,7 +12,12 @@ name: opencode
 #
 # The job installs the opencode release recorded in
 # cmd/prizmal/testdata/terminal/opencode/opencode-version, the oldest one a
-# launch accepts.
+# launch accepts. It also runs one opencode session against a stub that
+# refuses any model name the tenant does not route.
+#
+# terminal-baselines renders opencode's screens in tmux and compares them to
+# the files under cmd/prizmal/testdata/terminal/opencode, on the same pinned
+# release.
 
 on:
   push:
@@ -44,3 +49,27 @@ jobs:
         env:
           PRIZMAL_HARNESS_LAUNCH: require
         run: go test -count=1 -v -run 'TestHarnessLaunchOpencode$|TestHarnessLaunchOpencodeWithoutAModel$' ./cmd/prizmal
+      - name: OpenCode sends only routable model names
+        env:
+          PRIZMAL_HARNESS_LAUNCH: require
+        run: go test -count=1 -v -run 'TestOpenCodeRunSendsOnlyRoutableNames$' ./internal/launcher/opencode
+
+  terminal-baselines:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install tmux
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq tmux
+      - name: Install the pinned opencode
+        run: |
+          curl -fsSL https://opencode.ai/install | bash -s -- --version "$(cat cmd/prizmal/testdata/terminal/opencode/opencode-version)"
+          echo "$HOME/.opencode/bin" >>"$GITHUB_PATH"
+      - name: Compare terminal baselines
+        env:
+          PRIZMAL_TERMINAL_BASELINES: require
+        run: go test -count=1 -v -run 'TestTerminalBaselinesOpencode$' ./cmd/prizmal
