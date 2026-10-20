@@ -54,7 +54,7 @@ func TestClinePathsUseResolvedDataDir(t *testing.T) {
 	if err := c.Edit([]launch.LaunchModel{{Name: "probe-model"}}); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{filepath.Join(dir, "settings", "providers.json"), filepath.Join(dir, "globalState.json")}
+	want := []string{filepath.Join(dir, "settings", "providers.json"), filepath.Join(dir, "globalState.json"), filepath.Join(dir, "settings", "cline_mcp_settings.json")}
 	if got := c.Paths(); !slices.Equal(got, want) {
 		t.Fatalf("Paths() = %v, want %v", got, want)
 	}

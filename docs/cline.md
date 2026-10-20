@@ -23,7 +23,11 @@ When you pass `--data-dir` or `--config` to Cline, the launch leaves the flag in
 
 ## Search
 
-Cline has no web search that routes through the Switch. Its own search requests never reach the Switch.
+Cline's own web tools never reach the Switch, so the launch adds a search tool that does. It registers an MCP server named `prizmal_search` in `<data-dir>/settings/cline_mcp_settings.json`, and Cline offers its tool to the model as `prizmal_search__search`. The entry runs `node ~/.cache/prizmal/cline/prizmal_search.mjs`, a server the launch rewrites each time. Your other MCP servers stay as they are.
+
+Each search posts to the Switch's `/v1/responses` with the `web_search` tool and the launch's model, and returns a summary with source URLs. The entry's `env` holds the Switch's `/v1` base and the model. The key comes from the `OPENAI_API_KEY` the launch gives Cline, so neither file holds it.
+
+The entry persists after Cline exits. `prizmal --restore cline` removes it.
 
 ## Model
 
@@ -39,7 +43,7 @@ Cline can't refresh a device token during a session: it reads `OPENAI_API_KEY` o
 prizmal --restore cline
 ```
 
-Cline's restore removes the prizmal provider entry and puts back the provider selection and mode pointers you had before the first launch. It relocates only through `CLINE_DATA_DIR` or `CLINE_DIR`. To restore a tree a launch chose with `--data-dir`, set `CLINE_DATA_DIR` to that path before running `prizmal --restore cline`. On a machine prizmal never configured, `--restore` reports that there is nothing to restore.
+Cline's restore removes the prizmal provider entry and the `prizmal_search` MCP server, and puts back the provider selection, mode pointers and any `prizmal_search` server you had before the first launch. It relocates only through `CLINE_DATA_DIR` or `CLINE_DIR`. To restore a tree a launch chose with `--data-dir`, set `CLINE_DATA_DIR` to that path before running `prizmal --restore cline`. On a machine prizmal never configured, `--restore` reports that there is nothing to restore.
 
 ## Run Cline without the Prizmal CLI
 
@@ -69,4 +73,22 @@ OPENAI_API_KEY="$PRIZMAL_SWITCH_KEY" cline
 
 The entry leaves out `apiKey`, so Cline reads the key from `OPENAI_API_KEY` and the file doesn't contain your switch key.
 
-`prizmal cline` writes this entry and the selection for you, and installs Cline when the `cline` binary is missing.
+`prizmal cline` writes this entry and the selection for you, and installs Cline when the `cline` binary is missing. It also adds the search server described above. To add it by hand, save the server file `prizmal cline` generates and add this entry to `<data-dir>/settings/cline_mcp_settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "prizmal_search": {
+      "transport": {
+        "type": "stdio",
+        "command": "node",
+        "args": ["/home/you/.cache/prizmal/cline/prizmal_search.mjs"],
+        "env": {
+          "PRIZMAL_CLINE_SEARCH_URL": "https://api.prizmal.ai/v1",
+          "PRIZMAL_CLINE_SEARCH_MODEL": "your-model"
+        }
+      }
+    }
+  }
+}
+```

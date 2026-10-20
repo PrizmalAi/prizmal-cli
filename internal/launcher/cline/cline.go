@@ -236,6 +236,7 @@ func (c *Cline) Paths() []string {
 	for _, p := range []string{
 		clineProvidersPath(dataDir),
 		clineLegacyGlobalStatePath(dataDir),
+		clineMCPSettingsPath(dataDir),
 	} {
 		if _, err := os.Stat(p); err == nil {
 			paths = append(paths, p)
@@ -273,7 +274,24 @@ func writeClineDataDir(dataDir string, relocated bool, model string) error {
 	if err := writeClineProvidersConfigWithBackup(providersPath, providersConfig, model, backup); err != nil {
 		return err
 	}
-	return writeClineLegacyGlobalStateWithBackup(legacyPath, legacyConfig, model, backup)
+	if err := writeClineLegacyGlobalStateWithBackup(legacyPath, legacyConfig, model, backup); err != nil {
+		return err
+	}
+	writeClineSearch(dataDir, model, backup)
+	return nil
+}
+
+// writeClineSearch registers the Switch-routed search tool in the data dir.
+// Search is an extra, not a precondition for the session: a launch that
+// cannot write it still runs, just without web search.
+func writeClineSearch(dataDir, model, backup string) {
+	serverPath, err := writeClineSearchServer()
+	if err == nil {
+		err = writeClineMCPSettings(dataDir, serverPath, model, backup)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Cline web search is unavailable for this launch: %v\n", err)
+	}
 }
 
 // clineBackupIntegration keeps a relocated tree's pre-launch copies apart from
@@ -490,7 +508,11 @@ func (c *Cline) Restore() (launch.RestoreOutcome, error) {
 	if err != nil {
 		return launch.RestoreOutcome{}, err
 	}
-	return providers.Join(state), nil
+	mcp, err := clineRestoreMCPSettings(clineMCPSettingsPath(dataDir), backup)
+	if err != nil {
+		return launch.RestoreOutcome{}, err
+	}
+	return providers.Join(state).Join(mcp), nil
 }
 
 func (c *Cline) RestoreSuccessMessage() string { return clineRestoreSuccess }
