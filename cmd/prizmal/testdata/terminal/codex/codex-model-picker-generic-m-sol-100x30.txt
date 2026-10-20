@@ -22,9 +22,9 @@
   Select Model and Effort
 
 
-› 1. Sol (current)   smart · Everyday coding
-  2. Terra           smart · Everyday coding
-  3. Luna            quick
+› 1. smart (current)  Sol-like · Everyday coding
+  2. smart            Terra-like · Everyday coding
+  3. quick            Luna-like
   4. advisor-router
 
   enter select · esc back

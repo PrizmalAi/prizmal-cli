@@ -104,6 +104,10 @@ type ModelRow struct {
 	// Generic is the generic tier a tier alias's row stands for, empty for a
 	// row that names a router config.
 	Generic tiers.Tier
+	// keepLabel exempts the row from disambiguation. A Codex tier row is
+	// named after its config, and its description tells it from the config's
+	// own row and from the config's other tiers.
+	keepLabel bool
 }
 
 // reservedModelNames are the placeholder rows a menu never offers and a launch
@@ -188,6 +192,10 @@ func ModelRowsFor(models []LaunchModel, vocab tiers.Vocabulary) []ModelRow {
 		if generic != "" && showsTiers {
 			row.Generic = generic
 			row.Label = vocab.Word(generic)
+			if vocab.LabelsByConfig() {
+				row.Label, row.Description = configLabel(m, vocab, generic)
+				row.keepLabel = true
+			}
 		}
 		tier, ok := claudecode.Tier(m.Tier), m.Tier != ""
 		if !ok && len(m.Tiers) > 0 {
@@ -199,7 +207,7 @@ func ModelRowsFor(models []LaunchModel, vocab tiers.Vocabulary) []ModelRow {
 		if ok {
 			row.Tier = tier
 			row.BehavesAs = claudecode.Profiles[tier].BehavesAs
-			if row.Description == "" {
+			if row.Description == "" && !row.keepLabel {
 				row.Description = claudecode.Profiles[tier].Description
 			}
 		}
@@ -208,6 +216,18 @@ func ModelRowsFor(models []LaunchModel, vocab tiers.Vocabulary) []ModelRow {
 
 	disambiguateLabels(rows)
 	return rows
+}
+
+// configLabel is a tier row's label and description in a vocabulary that
+// names the row after its config: the config that holds the tier, or the alias
+// when none does, and "Sol-like" ahead of the config's own description.
+func configLabel(m LaunchModel, vocab tiers.Vocabulary, tier tiers.Tier) (string, string) {
+	label, desc := ModelNameWithoutSuffix(m.Name), m.Description
+	if m.HeldBy != "" {
+		label = m.HeldBy
+		desc = strings.TrimPrefix(strings.TrimPrefix(desc, m.HeldBy), " · ")
+	}
+	return label, strings.TrimSuffix(vocab.Like(tier)+" · "+desc, " · ")
 }
 
 // genericRowTier returns the generic tier an entry's row stands for: the tier
@@ -250,7 +270,7 @@ func disambiguateLabels(rows []ModelRow) {
 
 		changed := false
 		for i := range rows {
-			if counts[rows[i].Label] > 1 && rows[i].Label != rows[i].Model {
+			if counts[rows[i].Label] > 1 && rows[i].Label != rows[i].Model && !rows[i].keepLabel {
 				rows[i].Label = rows[i].Model
 				changed = true
 			}

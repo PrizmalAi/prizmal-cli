@@ -27,7 +27,7 @@ const (
 //
 // Every field here has exactly one writer: the Switch's GET /v1/models
 // catalog fills Name, Capabilities, Tier, Tiers and Description (ParseSwitchCatalog),
-// and withClaudeTiers fills FoldedInto and AddedTier. The server-backed inventory of the
+// and withClaudeTiers fills FoldedInto, HeldBy and AddedTier. The server-backed inventory of the
 // original launcher is gone, so a field with no writer is a field nothing can
 // read meaningfully — a context window, an output-token limit or a format that
 // no writer supplies would make every adapter branch on a permanent zero and
@@ -54,6 +54,9 @@ type LaunchModel struct {
 	// model gets no row of its own, and stays in the catalog so a launch that
 	// names it still finds its tier and description.
 	FoldedInto string
+	// HeldBy is the router config a tier alias's row stands for, empty for a
+	// row that names a config or an alias no config holds.
+	HeldBy string
 	// AddedTier says the CLI added this entry as a tier alias's row, because
 	// the Switch lists router configs and not the aliases they hold. A harness
 	// that shows only router configs skips it.

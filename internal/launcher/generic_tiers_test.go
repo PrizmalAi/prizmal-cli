@@ -81,7 +81,9 @@ func TestModelRowsLabelTierRowsWithTheHarnessWord(t *testing.T) {
 		wantModels []string
 	}{
 		{tiers.ClaudeCode, []string{"Opus", "Haiku", "advisor-router"}, []string{"frontier", "flash", "advisor-router"}},
-		{tiers.Codex, []string{"Sol", "Luna", "advisor-router"}, []string{"frontier", "flash", "advisor-router"}},
+		// Codex names a tier row after its config, so no row reads as an
+		// OpenAI model.
+		{tiers.Codex, []string{"smart", "flash", "advisor-router"}, []string{"frontier", "flash", "advisor-router"}},
 		{tiers.Generic, []string{"frontier", "flash", "advisor-router"}, []string{"frontier", "flash", "advisor-router"}},
 		// pi, OpenCode and Cline show the real router configs.
 		{tiers.ConfigNames, []string{"flash", "smart", "advisor-router"}, []string{"flash", "smart", "advisor-router"}},
