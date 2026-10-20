@@ -26,6 +26,8 @@ package claudecode
 import (
 	"slices"
 	"strings"
+
+	"github.com/PrizmalAi/prizmal-cli/internal/tiers"
 )
 
 // Tier is the Claude Code model family a model is recognised as, from a
@@ -156,6 +158,35 @@ func KnownTier(tier string) string {
 		return tier
 	}
 	return ""
+}
+
+// GenericTier returns the generic tier a Claude family runs on: the tier whose
+// Claude Code word is the family's name. The word table in package tiers is
+// the one place that pairs them.
+func GenericTier(family Tier) (tiers.Tier, bool) {
+	return tiers.ClaudeCode.FromWord(string(family))
+}
+
+// FamilyOf returns the Claude family a generic tier renders as in Claude Code.
+func FamilyOf(tier tiers.Tier) (Tier, bool) {
+	word := strings.ToLower(tiers.ClaudeCode.Word(tier))
+	if !slices.Contains(Tiers, Tier(word)) {
+		return "", false
+	}
+	return Tier(word), true
+}
+
+// ParseTier reads a tier value the Switch sent as the Claude family it renders
+// as. It accepts a generic tier (frontier, core, flash, premier) and, during
+// the transition, the legacy Claude words (opus, sonnet, haiku, fable).
+func ParseTier(value string) (Tier, bool) {
+	if generic, ok := tiers.Parse(value); ok {
+		return FamilyOf(generic)
+	}
+	if tier := KnownTier(value); tier != "" {
+		return Tier(tier), true
+	}
+	return "", false
 }
 
 // OneMillionSuffix is Claude Code's own context-budgeting instruction. It is

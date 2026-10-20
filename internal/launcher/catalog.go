@@ -42,6 +42,7 @@ import (
 
 	"github.com/PrizmalAi/prizmal-cli/internal/claudecode"
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
+	"github.com/PrizmalAi/prizmal-cli/internal/tiers"
 )
 
 const (
@@ -96,7 +97,25 @@ type SwitchCatalogEntry struct {
 	ID              string   `json:"id"`
 	InputModalities []string `json:"input_modalities"`
 	Tier            string   `json:"tier"`
+	Tiers           []string `json:"tiers"`
 	Description     string   `json:"description"`
+}
+
+// genericTiers reads the generic tiers an entry holds: every valid value of
+// `tiers` when the Switch sent one, and otherwise `tier` when it names a
+// generic tier. A Switch that predates `tiers` reports one tier per config.
+func (e SwitchCatalogEntry) genericTiers() []tiers.Tier {
+	values := e.Tiers
+	if len(values) == 0 {
+		values = []string{e.Tier}
+	}
+	var held []tiers.Tier
+	for _, value := range values {
+		if tier, ok := tiers.Parse(value); ok && !slices.Contains(held, tier) {
+			held = append(held, tier)
+		}
+	}
+	return held
 }
 
 // routableName is the name a caller passes back to route, which is the id with
@@ -149,12 +168,18 @@ func ParseSwitchCatalog(data []byte) ([]LaunchModel, error) {
 		if name == "" {
 			continue
 		}
-		models = append(models, LaunchModel{
+		m := LaunchModel{
 			Name:         name,
 			Capabilities: CapabilitiesFromModalities(entry.InputModalities),
-			Tier:         claudecode.KnownTier(entry.Tier),
+			Tiers:        entry.genericTiers(),
 			Description:  cleanDescription(entry.Description),
-		})
+		}
+		// A legacy Claude word is read only when the entry reports no generic
+		// tier, so one config never offers the same tier under two aliases.
+		if len(m.Tiers) == 0 {
+			m.Tier = claudecode.KnownTier(entry.Tier)
+		}
+		models = append(models, m)
 	}
 	return models, nil
 }
@@ -247,26 +272,71 @@ func cachedCatalog(ctx context.Context) ([]LaunchModel, error) {
 	return modelCatalog.models, nil
 }
 
-// withClaudeTiers puts every Claude tier alias first, then the switch's own
-// entries, so an operator can pick a tier or a named router config.
+// withClaudeTiers puts every tier alias first, then the switch's own entries,
+// so an operator can pick a tier or a named router config.
 //
 // The switch lists router configs, not the tier aliases its admin writes for
 // each tier. The aliases still route, so the CLI supplies them itself. A tier
 // the switch lists too appears once, in its tier's place, with the
 // capabilities the switch gave it.
 //
+// There are two vocabularies of alias. A Switch that reports generic tiers
+// (frontier, core, flash, premier) gets a row per generic alias. A Switch that
+// still reports the legacy Claude words gets the claude-tier-<family> rows it
+// always had. ParseSwitchCatalog reads one or the other per config, so a tier
+// is never offered under both.
+//
 // A config the switch tags with a tier holds that tier's alias, so both names
 // route to it. The tier row stands for it: the row takes the config's
-// description and capabilities, and the config is folded out of the rows. The
-// switch gives a tier one holder. Should it send two, only the first is folded,
-// and the other keeps its own row.
-//
-// The fold asks the Claude adapter what each tier alias is called, because that
-// is where a Claude Code tier is named. The dependency runs one way: this file
-// knows the aliases, the adapter knows nothing about the catalog.
+// description and capabilities, and the config is folded out of the rows. One
+// config may hold every generic tier, and then each tier gets a row and the
+// config folds into the first. The switch gives a tier one holder. Should it
+// send two, only the first is folded, and the other keeps its own row.
 func withClaudeTiers(catalog []LaunchModel) []LaunchModel {
-	models := make([]LaunchModel, 0, len(claudecode.Tiers)+len(catalog))
-	holders := make(map[string]bool, len(claudecode.Tiers))
+	models := make([]LaunchModel, 0, len(tiers.All)+len(claudecode.Tiers)+len(catalog))
+	holders := make(map[string]string, len(tiers.All)+len(claudecode.Tiers))
+	takeHolder := func(entry *LaunchModel, holder LaunchModel) {
+		if holders[holder.Name] == "" {
+			holders[holder.Name] = entry.Name
+		}
+		if entry.Description == "" {
+			entry.Description = holder.Description
+		}
+		if len(entry.Capabilities) == 0 {
+			entry.Capabilities = holder.Capabilities
+		}
+		// The row's subtitle names the config it stands for. The config is
+		// folded out of the rows, so without its name here a name `--list`
+		// prints goes missing from every picker with no trace of where it went.
+		entry.Description = strings.TrimSpace(holder.Name + " · " + entry.Description)
+		entry.Description = strings.TrimSpace(strings.TrimSuffix(entry.Description, "·"))
+	}
+
+	for _, tier := range tiers.All {
+		name := tier.Alias()
+		entry, listed := FindCatalogModel(catalog, name)
+		// A listed config of that name is the tier's row only when the Switch
+		// says it holds the tier. Otherwise it is a config like any other.
+		if listed && !slices.Contains(entry.Tiers, tier) {
+			continue
+		}
+		i := slices.IndexFunc(catalog, func(m LaunchModel) bool {
+			return slices.Contains(m.Tiers, tier) && !ModelNamesSame(m.Name, name)
+		})
+		if !listed && i < 0 {
+			continue
+		}
+		entry.Name = name
+		if !listed {
+			entry.Tiers = []tiers.Tier{tier}
+			entry.AddedTier = true
+		}
+		if i >= 0 {
+			takeHolder(&entry, catalog[i])
+		}
+		models = append(models, entry)
+	}
+
 	for _, tier := range claudecode.Tiers {
 		name := claudecode.TierModel(tier)
 		entry, listed := FindCatalogModel(catalog, name)
@@ -277,24 +347,13 @@ func withClaudeTiers(catalog []LaunchModel) []LaunchModel {
 			continue
 		}
 		entry.Name = name
+		entry.AddedTier = !listed
 		if i >= 0 {
-			holder := catalog[i]
-			holders[holder.Name] = true
-			if entry.Description == "" {
-				entry.Description = holder.Description
-			}
-			if len(entry.Capabilities) == 0 {
-				entry.Capabilities = holder.Capabilities
-			}
-			// The row's subtitle names the config it stands for. The config is
-			// folded out of the rows, so without its name here a name `--list`
-			// prints goes missing from every picker with no trace of where it
-			// went.
-			entry.Description = strings.TrimSpace(holder.Name + " · " + entry.Description)
-			entry.Description = strings.TrimSpace(strings.TrimSuffix(entry.Description, "·"))
+			takeHolder(&entry, catalog[i])
 		}
 		models = append(models, entry)
 	}
+
 	tierRows := len(models)
 	for _, entry := range catalog {
 		if slices.ContainsFunc(models[:tierRows], func(tier LaunchModel) bool {
@@ -302,19 +361,26 @@ func withClaudeTiers(catalog []LaunchModel) []LaunchModel {
 		}) {
 			continue
 		}
-		if holders[entry.Name] {
-			entry.FoldedInto = claudecode.TierModel(claudecode.Tier(entry.Tier))
-		}
+		entry.FoldedInto = holders[entry.Name]
 		models = append(models, entry)
 	}
 	return models
 }
 
+// WithTierRows is the catalog as a menu reads it: the tenant's configs with
+// the tier aliases they hold put first.
+func WithTierRows(catalog []LaunchModel) []LaunchModel { return withClaudeTiers(catalog) }
+
 // HoldsTier reports whether the catalog has the tier's alias, which it has
-// when some config holds the tier.
+// when some config holds the tier: the generic alias the family runs on, or
+// the legacy claude-tier-<family> alias.
 func HoldsTier(catalog []LaunchModel, tier claudecode.Tier) bool {
+	generic, hasGeneric := claudecode.GenericTier(tier)
 	return slices.ContainsFunc(catalog, func(m LaunchModel) bool {
-		return ModelNamesSame(m.Name, claudecode.TierModel(tier))
+		if ModelNamesSame(m.Name, claudecode.TierModel(tier)) {
+			return true
+		}
+		return hasGeneric && ModelNamesSame(m.Name, generic.Alias()) && slices.Contains(m.Tiers, generic)
 	})
 }
 

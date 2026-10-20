@@ -17,6 +17,7 @@ import (
 	"github.com/PrizmalAi/prizmal-cli/internal/fileutil"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher/claude"
+	"github.com/PrizmalAi/prizmal-cli/internal/tiers"
 	"github.com/pelletier/go-toml/v2"
 	"golang.org/x/mod/semver"
 )
@@ -681,7 +682,7 @@ func codexCatalogModel(modelName string, models []launch.LaunchModel) launch.Lau
 // a model a tier row folds away. Codex reads that entry for the model's
 // window and prompt.
 func codexCatalogModels(modelName string, models []launch.LaunchModel) []launch.LaunchModel {
-	rows := launch.ModelRows(models)
+	rows := launch.ModelRowsFor(models, tiers.Codex)
 	out := make([]launch.LaunchModel, 0, len(rows)+1)
 	launched := false
 	for _, row := range rows {
@@ -707,6 +708,9 @@ func codexCatalogModels(modelName string, models []launch.LaunchModel) []launch.
 // Codex lists the catalog's entries in its own /model picker.
 func (c *Codex) ShowsModelList() bool { return true }
 
+// TierVocabulary labels the tier rows with Codex's words.
+func (c *Codex) TierVocabulary() tiers.Vocabulary { return tiers.Codex }
+
 // codexReasoningLevels are the efforts a Codex entry offers. The Switch
 // accepts a reasoning effort on every route, so each model gets the picker.
 var codexReasoningLevels = []any{
@@ -722,7 +726,11 @@ func WriteModelCatalog(catalogPath, model string, models []launch.LaunchModel) e
 	return writeCodexModelCatalog(catalogPath, codexCatalogModels(model, models))
 }
 
-// writeCodexModelCatalog writes one entry per model. The first model is the
+// writeCodexModelCatalog writes one entry per model. A tier row's slug is the
+// tier's alias (frontier, core, flash, premier), the name the Switch routes,
+// and its display_name is the Codex word (Sol, Terra, Luna, Astra). The word
+// is a label only: the Switch routes no Codex word, so a request that names
+// "sol" itself reaches no tier. The first model is the
 // launch's own: it gets the lowest priority number, which Codex sorts first
 // and offers as the default.
 func writeCodexModelCatalog(catalogPath string, models []launch.LaunchModel) error {
@@ -731,7 +739,7 @@ func writeCodexModelCatalog(catalogPath string, models []launch.LaunchModel) err
 		return err
 	}
 	labels := make(map[string]string, len(models))
-	for _, row := range launch.ModelRows(models) {
+	for _, row := range launch.ModelRowsFor(models, tiers.Codex) {
 		labels[row.Model] = row.Label
 	}
 	entries := make([]any, 0, len(models))

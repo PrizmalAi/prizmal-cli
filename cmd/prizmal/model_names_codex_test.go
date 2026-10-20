@@ -230,6 +230,24 @@ func TestCodexSendsOnlyRoutableNames(t *testing.T) {
 		}
 	})
 
+	// A Codex row reads Sol and its slug is frontier. A name copied off the
+	// row launches as the alias, because the Switch routes no Codex word.
+	for _, typed := range []string{"sol", "frontier"} {
+		t.Run("generic-tier-"+typed, func(t *testing.T) {
+			rec := &stubserver.Recorder{}
+			tc := codexNamesCase("generic-"+typed, rec, []string{"-m", typed, "codex"}, nil,
+				stepCodexPrompt, stepCodexSendHi, stepCodexSubmit)
+			tc.entries = []stubserver.Entry{{ID: "smart", Tier: "frontier", Tiers: []string{"frontier"}}, {ID: namesFlash}}
+			runCodexNames(t, tc)
+			assertServed(t, rec)
+			for _, m := range modelsOf(rec) {
+				if m != "frontier" {
+					t.Errorf("a request named %q, want the frontier alias", m)
+				}
+			}
+		})
+	}
+
 	// Codex reads the later of two -c settings for one key, and the launch
 	// appends the operator's arguments last. So a -c the operator passes for a
 	// model slot the launch also sets is the value Codex uses.

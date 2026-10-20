@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/model"
+	"github.com/PrizmalAi/prizmal-cli/internal/tiers"
 )
 
 // ANSI color helpers shared by the adapters.
@@ -25,8 +26,8 @@ const (
 // carries only what prizmal can actually learn about a model.
 //
 // Every field here has exactly one writer: the Switch's GET /v1/models
-// catalog fills Name, Capabilities, Tier and Description (ParseSwitchCatalog),
-// and withClaudeTiers fills FoldedInto. The server-backed inventory of the
+// catalog fills Name, Capabilities, Tier, Tiers and Description (ParseSwitchCatalog),
+// and withClaudeTiers fills FoldedInto and AddedTier. The server-backed inventory of the
 // original launcher is gone, so a field with no writer is a field nothing can
 // read meaningfully — a context window, an output-token limit or a format that
 // no writer supplies would make every adapter branch on a permanent zero and
@@ -39,15 +40,24 @@ type LaunchModel struct {
 	Name         string
 	Capabilities []model.Capability
 
-	// Tier is the Claude tier the Switch says this model serves, one of
-	// opus, sonnet, haiku or fable, and empty when it said none.
+	// Tier is the legacy Claude tier the Switch says this model serves, one
+	// of opus, sonnet, haiku or fable, and empty when it said none or when it
+	// reported a generic tier instead.
 	Tier string
+	// Tiers are the generic tiers the Switch says this model holds, read from
+	// `tiers` or, from a Switch that sends one tier, from `tier`. A tier row
+	// carries the one tier its alias names.
+	Tiers []tiers.Tier
 	// Description is the Switch's text for the model's picker row.
 	Description string
 	// FoldedInto is the tier alias whose row stands for this model. A folded
 	// model gets no row of its own, and stays in the catalog so a launch that
 	// names it still finds its tier and description.
 	FoldedInto string
+	// AddedTier says the CLI added this entry as a tier alias's row, because
+	// the Switch lists router configs and not the aliases they hold. A harness
+	// that shows only router configs skips it.
+	AddedTier bool
 }
 
 func (m LaunchModel) HasCapability(capability model.Capability) bool {
@@ -233,6 +243,22 @@ type TierWordRunner interface {
 func ResolvesTierWords(runner Runner) bool {
 	r, ok := runner.(TierWordRunner)
 	return ok && r.ResolvesTierWords()
+}
+
+// TierVocabularyRunner is a runner whose harness shows the tier rows in its
+// own words: Claude Code says Opus, Codex says Sol. A runner without it shows
+// the tenant's router configs by name and no tier rows, which is what pi,
+// OpenCode and Cline do.
+type TierVocabularyRunner interface {
+	TierVocabulary() tiers.Vocabulary
+}
+
+// HarnessVocabulary returns the words a runner's rows carry.
+func HarnessVocabulary(runner Runner) tiers.Vocabulary {
+	if r, ok := runner.(TierVocabularyRunner); ok {
+		return r.TierVocabulary()
+	}
+	return tiers.ConfigNames
 }
 
 // DeviceModeRunner is a runner that can refresh its own credential from an

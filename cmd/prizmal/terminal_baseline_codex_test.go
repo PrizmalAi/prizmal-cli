@@ -55,6 +55,19 @@ var codexBaselineCases = []baselineCase{
 		},
 		steps: []baselineStep{stepCodexPrompt, stepCodexOpenModel, stepCodexModelPicker},
 	},
+	// A Switch that reports generic tiers: the rows read Sol, Terra and Luna,
+	// and each row's slug is the tier's alias. One config serves two tiers.
+	{
+		name: "codex-model-picker-generic-m-sol-100x30", cols: 100, rows: 30,
+		args: []string{"-m", "sol", "codex"}, codex: true,
+		entries: []stubserver.Entry{
+			{ID: "smart", Tier: "frontier", Tiers: []string{"frontier", "core"}, Description: "Everyday coding"},
+			{ID: "quick", Tier: "flash", Tiers: []string{"flash"}},
+			{ID: "advisor-router"},
+			{ID: "default"},
+		},
+		steps: []baselineStep{stepCodexPrompt, stepCodexOpenModel, stepCodexModelPicker},
+	},
 	{
 		name: "codex-status-m-smart-100x30", cols: 100, rows: 30,
 		args: []string{"-m", "smart", "codex"}, codex: true,

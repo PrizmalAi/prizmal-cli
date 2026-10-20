@@ -944,7 +944,7 @@ func allTierRows() []launch.ModelRow {
 }
 
 // allHeldTiers is the held set of a tenant that holds every Claude tier.
-func allHeldTiers() map[claudecode.Tier]bool { return claudeHeldTiers(allTierRows()) }
+func allHeldTiers() map[claudecode.Tier]string { return claudeHeldTiers(allTierRows()) }
 
 // Claude Code maps its own ids for a tier to the tenant's alias for it. A
 // tenant with no config on the tier has no alias, and the Switch refuses the
