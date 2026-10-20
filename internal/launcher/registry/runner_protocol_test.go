@@ -130,6 +130,10 @@ func TestNoHypotheticalSeams(t *testing.T) {
 		// whether the harness runs one prompt and exits, so a model menu would
 		// block a command meant to finish on its own.
 		reflect.TypeOf((*launch.HeadlessRunner)(nil)).Elem(),
+		// TierVocabularyRunner is part of the protocol: the launch reads it to
+		// label the tier rows in the harness's own words and to map a typed
+		// word back to the tier's alias.
+		reflect.TypeOf((*launch.TierVocabularyRunner)(nil)).Elem(),
 	} {
 		for i := range iface.NumMethod() {
 			protocol[iface.Method(i).Name] = true

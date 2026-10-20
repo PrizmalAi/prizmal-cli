@@ -194,6 +194,25 @@ func TestClaudeSendsOnlyRoutableNames(t *testing.T) {
 		})
 	}
 
+	// A Switch that reports generic tiers holds the frontier alias, and the
+	// launch maps Claude Code's opus ids onto it. So --model opus routes to the
+	// config that holds frontier, as it did to the one holding
+	// claude-tier-opus.
+	t.Run("generic-tiers/launch-opus", func(t *testing.T) {
+		t.Parallel()
+		rec := &stubserver.Recorder{}
+		entries := []stubserver.Entry{
+			{ID: namesFrontier, Tier: "frontier", Tiers: []string{"frontier"}},
+			{ID: namesFlash, Tier: "flash", Tiers: []string{"flash"}},
+		}
+		runClaudeNames(t, claudeNamesCase("generic-launch-opus", rec, entries, []string{"-m", "opus", "claude"},
+			stepClaudeReady, stepClaudeSend("hi"), stepClaudeEnter))
+		assertServed(t, rec)
+		if !slices.Contains(modelsOf(rec), "frontier") {
+			t.Errorf("-m opus sent %q, want frontier among them", modelsOf(rec))
+		}
+	})
+
 	// A name copied off a picker row reads "tier-opus" and routes as the
 	// catalog's own name, which carries the prefix the label drops.
 	t.Run("held-tiers/launch-picker-label", func(t *testing.T) {

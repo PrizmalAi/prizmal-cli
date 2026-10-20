@@ -20,7 +20,18 @@ Without `prizmal`, a scripted Codex run needs a model your key routes, so pass `
 
 The launch passes `--no-daemon` and the provider settings as `-c` overrides. Nothing app-visible in `~/.codex/config.toml` changes. A `CODEX_HOME` you set is kept: Codex reads its config, MCP servers, sessions and sign-in from that directory, and the launch's overrides apply on top. It states the model with `-m`, so Codex runs the model prizmal resolved rather than one of its own.
 
-Codex's `/model` lists the same rows as the prizmal picker, with the same labels and descriptions, and the model you launched comes first: a tier alias is a row, and the model folded into it is not a second one. Each catalog entry sets `display_name` to the row's label and `description` to its text. A model you launch with `-m` that no row shows still gets an entry, because Codex reads it for the model's window and prompt.
+Codex's `/model` lists the same rows as the prizmal picker, with the same labels and descriptions, and the model you launched comes first: a tier alias is a row, and the model folded into it is not a second one. Each catalog entry sets `display_name` to the row's label and `description` to its text.
+
+When your tenant holds the generic tiers, Codex shows one row per tier it holds, labelled Sol, Terra, Luna and Astra. Each row's `slug` is the tier's alias, the name the Switch routes:
+
+| Row | `slug` |
+|---|---|
+| Sol | `frontier` |
+| Terra | `core` |
+| Luna | `flash` |
+| Astra | `premier` |
+
+A config that holds several tiers gives a row for each. When your Switch reports no tier, the rows are your router configs by name. `prizmal -m sol codex` launches `frontier`. The word is only a label, though: the Switch does not route `sol`, so a plain `codex -m sol`, or a tool call that names `sol`, reaches the Switch as an unknown name and runs on the config your key is bound to. Use the alias wherever you type a model name yourself. A model you launch with `-m` that no row shows still gets an entry, because Codex reads it for the model's window and prompt.
 
 Each catalog entry sets `supports_search_tool`, which makes Codex defer its less-used tools behind a `tool_search` tool, as `ENABLE_TOOL_SEARCH=true` does for Claude Code. A manual setup that writes its own catalog sets the same field on each entry. It needs a Switch that supports Codex's tool search.
 
@@ -155,4 +166,4 @@ To get the `apply_patch` edit tool by hand, set `"apply_patch_tool_type": "freef
 
 Give Codex its system prompt by hand too: build the catalog with `codex debug models --bundled`, and copy the `base_instructions` and `model_messages` of the model you launched into its entry. A catalog entry without them sends Codex a session with no description of its tools, its sandbox or its editing rules.
 
-For Codex's `/model` picker to list your whole tenant, point `model_catalog_json` at a catalog with one entry per model from `GET /v1/models`. Each entry needs `slug`, `display_name`, `description`, `supported_reasoning_levels` and a `priority`, where the lowest priority is the model Codex runs by default. Leave out the `claude-tier-*` aliases: those rows are for Claude Code's picker.
+For Codex's `/model` picker to list your whole tenant, point `model_catalog_json` at a catalog with one entry per model from `GET /v1/models`. Each entry needs `slug`, `display_name`, `description`, `supported_reasoning_levels` and a `priority`, where the lowest priority is the model Codex runs by default. For a tier your tenant holds, write an entry whose `slug` is the alias (`frontier`, `core`, `flash` or `premier`) and whose `display_name` is Sol, Terra, Luna or Astra. Leave out the `claude-tier-*` aliases: those rows are for Claude Code's picker.

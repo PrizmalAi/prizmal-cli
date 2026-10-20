@@ -63,15 +63,15 @@ Claude Code flags work as usual, so `claude --resume <session-id>` goes after `c
 
 ### Choose a model
 
-Pass the model with `--model` and append `[1m]`, so Claude Code budgets the 1M-token window the Switch serves. Without the suffix, Claude Code compacts a session at 200k tokens. For the name, use one of your tenant's router configs, or a tier alias that routes to the config your tenant assigned to that tier: `claude-tier-opus`, `claude-tier-sonnet`, `claude-tier-haiku` or `claude-tier-fable`.
+Pass the model with `--model` and append `[1m]`, so Claude Code budgets the 1M-token window the Switch serves. Without the suffix, Claude Code compacts a session at 200k tokens. For the name, use one of your tenant's router configs, or a tier alias that routes to the config your tenant assigned to that tier: `frontier`, `core`, `flash` or `premier`. Claude Code's `/model` labels those rows Opus, Sonnet, Haiku and Fable. A tenant that still holds the older `claude-tier-opus`, `claude-tier-sonnet`, `claude-tier-haiku` and `claude-tier-fable` aliases keeps them routing, and its rows keep their old labels.
 
 ```bash
-claude --model 'claude-tier-haiku[1m]'
+claude --model 'flash[1m]'
 ```
 
-A name copied off a `/model` row works too, because `tier-opus` is another spelling of `claude-tier-opus`. A tier alias routes only when your tenant assigned a router config to that tier. Without that, the Switch refuses the name, and a launch refuses a tier word for a tier your tenant does not hold.
+`--model opus` routes to the config that holds `frontier`. Claude Code turns the word into its own Opus id, and the launch maps that id to `frontier` through `modelOverrides`; without the CLI, the Switch maps the Opus id to `frontier` itself. A name copied off a legacy `/model` row works too, because `tier-opus` is another spelling of `claude-tier-opus`. A tier alias routes only when your tenant assigned a router config to that tier. Without that, the Switch refuses the name, and a launch refuses a tier word for a tier your tenant does not hold.
 
-Prefer the alias for the haiku tier over `--model haiku`. A held haiku tier routes `haiku` too. Claude Code reads the word as Claude Haiku 4.5, the Switch maps that id to your `claude-tier-haiku` config, and the session starts without auto mode, because Claude Code turns auto mode off for every model released before Claude Opus 4.6.
+Prefer the alias for the haiku tier over `--model haiku`. A held haiku tier routes `haiku` too. Claude Code reads the word as Claude Haiku 4.5, the Switch maps that id to your `flash` config, and the session starts without auto mode, because Claude Code turns auto mode off for every model released before Claude Opus 4.6.
 
 To get the tier rows in `/model` with the window and model profile `prizmal claude` gives them, save these settings as `prizmal-claude.json`:
 
@@ -80,10 +80,10 @@ To get the tier rows in `/model` with the window and model profile `prizmal clau
   "modelPicker": {
     "replaceBuiltInOptions": true,
     "options": [
-      {"model": "claude-tier-opus[1m]", "behavesAs": "claude-opus-5", "description": "Opus tier"},
-      {"model": "claude-tier-sonnet[1m]", "behavesAs": "claude-sonnet-5", "description": "Sonnet tier"},
-      {"model": "claude-tier-haiku[1m]", "behavesAs": "claude-sonnet-5", "description": "Haiku tier"},
-      {"model": "claude-tier-fable[1m]", "behavesAs": "claude-fable-5-1", "description": "Fable tier"}
+      {"label": "Opus", "model": "frontier[1m]", "behavesAs": "claude-opus-5", "description": "Opus tier"},
+      {"label": "Sonnet", "model": "core[1m]", "behavesAs": "claude-sonnet-5", "description": "Sonnet tier"},
+      {"label": "Haiku", "model": "flash[1m]", "behavesAs": "claude-sonnet-5", "description": "Haiku tier"},
+      {"label": "Fable", "model": "premier[1m]", "behavesAs": "claude-fable-5-1", "description": "Fable tier"}
     ]
   }
 }

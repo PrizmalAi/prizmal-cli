@@ -27,6 +27,7 @@ import (
 
 	launcher "github.com/PrizmalAi/prizmal-cli/internal/launcher"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher/registry"
+	"github.com/PrizmalAi/prizmal-cli/internal/tiers"
 )
 
 var (
@@ -362,6 +363,13 @@ func runnerShowsModelList(runner launcher.Runner) bool {
 //
 // headless says the harness runs one prompt and exits, so there is no session
 func resolveLaunchModel(cfg *config.Config, harnessModel string, ask launcher.Asking, headless bool) (string, []launcher.LaunchModel, error) {
+	return resolveLaunchModelFor(cfg, harnessModel, ask, headless, tiers.Generic)
+}
+
+// resolveLaunchModelFor is resolveLaunchModel for a launch whose picker shows
+// vocab's rows: the tier words of the harness it launches, or the router
+// configs alone for a harness without tier words.
+func resolveLaunchModelFor(cfg *config.Config, harnessModel string, ask launcher.Asking, headless bool, vocab tiers.Vocabulary) (string, []launcher.LaunchModel, error) {
 	ctx := context.Background()
 
 	switch {
@@ -405,7 +413,7 @@ func resolveLaunchModel(cfg *config.Config, harnessModel string, ask launcher.As
 		return "", nil, launcher.CatalogError(err)
 	}
 
-	chosen, err := ask.Pick(launcher.ModelRows(catalog))
+	chosen, err := ask.Pick(launcher.ModelRowsFor(catalog, vocab))
 	if err != nil {
 		return "", nil, err
 	}
@@ -718,16 +726,19 @@ func launch(name string, extraArgs []string, cfg *config.Config, ask launcher.As
 	// prints its answer and exits has no session for a menu to start, so it
 	// never asks, and a launch with no model stops with the names it can use.
 	headless := launcher.RunsHeadless(runner, extraArgs)
-	chosen, catalog, err := resolveLaunchModel(cfg, harnessModel, ask, headless)
+	vocab := launcher.HarnessVocabulary(runner)
+	chosen, catalog, err := resolveLaunchModelFor(cfg, harnessModel, ask, headless, vocab)
 	if err != nil {
 		return err
 	}
 
 	// A name copied off a picker row reads without the claude- prefix the
 	// row's label drops, and the catalog carries the prefixed name that
-	// routes. A name the catalog carries is left as it is.
-	chosen = launcher.RouteName(catalog, chosen)
-	subagentModel = launcher.RouteName(catalog, subagentModel)
+	// routes. A Codex row's word (sol) becomes the tier's alias (frontier),
+	// because the Switch routes the alias and no Codex word. A name the
+	// catalog carries is left as it is.
+	chosen = launcher.RouteNameFor(catalog, chosen, vocab)
+	subagentModel = launcher.RouteNameFor(catalog, subagentModel, vocab)
 
 	// A name the Switch does not route is refused here, with the way to list
 	// the names, instead of reaching the Switch as a request it answers with an

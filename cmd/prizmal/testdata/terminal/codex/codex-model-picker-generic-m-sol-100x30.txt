@@ -1,0 +1,30 @@
+
+  >_ OpenAI Codex (v0.163.0)
+     ~/project
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  Select Model and Effort
+
+
+› 1. Sol (current)   smart · Everyday coding
+  2. Terra           smart · Everyday coding
+  3. Luna            quick
+  4. advisor-router
+
+  enter select · esc back

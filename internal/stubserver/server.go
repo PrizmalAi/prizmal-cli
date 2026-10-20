@@ -73,6 +73,8 @@ type Entry struct {
 	ID          string
 	Tier        string
 	Description string
+	// Tiers is the `tiers` array: every generic tier the config holds.
+	Tiers []string
 }
 
 // Recorder keeps the JSON body of every POST /v1/responses the stub receives,
@@ -374,6 +376,9 @@ func WithEntries(entries ...Entry) ServerOption {
 			}
 			if e.Tier != "" {
 				model["tier"] = e.Tier
+			}
+			if len(e.Tiers) > 0 {
+				model["tiers"] = e.Tiers
 			}
 			if e.Description != "" {
 				model["description"] = e.Description
@@ -1334,7 +1339,8 @@ var tierFamilies = []string{"opus", "sonnet", "haiku", "fable", "mythos"}
 // verdict, answers a refusal with HTTP 400 and a model_not_found error, and
 // reports whether the request may go on.
 //
-// The aliases are the ones the Switch resolves: claude-tier-<tier> for a tier
+// The aliases are the ones the Switch resolves: a generic tier's own name
+// (frontier, core, flash, premier) and the legacy claude-tier-<tier> for a tier
 // some catalog entry holds, and any claude-<tier>... vendor id of that tier.
 // The vendor-id prefix is deliberately broad: the Switch maps every
 // claude-<tier>... id to the tier's alias, so it serves any such id for a held
@@ -1396,11 +1402,35 @@ func (c *serverConfig) routable(name string) bool {
 		if tier, _ := m["tier"].(string); tier != "" {
 			held[tier] = true
 		}
+		if list, _ := m["tiers"].([]string); list != nil {
+			for _, tier := range list {
+				held[tier] = true
+			}
+		}
+	}
+	// A generic tier's alias is the tier's own name.
+	for _, tier := range genericTiers {
+		if held[tier] && name == tier {
+			return true
+		}
 	}
 	for _, tier := range tierFamilies {
-		if held[tier] && (name == "claude-tier-"+tier || strings.HasPrefix(name, "claude-"+tier)) {
+		// The legacy alias routes for a config that holds the legacy tier.
+		if held[tier] && name == "claude-tier-"+tier {
+			return true
+		}
+		// A vendor id routes to whichever alias of its family a config holds.
+		vendor := strings.HasPrefix(name, "claude-"+tier)
+		if vendor && (held[tier] || held[genericOfFamily[tier]]) {
 			return true
 		}
 	}
 	return false
 }
+
+// genericTiers are the tier names the Switch reports and routes as aliases.
+var genericTiers = []string{"frontier", "core", "flash", "premier"}
+
+// genericOfFamily is the Switch's vendor map retargeted to the generic tiers:
+// a claude-<family>... id routes to the config holding the family's tier.
+var genericOfFamily = map[string]string{"opus": "frontier", "sonnet": "core", "haiku": "flash", "fable": "premier"}
