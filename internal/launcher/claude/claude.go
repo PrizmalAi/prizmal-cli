@@ -657,7 +657,7 @@ func claudeOrderedModelOverrides(held map[claudecode.Tier]bool) orderedModelOver
 // claudeModelPicker is the settings block that defines Claude Code's /model
 // rows.
 //
-// replaceBuiltInOptions hides the built-in lineup and the gateway-discovered
+// replaceBuiltInOptions hides the built-in model list and the gateway-discovered
 // rows, so the rows defined here are the only rows and a discovered duplicate
 // cannot appear beside them.
 //
