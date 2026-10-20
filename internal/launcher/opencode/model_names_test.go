@@ -72,8 +72,7 @@ func TestOpenCodeRunSendsOnlyRoutableNames(t *testing.T) {
 	sandboxedHome(t)
 	t.Chdir(t.TempDir())
 	for _, name := range []string{"OPENCODE_CONFIG", "OPENCODE_CONFIG_CONTENT", "XDG_STATE_HOME", "XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME"} {
-		t.Setenv(name, "")
-		os.Unsetenv(name)
+		unsetEnv(t, name)
 	}
 
 	rec := &stubserver.Recorder{}

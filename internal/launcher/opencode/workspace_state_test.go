@@ -54,7 +54,7 @@ func TestOpenCodeCarriesTheOperatorsStateHome(t *testing.T) {
 		t.Error("opencode runs on the operator's state home, so workspaces share model.json")
 	}
 
-	os.Unsetenv("XDG_STATE_HOME")
+	unsetEnv(t, "XDG_STATE_HOME")
 	env = (&OpenCode{}).childEnv("smart", nil)
 	if got, ok := envLookup(env, openCodeUserStateEnv); ok {
 		t.Errorf("%s = %q with XDG_STATE_HOME unset, want it absent so the shell sees none", openCodeUserStateEnv, got)
@@ -77,5 +77,15 @@ func TestOpenCodeWritesTheShellEnvPlugin(t *testing.T) {
 		if !strings.Contains(string(src), want) {
 			t.Errorf("plugin lacks %s:\n%s", want, src)
 		}
+	}
+}
+
+// unsetEnv removes name from the environment for the rest of the test, and
+// t.Setenv restores the earlier value when the test ends.
+func unsetEnv(t *testing.T, name string) {
+	t.Helper()
+	t.Setenv(name, "")
+	if err := os.Unsetenv(name); err != nil {
+		t.Fatalf("unset %s: %v", name, err)
 	}
 }
