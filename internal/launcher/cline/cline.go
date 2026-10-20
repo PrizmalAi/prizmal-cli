@@ -1,6 +1,8 @@
 package cline
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -77,6 +79,9 @@ func (c *Cline) Run(model string, _ []launch.LaunchModel, args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := c.writeArgDataDir(model, args); err != nil {
+		return err
+	}
 
 	launchArgs := clineLaunchArgs(model, args)
 	cmd := exec.Command(bin, launchArgs...)
@@ -96,6 +101,90 @@ func (c *Cline) childEnv() []string { return launch.ChildEnv(nil, c.envVars()) }
 
 func (c *Cline) envVars() []string {
 	return []string{"OPENAI_API_KEY=" + envconfig.APIKey()}
+}
+
+// dataDir is the Cline data directory Edit, Paths and Restore use. The shared
+// launch path calls Edit before Run and passes it no harness arguments, so this
+// reads only CLINE_DATA_DIR, CLINE_DIR/data, then ~/.cline/data.
+func (c *Cline) dataDir() (string, bool, error) {
+	return clineDataDir(nil, os.Getenv, os.UserHomeDir)
+}
+
+// writeArgDataDir writes the launch files into the tree Cline will read from
+// its own flags. It leaves the flags as they are, and does nothing when that
+// tree is the one Edit already wrote.
+func (c *Cline) writeArgDataDir(model string, args []string) error {
+	if model == "" {
+		return nil
+	}
+	want, wantRelocated, err := clineDataDir(args, os.Getenv, os.UserHomeDir)
+	if err != nil {
+		return err
+	}
+	have, _, err := c.dataDir()
+	if err != nil {
+		return err
+	}
+	if filepath.Clean(want) == filepath.Clean(have) {
+		return nil
+	}
+	return writeClineDataDir(want, wantRelocated, model)
+}
+
+func clineDataDir(args []string, getenv func(string) string, home func() (string, error)) (string, bool, error) {
+	dataDir, configDir := clinePathArgs(args)
+	var dir string
+	switch {
+	case dataDir != "":
+		dir = dataDir
+	case strings.TrimSpace(getenv("CLINE_DATA_DIR")) != "":
+		dir = strings.TrimSpace(getenv("CLINE_DATA_DIR"))
+	case configDir != "":
+		dir = filepath.Join(configDir, "data")
+	case strings.TrimSpace(getenv("CLINE_DIR")) != "":
+		dir = filepath.Join(strings.TrimSpace(getenv("CLINE_DIR")), "data")
+	default:
+		h, err := home()
+		if err != nil {
+			return "", false, err
+		}
+		return filepath.Join(h, ".cline", "data"), false, nil
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", false, err
+	}
+	return abs, true, nil
+}
+
+// clinePathArgs returns the last --data-dir and --config values before `--`.
+// Other value flags are skipped with their values, so a prompt or system text
+// that happens to read "--data-dir" is not mistaken for an option.
+func clinePathArgs(args []string) (dataDir, configDir string) {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			break
+		}
+		name, value, inline := strings.Cut(arg, "=")
+		if !strings.HasPrefix(name, "-") || !clineValueFlags[name] {
+			continue
+		}
+		if !inline {
+			if i+1 >= len(args) {
+				break
+			}
+			i++
+			value = args[i]
+		}
+		switch name {
+		case "--data-dir":
+			dataDir = value
+		case "--config":
+			configDir = value
+		}
+	}
+	return dataDir, configDir
 }
 
 // ClineInstaller is Cline's install story. It is the plain one: npm puts the
@@ -138,15 +227,15 @@ func clineLaunchArgs(model string, extra []string) []string {
 }
 
 func (c *Cline) Paths() []string {
-	home, err := os.UserHomeDir()
+	dataDir, _, err := c.dataDir()
 	if err != nil {
 		return nil
 	}
 
 	var paths []string
 	for _, p := range []string{
-		clineProvidersPath(home),
-		clineLegacyGlobalStatePath(home),
+		clineProvidersPath(dataDir),
+		clineLegacyGlobalStatePath(dataDir),
 	} {
 		if _, err := os.Stat(p); err == nil {
 			paths = append(paths, p)
@@ -160,13 +249,17 @@ func (c *Cline) Edit(models []launch.LaunchModel) error {
 		return nil
 	}
 
-	home, err := os.UserHomeDir()
+	dataDir, relocated, err := c.dataDir()
 	if err != nil {
 		return err
 	}
+	return writeClineDataDir(dataDir, relocated, models[0].Name)
+}
 
-	providersPath := clineProvidersPath(home)
-	legacyPath := clineLegacyGlobalStatePath(home)
+func writeClineDataDir(dataDir string, relocated bool, model string) error {
+	providersPath := clineProvidersPath(dataDir)
+	legacyPath := clineLegacyGlobalStatePath(dataDir)
+	backup := clineBackupIntegration(dataDir, relocated)
 
 	providersConfig, err := readClineConfig(providersPath)
 	if err != nil {
@@ -177,18 +270,28 @@ func (c *Cline) Edit(models []launch.LaunchModel) error {
 		return err
 	}
 
-	if err := writeClineProvidersConfig(providersPath, providersConfig, models[0].Name); err != nil {
+	if err := writeClineProvidersConfigWithBackup(providersPath, providersConfig, model, backup); err != nil {
 		return err
 	}
-	return writeClineLegacyGlobalState(legacyPath, legacyConfig, models[0].Name)
+	return writeClineLegacyGlobalStateWithBackup(legacyPath, legacyConfig, model, backup)
 }
 
-func clineProvidersPath(home string) string {
-	return filepath.Join(home, ".cline", "data", "settings", "providers.json")
+// clineBackupIntegration keeps a relocated tree's pre-launch copies apart from
+// the default tree's and from every other relocated tree.
+func clineBackupIntegration(dataDir string, relocated bool) string {
+	if !relocated {
+		return "cline"
+	}
+	sum := sha256.Sum256([]byte(filepath.Clean(dataDir)))
+	return filepath.Join("cline", "data-dirs", hex.EncodeToString(sum[:8]))
 }
 
-func clineLegacyGlobalStatePath(home string) string {
-	return filepath.Join(home, ".cline", "data", "globalState.json")
+func clineProvidersPath(dataDir string) string {
+	return filepath.Join(dataDir, "settings", "providers.json")
+}
+
+func clineLegacyGlobalStatePath(dataDir string) string {
+	return filepath.Join(dataDir, "globalState.json")
 }
 
 // clineProviderHost is the endpoint spelling Cline's globalState.json keys
@@ -217,6 +320,10 @@ func readClineConfig(configPath string) (map[string]any, error) {
 }
 
 func writeClineProvidersConfig(configPath string, config map[string]any, model string) error {
+	return writeClineProvidersConfigWithBackup(configPath, config, model, "cline")
+}
+
+func writeClineProvidersConfigWithBackup(configPath string, config map[string]any, model, backup string) error {
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		return err
 	}
@@ -275,10 +382,10 @@ func writeClineProvidersConfig(configPath string, config map[string]any, model s
 	if err != nil {
 		return err
 	}
-	return fileutil.WriteWithBackup(configPath, data, "cline")
+	return fileutil.WriteWithBackup(configPath, data, backup)
 }
 
-func writeClineLegacyGlobalState(configPath string, config map[string]any, model string) error {
+func writeClineLegacyGlobalStateWithBackup(configPath string, config map[string]any, model, backup string) error {
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		return err
 	}
@@ -298,20 +405,20 @@ func writeClineLegacyGlobalState(configPath string, config map[string]any, model
 	if err != nil {
 		return err
 	}
-	return fileutil.WriteWithBackup(configPath, data, "cline")
+	return fileutil.WriteWithBackup(configPath, data, backup)
 }
 
 func (c *Cline) Models() []string {
-	home, err := os.UserHomeDir()
+	dataDir, _, err := c.dataDir()
 	if err != nil {
 		return nil
 	}
 
-	if model := clineProviderModel(home); model != "" {
+	if model := clineProviderModel(dataDir); model != "" {
 		return []string{model}
 	}
 
-	config, err := fileutil.ReadJSON(clineLegacyGlobalStatePath(home))
+	config, err := fileutil.ReadJSON(clineLegacyGlobalStatePath(dataDir))
 	if err != nil {
 		return nil
 	}
@@ -329,8 +436,8 @@ func (c *Cline) Models() []string {
 	return []string{modelID}
 }
 
-func clineProviderModel(home string) string {
-	config, err := fileutil.ReadJSON(clineProvidersPath(home))
+func clineProviderModel(dataDir string) string {
+	config, err := fileutil.ReadJSON(clineProvidersPath(dataDir))
 	if err != nil {
 		return ""
 	}
@@ -369,16 +476,17 @@ const clineRestoreSuccess = "Cline launch configuration removed."
 // into ~/.prizmal/backup, which would deposit the key being removed one
 // directory over.
 func (c *Cline) Restore() (launch.RestoreOutcome, error) {
-	home, err := os.UserHomeDir()
+	dataDir, relocated, err := c.dataDir()
 	if err != nil {
 		return launch.RestoreOutcome{}, err
 	}
+	backup := clineBackupIntegration(dataDir, relocated)
 
-	providers, err := clineRestoreProviders(clineProvidersPath(home))
+	providers, err := clineRestoreProviders(clineProvidersPath(dataDir), backup)
 	if err != nil {
 		return launch.RestoreOutcome{}, err
 	}
-	state, err := clineRestoreLegacyGlobalState(clineLegacyGlobalStatePath(home))
+	state, err := clineRestoreLegacyGlobalState(clineLegacyGlobalStatePath(dataDir), backup)
 	if err != nil {
 		return launch.RestoreOutcome{}, err
 	}
@@ -387,7 +495,7 @@ func (c *Cline) Restore() (launch.RestoreOutcome, error) {
 
 func (c *Cline) RestoreSuccessMessage() string { return clineRestoreSuccess }
 
-func clineRestoreProviders(configPath string) (launch.RestoreOutcome, error) {
+func clineRestoreProviders(configPath, backup string) (launch.RestoreOutcome, error) {
 	config, err := clineReadExistingConfig(configPath)
 	if err != nil || config == nil {
 		return launch.RestoreOutcome{}, err
@@ -427,7 +535,7 @@ func clineRestoreProviders(configPath string) (launch.RestoreOutcome, error) {
 	var put []string
 	if lastUsed, _ := config["lastUsedProvider"].(string); removed[lastUsed] {
 		delete(config, "lastUsedProvider")
-		previous := launch.PreLaunchCopy("cline", "providers.json", clineProvidersPointAtPrizmal)
+		previous := launch.PreLaunchCopy(backup, "providers.json", clineProvidersPointAtPrizmal)
 		put = launch.Reinstate(config, previous, "lastUsedProvider")
 		changed = true
 	}
@@ -498,7 +606,7 @@ func clinePrizmalShapedEntry(entry map[string]any) bool {
 // points cline at an endpoint whose credential has just been removed, so
 // with no pre-launch copy left they are cleared. welcomeViewCompleted stays:
 // it is the user's own onboarding state, not a route to prizmal.
-func clineRestoreLegacyGlobalState(configPath string) (launch.RestoreOutcome, error) {
+func clineRestoreLegacyGlobalState(configPath, backup string) (launch.RestoreOutcome, error) {
 	config, err := clineReadExistingConfig(configPath)
 	if err != nil || config == nil {
 		return launch.RestoreOutcome{}, err
@@ -525,7 +633,7 @@ func clineRestoreLegacyGlobalState(configPath string) (launch.RestoreOutcome, er
 	if len(cleared) == 0 {
 		return launch.RestoreOutcome{}, nil
 	}
-	previous := launch.PreLaunchCopy("cline", "globalState.json", clineGlobalStatePointsAtPrizmal)
+	previous := launch.PreLaunchCopy(backup, "globalState.json", clineGlobalStatePointsAtPrizmal)
 	put := launch.Reinstate(config, previous, cleared...)
 
 	if err := clineWriteJSONFile(configPath, config); err != nil {
