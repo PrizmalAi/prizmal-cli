@@ -225,8 +225,8 @@ func ModelRowsFor(models []LaunchModel, vocab tiers.Vocabulary) []ModelRow {
 
 // nameSharedConfigRows adds the tier word to every tier row whose config name
 // another tier row shows too, so a config that holds two tiers reads
-// "smart (Sol-like)" and "smart (Terra-like)". A name only one tier row shows
-// stays plain.
+// "smart (Sol-like)" and "smart (Terra-like)", and the word leaves the
+// description it would repeat. A name only one tier row shows stays plain.
 func nameSharedConfigRows(rows []ModelRow) {
 	counts := make(map[string]int, len(rows))
 	for _, row := range rows {
@@ -237,6 +237,7 @@ func nameSharedConfigRows(rows []ModelRow) {
 	for i := range rows {
 		if rows[i].like != "" && counts[rows[i].Label] > 1 {
 			rows[i].Label += " (" + rows[i].like + ")"
+			rows[i].Description = strings.TrimPrefix(strings.TrimPrefix(rows[i].Description, rows[i].like), " · ")
 		}
 	}
 }

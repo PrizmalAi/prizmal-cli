@@ -22,8 +22,8 @@
   Select Model and Effort
 
 
-› 1. smart (Sol-like) (current)  Sol-like · Everyday coding
-  2. smart (Terra-like)          Terra-like · Everyday coding
+› 1. smart (Sol-like) (current)  Everyday coding
+  2. smart (Terra-like)          Everyday coding
   3. quick                       Luna-like
   4. advisor-router
 

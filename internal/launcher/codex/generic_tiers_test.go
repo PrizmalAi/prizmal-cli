@@ -25,7 +25,8 @@ func TestCodexCatalogSlugsAreAliasesAndNamesAreConfigs(t *testing.T) {
 	if want := []string{"glm (Sol-like)", "glm (Terra-like)", "glm (Luna-like)", "glm (Astra-like)", "advisor-router"}; !slices.Equal(names, want) {
 		t.Errorf("display names = %v, want %v", names, want)
 	}
-	want := []string{"Sol-like · One model", "Terra-like · One model", "Luna-like · One model", "Astra-like · One model", ""}
+	// The tier word is in each name, so the description drops it.
+	want := []string{"One model", "One model", "One model", "One model", ""}
 	if !slices.Equal(descriptions, want) {
 		t.Errorf("descriptions = %q, want %q", descriptions, want)
 	}
@@ -39,9 +40,14 @@ func TestCodexCatalogNamesSharedConfigRowsWithTheTierWord(t *testing.T) {
 		{Name: "quick", Tiers: []tiers.Tier{tiers.Flash}},
 		{Name: "advisor-router"},
 	})
-	_, names, _ := codexCatalogEntries(t, "frontier", launch.LaunchModels("frontier", catalog, true))
+	_, names, descriptions := codexCatalogEntries(t, "frontier", launch.LaunchModels("frontier", catalog, true))
 	if want := []string{"smart (Sol-like)", "smart (Terra-like)", "quick", "advisor-router"}; !slices.Equal(names, want) {
 		t.Errorf("display names = %v, want %v", names, want)
+	}
+	// The word moves into a shared name, and a plain name keeps it in the
+	// description.
+	if want := []string{"", "", "Luna-like", ""}; !slices.Equal(descriptions, want) {
+		t.Errorf("descriptions = %q, want %q", descriptions, want)
 	}
 }
 
