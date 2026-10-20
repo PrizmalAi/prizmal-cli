@@ -24,6 +24,17 @@ func TestWordsLabelEachTierPerHarness(t *testing.T) {
 	}
 }
 
+// Codex names a tier row after its config and says the tier in the
+// description, so a row never reads as an OpenAI model.
+func TestCodexLabelsTierRowsByConfig(t *testing.T) {
+	if !Codex.LabelsByConfig() || ClaudeCode.LabelsByConfig() {
+		t.Error("want only Codex to label tier rows by config")
+	}
+	if got := Codex.Like(Frontier); got != "Sol-like" {
+		t.Errorf("Codex.Like(frontier) = %q, want Sol-like", got)
+	}
+}
+
 func TestParseAcceptsOnlyTheGenericNames(t *testing.T) {
 	for in, want := range map[string]Tier{"frontier": Frontier, " Core ": Core, "FLASH": Flash, "premier": Premier, "opus": "", "smart": "", "genius": "", "sol": ""} {
 		got, ok := Parse(in)

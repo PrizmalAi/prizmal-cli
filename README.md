@@ -203,7 +203,7 @@ prizmal --list
 
 The picker shows every name `--list` prints with one exception and one fold. `default` is the placeholder the Switch is retiring, so it is not a row to choose. A model whose `GET /v1/models` entry carries a tier sits under that tier's alias row, and the row names the folded model beside the tier's description. A model that holds several tiers gives a row for each.
 
-Each harness labels the tier rows in its own words, and every row sends the tier's alias:
+Each harness labels the tier rows in its own words, and every row sends the tier's alias. Codex names each tier row after the config that holds it and puts the word in the row's description, as in "Sol-like":
 
 | Alias | Claude Code | Codex |
 |---|---|---|

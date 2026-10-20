@@ -299,6 +299,7 @@ func withClaudeTiers(catalog []LaunchModel) []LaunchModel {
 		if holders[holder.Name] == "" {
 			holders[holder.Name] = entry.Name
 		}
+		entry.HeldBy = holder.Name
 		if entry.Description == "" {
 			entry.Description = holder.Description
 		}

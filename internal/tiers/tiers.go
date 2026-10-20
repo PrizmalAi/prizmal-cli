@@ -61,6 +61,19 @@ func (v Vocabulary) Word(tier Tier) string {
 	return ""
 }
 
+// LabelsByConfig reports whether a tier row is labelled with the router config
+// that holds the tier, with the word in its description. Codex does: a Codex
+// word as a row's name would read as an OpenAI model.
+func (v Vocabulary) LabelsByConfig() bool { return v == Codex }
+
+// Like is the description prefix that says which tier a row is like: Sol-like.
+func (v Vocabulary) Like(tier Tier) string {
+	if w := v.Word(tier); w != "" {
+		return w + "-like"
+	}
+	return ""
+}
+
 // ShowsTiers reports whether the vocabulary has a row per tier.
 func (v Vocabulary) ShowsTiers() bool { return v == Generic || len(words[v]) > 0 }
 
