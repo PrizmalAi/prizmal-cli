@@ -1,16 +1,29 @@
 # Cline
 
-`prizmal cline` launches Cline against the Prizmal Switch. Cline keeps its provider settings in `~/.cline/data/settings/providers.json`, so the launch writes a prizmal provider entry there and puts the key on the child environment.
+`prizmal cline` launches Cline against the Prizmal Switch. Cline keeps its provider settings in its data directory, so the launch writes a prizmal provider entry there and puts the key on the child environment.
+
+The launch uses the same data directory as Cline: `--data-dir DIR`, then `CLINE_DATA_DIR`, then `--config DIR` as `DIR/data`, then `CLINE_DIR` as `$CLINE_DIR/data`, then `~/.cline/data`. Use `--data-dir` or `CLINE_DATA_DIR` to keep two worktrees from sharing provider settings:
+
+```bash
+CLINE_DATA_DIR="$PWD/.cline-data" prizmal --model your-model cline "Reply with OK"
+prizmal --model your-model cline --data-dir "$PWD/.cline-data" "Reply with OK"
+```
 
 ## Provider wiring
 
 | What | Where |
 |---|---|
-| Provider, endpoint, model | `~/.cline/data/settings/providers.json`, written with a backup |
-| Provider selection and mode | `~/.cline/data/globalState.json` |
+| Provider, endpoint, model | `<data-dir>/settings/providers.json`, written with a backup |
+| Provider selection and mode | `<data-dir>/globalState.json` |
 | Credential | `OPENAI_API_KEY`, which Cline reads when the provider's `settings` don't set `apiKey` |
 
 The provider entry uses Cline's openai-compatible provider and leaves out `apiKey`, so Cline reads the key from `OPENAI_API_KEY` in its environment. The launch replaces the `settings` map rather than mutating it, which drops any `apiKey` an older prizmal wrote there.
+
+When you pass `--data-dir` or `--config` to Cline, the launch leaves the flag in place and writes the same two files into the directory Cline reads.
+
+## Search
+
+Cline has no web search that routes through the Switch. Its own search requests never reach the Switch.
 
 ## Model
 
@@ -26,11 +39,11 @@ Cline can't refresh a device token during a session: it reads `OPENAI_API_KEY` o
 prizmal --restore cline
 ```
 
-Cline's restore removes the prizmal provider entry and puts back the provider selection and mode pointers you had before the first launch. On a machine prizmal never configured, `--restore` reports that there is nothing to restore.
+Cline's restore removes the prizmal provider entry and puts back the provider selection and mode pointers you had before the first launch. It relocates only through `CLINE_DATA_DIR` or `CLINE_DIR`. To restore a tree a launch chose with `--data-dir`, set `CLINE_DATA_DIR` to that path before running `prizmal --restore cline`. On a machine prizmal never configured, `--restore` reports that there is nothing to restore.
 
 ## Run Cline without the Prizmal CLI
 
-Cline's active provider is `providers[lastUsedProvider]`, and it only accepts its own provider ids, so the prizmal settings go under the `openai-compatible` key. Set that entry, point `lastUsedProvider` at it, export your switch key as `PRIZMAL_SWITCH_KEY`, and launch Cline with `OPENAI_API_KEY` set:
+Cline's active provider is `providers[lastUsedProvider]`, and it only accepts its own provider ids, so the prizmal settings go under the `openai-compatible` key. Set that entry in `<data-dir>/settings/providers.json`, point `lastUsedProvider` at it, export your switch key as `PRIZMAL_SWITCH_KEY`, and launch Cline with `OPENAI_API_KEY` set:
 
 ```json
 {
