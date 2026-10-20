@@ -122,6 +122,10 @@ func TestNoHypotheticalSeams(t *testing.T) {
 		// SubagentModelRunner is part of the protocol too: the CLI refuses
 		// --subagent-model for a runner that does not take it.
 		reflect.TypeOf((*launch.SubagentModelRunner)(nil)).Elem(),
+		// TierWordRunner is part of the protocol: the launch check reads it to
+		// know whether a tier word is a name the harness sends as it is or one
+		// the harness resolves first.
+		reflect.TypeOf((*launch.TierWordRunner)(nil)).Elem(),
 	} {
 		for i := range iface.NumMethod() {
 			protocol[iface.Method(i).Name] = true

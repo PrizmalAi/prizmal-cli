@@ -302,16 +302,13 @@ func TestBestEffortCatalogPopulatesCapabilitiesByName(t *testing.T) {
 	if caps := capsOf(t, catalog, "silent-model"); len(caps) != 0 {
 		t.Fatalf("silent-model capabilities = %v, want none", caps)
 	}
-	// The tier aliases are the first four rows, in tier order, ahead of the
-	// Switch's own entries.
+	// This tenant holds no tier: no config carries a tier tag and the switch
+	// lists no alias, so the catalog offers no tier row.
 	var names []string
 	for _, m := range catalog {
 		names = append(names, m.Name)
 	}
-	want := []string{
-		"claude-tier-opus", "claude-tier-sonnet", "claude-tier-haiku", "claude-tier-fable",
-		"vision-model", "text-model", "empty-model", "silent-model",
-	}
+	want := []string{"vision-model", "text-model", "empty-model", "silent-model"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("catalog = %v, want %v", names, want)
 	}
@@ -598,9 +595,9 @@ func TestFetchCatalogErrorNamesNoKey(t *testing.T) {
 	}
 }
 
-// The catalog offers every Claude tier first, then the router configs the
-// switch lists, so an operator can pick a tier or a named model.
-func TestFetchCatalogOffersEveryClaudeTierFirst(t *testing.T) {
+// A tenant that holds no tier gets no tier row, whatever the switch lists: the
+// alias would name something the Switch refuses.
+func TestFetchCatalogOffersNoTierATenantHoldsNone(t *testing.T) {
 	calls := 0
 	srv := newCountingSwitch(t, `{"data":[{"id":"team-opus-blend[1m]"},{"id":"smart[1m]"}]}`, &calls)
 	useSwitch(t, srv, "test-switch-key")
@@ -615,10 +612,7 @@ func TestFetchCatalogOffersEveryClaudeTierFirst(t *testing.T) {
 	for _, m := range catalog {
 		names = append(names, m.Name)
 	}
-	want := []string{
-		"claude-tier-opus", "claude-tier-sonnet", "claude-tier-haiku", "claude-tier-fable",
-		"team-opus-blend", "smart",
-	}
+	want := []string{"team-opus-blend", "smart"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("catalog = %v, want %v", names, want)
 	}
@@ -641,12 +635,12 @@ func TestFetchCatalogListsATierOnceWhenTheSwitchListsItToo(t *testing.T) {
 	for _, m := range catalog {
 		names = append(names, m.Name)
 	}
-	want := []string{"claude-tier-opus", "claude-tier-sonnet", "claude-tier-haiku", "claude-tier-fable", "smart"}
+	want := []string{"claude-tier-sonnet", "smart"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("catalog = %v, want %v", names, want)
 	}
-	if !slices.Contains(catalog[1].Capabilities, model.CapabilityVision) {
-		t.Fatalf("claude-tier-sonnet capabilities = %v, want the switch's image modality kept", catalog[1].Capabilities)
+	if !slices.Contains(catalog[0].Capabilities, model.CapabilityVision) {
+		t.Fatalf("claude-tier-sonnet capabilities = %v, want the switch's image modality kept", catalog[0].Capabilities)
 	}
 }
 
@@ -679,8 +673,10 @@ func TestClaudeTiersFoldTheConfigThatHoldsEachTier(t *testing.T) {
 	for _, row := range rows {
 		got = append(got, row.Label+"="+row.Description)
 	}
+	// Only opus is held here: a config carries its tier tag. The other tiers
+	// get no alias row, so no row offers a name the Switch would refuse.
 	want := []string{
-		"tier-opus=Smart blend", "tier-sonnet=Sonnet tier", "tier-haiku=Haiku tier", "tier-fable=Fable tier",
+		"tier-opus=Smart blend",
 		"team-opus-blend=Team blend", "experimental=",
 	}
 	if !slices.Equal(got, want) {

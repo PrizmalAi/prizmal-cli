@@ -96,8 +96,8 @@ func TestLaunchModelsCarryTheChosenModelsTier(t *testing.T) {
 func TestLaunchModelsKeepAFoldedConfigLaunchedByName(t *testing.T) {
 	catalog := withClaudeTiers([]LaunchModel{{Name: "smart", Tier: "opus", Description: "Smart blend"}})
 	rows := ModelRows(LaunchModels("smart", catalog, true))
-	if len(rows) != 5 {
-		t.Fatalf("rows = %+v, want smart then the four tiers", rows)
+	if len(rows) != 2 {
+		t.Fatalf("rows = %+v, want smart then the opus tier it holds", rows)
 	}
 	if rows[0].Model != "smart" || rows[0].BehavesAs != "claude-opus-5" || rows[0].Description != "Smart blend" {
 		t.Fatalf("row 0 = %+v, want smart on the opus profile with its description", rows[0])

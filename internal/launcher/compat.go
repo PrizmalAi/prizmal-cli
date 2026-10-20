@@ -200,6 +200,21 @@ type SubagentModelRunner interface {
 	TakesSubagentModel() bool
 }
 
+// TierWordRunner is a runner whose harness resolves a tier word (`sonnet`,
+// `best`, `opusplan`) to its own model id inside the client, before it sends a
+// request. Claude Code does; the Switch never sees the word. The other
+// harnesses send the model name as they were given it, so their tier words are
+// names the Switch has to route itself.
+type TierWordRunner interface {
+	ResolvesTierWords() bool
+}
+
+// ResolvesTierWords reports whether a runner's harness resolves tier words.
+func ResolvesTierWords(runner Runner) bool {
+	r, ok := runner.(TierWordRunner)
+	return ok && r.ResolvesTierWords()
+}
+
 // DeviceModeRunner is a runner that can refresh its own credential from an
 // enrolled device key. Claude Code does it through its apiKeyHelper, and Pi
 // through an extension its launch loads whose provider runs `prizmal auth

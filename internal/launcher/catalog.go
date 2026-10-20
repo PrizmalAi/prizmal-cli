@@ -269,12 +269,15 @@ func withClaudeTiers(catalog []LaunchModel) []LaunchModel {
 	holders := make(map[string]bool, len(claudecode.Tiers))
 	for _, tier := range claudecode.Tiers {
 		name := claudecode.TierModel(tier)
-		entry, ok := FindCatalogModel(catalog, name)
-		if !ok {
-			entry = LaunchModel{Name: name}
+		entry, listed := FindCatalogModel(catalog, name)
+		i := slices.IndexFunc(catalog, func(m LaunchModel) bool { return m.Tier == string(tier) })
+		// A tier no config holds has no alias: the Switch refuses the name, so
+		// no row offers it.
+		if !listed && i < 0 {
+			continue
 		}
 		entry.Name = name
-		if i := slices.IndexFunc(catalog, func(m LaunchModel) bool { return m.Tier == string(tier) }); i >= 0 {
+		if i >= 0 {
 			holder := catalog[i]
 			holders[holder.Name] = true
 			if entry.Description == "" {
@@ -286,8 +289,9 @@ func withClaudeTiers(catalog []LaunchModel) []LaunchModel {
 		}
 		models = append(models, entry)
 	}
+	tierRows := len(models)
 	for _, entry := range catalog {
-		if slices.ContainsFunc(models[:len(claudecode.Tiers)], func(tier LaunchModel) bool {
+		if slices.ContainsFunc(models[:tierRows], func(tier LaunchModel) bool {
 			return ModelNamesSame(entry.Name, tier.Name)
 		}) {
 			continue
@@ -298,6 +302,99 @@ func withClaudeTiers(catalog []LaunchModel) []LaunchModel {
 		models = append(models, entry)
 	}
 	return models
+}
+
+// HoldsTier reports whether the catalog has the tier's alias, which it has
+// when some config holds the tier.
+func HoldsTier(catalog []LaunchModel, tier claudecode.Tier) bool {
+	return slices.ContainsFunc(catalog, func(m LaunchModel) bool {
+		return ModelNamesSame(m.Name, claudecode.TierModel(tier))
+	})
+}
+
+// CheckRoutable refuses a model name the Switch would refuse. The catalog is
+// the list of names the key routes, the tier aliases the tenant holds among
+// them, so a name outside it is a router config the tenant has no copy of, and
+// the Switch answers it with an error instead of a model.
+//
+// The rule is the Switch's router-config selection, not the listing alone: a
+// name routes when
+//
+//   - it is a name the listing carries;
+//   - it is a Claude vendor id whose lineage maps onto a tier the tenant
+//     holds, because the Switch rewrites `claude-<family>...` to
+//     `claude-tier-<family>`. A lineage whose holder this CLI cannot read,
+//     mythos, is passed: the CLI carries no tier for it, and a catalogue it
+//     cannot see a holder in is no evidence of a missing one.
+//
+// tierWords says the harness resolves a tier word (`sonnet`, `best`,
+// `opusplan`) to its own id for the tier before it sends it, and the launch
+// maps that id onto the tenant's alias. Such a word routes when the tenant
+// holds its tier. It does not when the tier is unheld: the launch's own
+// mapping points the word at the launch model, which is the word itself.
+//
+// `default` and its legacy `prizmal/default` spelling are refused whatever the
+// catalogue lists. They name the config the key is bound to, the Switch is
+// dropping that binding, and a launch never falls back to them.
+//
+// An unread catalog passes everything. The launch path reads the catalog on a
+// best effort, and an endpoint that serves no model list is a supported target,
+// so the absence of a list is not evidence of a wrong name.
+func CheckRoutable(name string, catalog []LaunchModel, tierWords bool) error {
+	if name == "" {
+		return nil
+	}
+	// The bound-config placeholder is refused whatever the catalogue says,
+	// including when it could not be read: no catalogue makes the name right.
+	bare := ModelNameWithoutSuffix(name)
+	if IsReservedModelName(bare) {
+		return fmt.Errorf("model %q names the router config the key is bound to, and the Switch is dropping that binding; "+
+			"run `prizmal --list` for the names it routes", name)
+	}
+	if len(catalog) == 0 {
+		return nil
+	}
+	if _, ok := FindCatalogModel(catalog, name); ok {
+		return nil
+	}
+	if tierWords {
+		if tier, ok := claudecode.TierWord(bare); ok {
+			if HoldsTier(catalog, tier) {
+				return nil
+			}
+			return fmt.Errorf("model %q runs the %s tier, which this Switch holds no router config for; "+
+				"run `prizmal --list` for the names it does route", name, tier)
+		}
+	}
+	if family := claudecode.VendorFamily(bare); family != "" {
+		if !TierKnown(family) {
+			return nil
+		}
+		if HoldsTier(catalog, claudecode.Tier(family)) {
+			return nil
+		}
+		return fmt.Errorf("model %q is a %s id, and this Switch holds no router config for the %s tier; "+
+			"run `prizmal --list` for the names it does route", name, family, family)
+	}
+	return fmt.Errorf("model %q is not a name this Switch routes; run `prizmal --list` for the names it does", name)
+}
+
+// TierKnown reports whether this CLI carries the tier a Switch family names.
+func TierKnown(family string) bool {
+	return slices.Contains(claudecode.Tiers, claudecode.Tier(family))
+}
+
+// CheckSubagentRoutable is CheckRoutable for a subagent model. A tier word is
+// always a name the launch can send: it resolves through the same chain, and
+// an unheld tier's word lands on the launch model, which the launch check
+// already accepted.
+func CheckSubagentRoutable(name string, catalog []LaunchModel, tierWords bool) error {
+	if tierWords {
+		if _, ok := claudecode.TierWord(ModelNameWithoutSuffix(name)); ok {
+			return nil
+		}
+	}
+	return CheckRoutable(name, catalog, tierWords)
 }
 
 // FindCatalogModel looks a model name up in a list of catalog entries, using
@@ -395,6 +492,10 @@ func BestEffortCatalog(ctx context.Context, warn io.Writer) []LaunchModel {
 // them under-reported by four names an operator could use, while the README
 // promised it printed the models this key serves. One question, one answer.
 //
+// The bound-config placeholder the Switch lists as `default` is left out. It
+// selects the config the key is bound to, the Switch is dropping that binding,
+// and a launch refuses the name: printing it would offer what a launch rejects.
+//
 // The list is the tenant's, resolved by the Switch from the bearer key alone.
 // No request parameter selects a tenant, so one key can never read another's.
 func ListSwitchModels(ctx context.Context) ([]string, error) {
@@ -402,13 +503,22 @@ func ListSwitchModels(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	return LaunchableNames(catalog), nil
+}
+
+// LaunchableNames returns the names in catalog that a launch can send, in the
+// order the list carries them. The bound-config placeholder is left out: a
+// launch never sends it, so a menu that offered it or a listing that printed it
+// would name something every launch refuses.
+func LaunchableNames(catalog []LaunchModel) []string {
 	names := make([]string, 0, len(catalog))
 	for _, m := range catalog {
-		if m.Name != "" {
-			names = append(names, m.Name)
+		if m.Name == "" || IsReservedModelName(m.Name) {
+			continue
 		}
+		names = append(names, m.Name)
 	}
-	return names, nil
+	return names
 }
 
 // CatalogError describes a failed catalog fetch in one line: the endpoint, the

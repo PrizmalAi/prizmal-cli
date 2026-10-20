@@ -193,8 +193,10 @@ prizmal --restore codex
 
 # See which models your switch key can route to. The Switch resolves the list
 # from the key alone, so it holds your tenant's models and no other tenant's.
-# The four Claude tier aliases lead, because they route too even though the
-# Switch does not list them; the same four head the --pick menu.
+# The Claude tier aliases your tenant holds lead, because they route too even
+# though the Switch does not list them; the same aliases head the --pick menu.
+# `default` is left out: it names the key's bound config, and a launch never
+# sends it.
 prizmal --list
 ```
 
@@ -209,8 +211,15 @@ through the same way.
 
 A launch always runs a real model. It takes the model from `--model`, from the
 default an earlier `--pick` saved, or from the interactive picker when neither
-supplies one. When a launch has no model and no terminal to choose on, it stops
-and asks you to pass `--model`.
+supplies one. When a launch has no model and no terminal to choose on, it stops,
+and the error lists the names `--list` prints. The launch never sends the
+Switch's `default` placeholder, which selects the config the key is bound to.
+
+`--model` takes a name your switch key routes, or the label `--list` and the
+pickers print for it. A label drops the `claude-` prefix from the model's name, so
+`tier-opus` and `claude-tier-opus` name the same router config. Claude Code
+launches also take its tier words (`sonnet`, `opus`, `haiku`, `fable`, `best`,
+`opusplan`, in any case) for a tier your tenant holds.
 
 Backups of any modified config files are kept in `~/.prizmal/backup/`.
 Each launch, `--persist` and `--restore` deletes any backup there that

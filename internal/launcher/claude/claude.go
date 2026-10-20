@@ -38,6 +38,11 @@ func (c *Claude) ShowsModelList() bool { return true }
 // unknown.
 func (c *Claude) OwnsModelFlag() bool { return true }
 
+// ResolvesTierWords reports that Claude Code resolves a tier word to its own
+// id for the tier, inside the client, so the Switch receives the id rather
+// than the word. The launch maps that id onto the tenant's alias for the tier.
+func (c *Claude) ResolvesTierWords() bool { return true }
+
 // TakesSubagentModel reports that Claude Code gives subagents the model
 // --subagent-model names.
 func (c *Claude) TakesSubagentModel() bool { return true }
@@ -351,7 +356,8 @@ func claudeChildEnv(model string, rows []launch.ModelRow) []string {
 	// It also makes the "opus" alias resolve to the pinned model, the one
 	// target this launch routes to.
 	if model != "" {
-		fixed = append(fixed, "ANTHROPIC_DEFAULT_OPUS_MODEL="+claudeLaunchModelName(model, rows))
+		fixed = append(fixed, "ANTHROPIC_DEFAULT_OPUS_MODEL="+claudeEnvModelName(model, rows))
+		fixed = append(fixed, claudeUnheldTierDefaults(model, rows)...)
 	}
 
 	// The subagent model variable, set only when a dedicated
@@ -364,6 +370,66 @@ func claudeChildEnv(model string, rows []launch.ModelRow) []string {
 	}
 
 	return launch.ChildEnv(claudeInheritedModelVars, fixed)
+}
+
+// claudeUnheldTierDefaults points the tier words of a tier the tenant does not
+// hold at the launch model.
+//
+// Claude Code resolves a tier word (the /model alias, a subagent's model, the
+// small model behind its background calls) to its own id for the tier, and
+// sends that id. A tenant with no config on the tier has no alias for it, and
+// the Switch refuses the name. The launch model is a name the tenant routes,
+// so the word resolves to it. A held tier needs nothing here: its ids are
+// mapped by modelOverrides to the alias, or reach the Switch as a vendor id it
+// maps to the alias.
+//
+// Opus is not listed: ANTHROPIC_DEFAULT_OPUS_MODEL is set for every launch, for
+// the /model picker's Default row.
+func claudeUnheldTierDefaults(model string, rows []launch.ModelRow) []string {
+	held := claudeHeldTiers(rows)
+	name := claudeEnvModelName(model, rows)
+	var vars []string
+	for _, tier := range claudecode.Tiers {
+		if tier == claudecode.Opus || held[tier] {
+			continue
+		}
+		vars = append(vars, "ANTHROPIC_DEFAULT_"+strings.ToUpper(string(tier))+"_MODEL="+name)
+	}
+	return vars
+}
+
+// claudeEnvModelName is the name a tier variable carries for a launch: the
+// name the launch model resolves to, as far as the tier chain is concerned.
+//
+// A tier word is the one name that differs. Claude Code resolves a tier word
+// to its own id for the tier, so a tier variable pointing at the word itself
+// would make the word resolve to itself and reach the Switch unchanged. A held
+// tier's word points at that tier's alias instead, which is the name the
+// launch maps the tier's ids onto and the Switch routes. Any other launch
+// model names itself.
+func claudeEnvModelName(model string, rows []launch.ModelRow) string {
+	if tier, ok := claudecode.TierWord(model); ok {
+		for _, row := range rows {
+			if row.Model == claudecode.TierModel(tier) {
+				return claudeRowModelName(row)
+			}
+		}
+	}
+	return claudeLaunchModelName(model, rows)
+}
+
+// claudeHeldTiers reports which tiers have an alias row, so a config on the
+// tier. A row for the alias is how the catalog says the tier is held.
+func claudeHeldTiers(rows []launch.ModelRow) map[claudecode.Tier]bool {
+	held := make(map[claudecode.Tier]bool, len(rows))
+	for _, row := range rows {
+		for _, tier := range claudecode.Tiers {
+			if row.Model == claudecode.TierModel(tier) {
+				held[tier] = true
+			}
+		}
+	}
+	return held
 }
 
 // claudeModelName returns the model name to hand Claude Code: the switch's own
@@ -431,7 +497,7 @@ func claudeSettingsJSON(model string, rows []launch.ModelRow) (string, error) {
 	}
 
 	settings := map[string]any{"model": claudeLaunchModelName(model, rows)}
-	if overrides := claudeOrderedModelOverrides(); len(overrides) > 0 {
+	if overrides := claudeOrderedModelOverrides(claudeHeldTiers(rows)); len(overrides) > 0 {
 		settings["modelOverrides"] = overrides
 	}
 	if len(rows) > 0 {
@@ -496,10 +562,10 @@ func claudeSettingsJSON(model string, rows []launch.ModelRow) (string, error) {
 // The newest ids (claude-opus-5-5, claude-sonnet-5-5) are ones only recent
 // Claude Code releases know. An older release drops those keys, and it never
 // resolves a tier to them either.
-func claudeModelOverrides() map[string]string {
+func claudeModelOverrides(held map[claudecode.Tier]bool) map[string]string {
 	overrides := make(map[string]string)
 	for tier, ids := range claudecode.FamilyIDs {
-		if !profileInLineage(tier) {
+		if !held[tier] || !profileInLineage(tier) {
 			continue
 		}
 		for _, id := range ids {
@@ -555,11 +621,11 @@ func (o orderedModelOverrides) MarshalJSON() ([]byte, error) {
 // Code reads it: tier by tier, and within a tier the id its rows behave as
 // first, then the rest of the lineage. A build that does not know the first
 // id skips it and takes the next.
-func claudeOrderedModelOverrides() orderedModelOverrides {
-	overrides := claudeModelOverrides()
+func claudeOrderedModelOverrides(held map[claudecode.Tier]bool) orderedModelOverrides {
+	overrides := claudeModelOverrides(held)
 	ordered := make(orderedModelOverrides, 0, len(overrides))
 	for _, tier := range claudecode.Tiers {
-		if !profileInLineage(tier) {
+		if !held[tier] || !profileInLineage(tier) {
 			continue
 		}
 		profile := claudecode.Profiles[tier].BehavesAs

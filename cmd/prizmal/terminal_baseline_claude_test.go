@@ -24,6 +24,13 @@ const claudeBaselineDir = "testdata/terminal/claude"
 // CLI.
 var tierCatalog = []string{"team-opus-blend", "smart", "default"}
 
+// haikuCatalog is a tenant with a config on the haiku tier, so claude-tier-haiku
+// is a name it routes.
+var haikuCatalog = []stubserver.Entry{
+	{ID: "flash", Tier: "haiku", Description: "Quick answers"},
+	{ID: "smart"},
+}
+
 // proposedCatalog is a tenant whose Switch lists router configs only. Each
 // config that holds a tier alias carries that tier, and every config carries
 // its tenant's description but one. The tier rows stand for the four tier
@@ -140,17 +147,17 @@ var claudeBaselineCases = []baselineCase{
 	// released before Claude Opus 4.6.
 	{
 		name: "claude-context-model-haiku-100x40", cols: 100, rows: 40,
-		args: []string{"claude", "--model", "claude-tier-haiku"}, catalog: tierCatalog, claude: true,
+		args: []string{"claude", "--model", "claude-tier-haiku"}, entries: haikuCatalog, claude: true,
 		steps: []baselineStep{stepClaudeReady, stepTypeContext, stepShowContext},
 	},
 	{
 		name: "claude-model-picker-model-haiku-100x40", cols: 100, rows: 40,
-		args: []string{"claude", "--model", "claude-tier-haiku"}, catalog: tierCatalog, claude: true,
+		args: []string{"claude", "--model", "claude-tier-haiku"}, entries: haikuCatalog, claude: true,
 		steps: []baselineStep{stepClaudeReady, stepOpenModel, stepModelPicker},
 	},
 	{
 		name: "claude-print-model-haiku-100x40", cols: 100, rows: 40,
-		args: []string{"claude", "--model", "claude-tier-haiku", "-p", "hi"}, catalog: tierCatalog, claude: true,
+		args: []string{"claude", "--model", "claude-tier-haiku", "-p", "hi"}, entries: haikuCatalog, claude: true,
 		steps: []baselineStep{stepPrizmalExit},
 	},
 	// The first picker row is the Opus tier, which runs as Opus 5 with a 1M

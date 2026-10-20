@@ -49,6 +49,28 @@ func modelDisplayLabel(name string) string {
 	return label
 }
 
+// RouteName returns the catalog's name for a name an operator typed. A picker
+// row's label drops the claude- prefix its model carries, so a person copying
+// a row off the screen types "tier-opus" for the model the catalog lists as
+// "claude-tier-opus". The prefix goes back on, and a name the catalog already
+// carries is returned unchanged: a tenant whose config is named "tier-opus"
+// keeps that spelling routing to its own config.
+//
+// Only a name the catalog lists is decorated. Anything else is the operator's
+// own text, which the CLI does not rewrite.
+func RouteName(catalog []LaunchModel, name string) string {
+	if len(catalog) == 0 || name == "" {
+		return name
+	}
+	if _, ok := FindCatalogModel(catalog, name); ok {
+		return name
+	}
+	if _, ok := FindCatalogModel(catalog, claudecode.ModelPrefix+name); ok {
+		return claudecode.ModelPrefix + name
+	}
+	return name
+}
+
 // ModelRow is one row of the model picker, and one option of the launched
 // harness's own picker. Label is what a person reads and Model is the id that
 // routes. BehavesAs and Description are empty for a model with no tier word.
@@ -62,7 +84,8 @@ type ModelRow struct {
 	Tier claudecode.Tier
 }
 
-// reservedModelNames are the placeholder rows the picker never offers.
+// reservedModelNames are the placeholder rows a menu never offers and a launch
+// never sends.
 //
 // The switch publishes this row as `default`: GET /v1/models answers
 // {"id":"default[1m]","name":"default","owned_by":"prizmal.ai"}, so the name to
@@ -79,8 +102,9 @@ const (
 	reservedModelNameLegacy = "prizmal/default"
 )
 
-// isReservedModelName reports whether a catalog name is a placeholder row.
-func isReservedModelName(name string) bool {
+// IsReservedModelName reports whether a name is the bound-config placeholder.
+// A launch never sends it, and no menu offers it.
+func IsReservedModelName(name string) bool {
 	return name == reservedModelName || name == reservedModelNameLegacy
 }
 
@@ -104,7 +128,7 @@ func ModelRows(models []LaunchModel) []ModelRow {
 
 	for _, m := range models {
 		name := ModelNameWithoutSuffix(m.Name)
-		if name == "" || seen[name] || isReservedModelName(name) || m.FoldedInto != "" {
+		if name == "" || seen[name] || IsReservedModelName(name) || m.FoldedInto != "" {
 			continue
 		}
 		seen[name] = true

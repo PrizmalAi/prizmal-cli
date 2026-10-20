@@ -78,13 +78,15 @@ be read as a prizmal flag.
 
 --list answers a different question: it prints the models this switch key's
 tenant serves, one per line, and exits without launching. It holds exactly the
-names that key can route to: the four Claude tier aliases first, since those
-route even though the Switch does not list them, then the tenant's own entries.
+names that key can route to: the Claude tier aliases your tenant holds first,
+since those route even though the Switch does not list them, then the tenant's
+own entries.
 
 A launch always runs a real model, and never a placeholder. It takes the model
 from --model, or from the default saved by an earlier --pick, or asks with the
-interactive picker when neither names one. There is no default model name: a
-launch with nothing to send stops rather than guessing.
+interactive picker when neither names one. There is no default model name, and
+the launch never sends the Switch's bound-config default: with nothing to run
+it stops, and the error lists the names --list prints.
 
 Examples:
   prizmal                                   # list integrations
@@ -373,7 +375,7 @@ func resolveLaunchModel(cfg *config.Config, harnessModel string, ask launcher.As
 	case harnessModel != "":
 		return harnessModel, launcher.BestEffortCatalog(ctx, os.Stderr), nil
 
-	case cfg != nil && cfg.DefaultModel != "" && !pickFlag:
+	case cfg != nil && cfg.DefaultModel != "" && !pickFlag && !launcher.IsReservedModelName(cfg.DefaultModel):
 		return cfg.DefaultModel, launcher.BestEffortCatalog(ctx, os.Stderr), nil
 	}
 
@@ -385,8 +387,7 @@ func resolveLaunchModel(cfg *config.Config, harnessModel string, ask launcher.As
 			return "", nil, fmt.Errorf(
 				"--pick needs an interactive terminal: pass --model MODEL instead, or run it on a terminal")
 		}
-		return "", nil, fmt.Errorf(
-			"no model selected: pass --model MODEL, run --pick to choose one, or set default_model in the config file")
+		return "", nil, noModelSelectedError(ctx)
 	}
 
 	// The credential gate runs here, before the fetch, and launch() runs it
@@ -420,6 +421,22 @@ func resolveLaunchModel(cfg *config.Config, harnessModel string, ask launcher.As
 		}
 	}
 	return chosen, catalog, nil
+}
+
+// noModelSelectedError names the ways to give a launch a model, and the models
+// this key routes. The CLI never sends `default`, the bound-config
+// placeholder, so a launch with nothing to run stops here instead. When the
+// list cannot be read, the error says where to read it.
+func noModelSelectedError(ctx context.Context) error {
+	msg := "no model selected: pass --model MODEL, run --pick to choose one, or set default_model in the config file"
+	catalog, err := launcher.FetchCatalog(ctx)
+	if err != nil {
+		return fmt.Errorf("%s; run `prizmal --list` for the names this key routes", msg)
+	}
+	if names := launcher.LaunchableNames(catalog); len(names) > 0 {
+		return fmt.Errorf("%s; this key routes: %s", msg, strings.Join(names, ", "))
+	}
+	return fmt.Errorf("%s; run `prizmal --list` for the names this key routes", msg)
 }
 
 // pickDefaultModel opens the picker, saves the choice as the default, and
@@ -704,6 +721,23 @@ func launch(name string, extraArgs []string, cfg *config.Config, ask launcher.As
 	chosen, catalog, err := resolveLaunchModel(cfg, harnessModel, ask)
 	if err != nil {
 		return err
+	}
+
+	// A name copied off a picker row reads without the claude- prefix the
+	// row's label drops, and the catalog carries the prefixed name that
+	// routes. A name the catalog carries is left as it is.
+	chosen = launcher.RouteName(catalog, chosen)
+	subagentModel = launcher.RouteName(catalog, subagentModel)
+
+	// A name the Switch does not route is refused here, with the way to list
+	// the names, instead of reaching the Switch as a request it answers with an
+	// error. The subagent model is a name the launch sends too.
+	tierWords := launcher.ResolvesTierWords(runner)
+	if err := launcher.CheckRoutable(chosen, catalog, tierWords); err != nil {
+		return err
+	}
+	if err := launcher.CheckSubagentRoutable(subagentModel, catalog, tierWords); err != nil {
+		return fmt.Errorf("--subagent-model: %w", err)
 	}
 
 	// Only the runners that show their own picker need the rest of the
