@@ -1,8 +1,8 @@
 Select a model
-▸ tier-opus        Everyday coding
-  tier-sonnet      Balanced cost and speed
-  tier-haiku       Quick answers
-  tier-fable       Long, hard tasks
+▸ tier-opus        smart · Everyday coding
+  tier-sonnet      balanced · Balanced cost and speed
+  tier-haiku       flash · Quick answers
+  tier-fable       deep · Long, hard tasks
   experimental
   team-opus-blend  Team blend for refactors
 

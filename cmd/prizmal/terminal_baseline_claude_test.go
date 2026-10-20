@@ -185,9 +185,9 @@ var claudeBaselineCases = []baselineCase{
 		args: []string{"-m", "smart", "claude", "-p", "hi"}, claude: true,
 		steps: []baselineStep{stepPrizmalExit},
 	},
-	// The proposed Switch: each tier row shows the description of the config
-	// that holds the tier's alias, and that config has no row of its own
-	// unless the launch names it.
+	// The proposed Switch: each tier row names the config that holds the tier
+	// and carries its description. That config has no row of its own unless the
+	// launch names it.
 	{
 		name: "prizmal-picker-proposed-100x30", cols: 100, rows: 30,
 		args: []string{"claude"}, entries: proposedCatalog,

@@ -13,6 +13,8 @@
 
 `ANTHROPIC_API_KEY` is emptied so that an Anthropic key exported in your shell stays out of Switch requests. The launch also sets `ENABLE_TOOL_SEARCH=true`, hides the claude.ai connector warning, and turns off the attribution header and error reporting.
 
+A launch with no model from `--model` or a saved default, and no terminal to ask on, stops with an error that lists the names `--list` prints. `claude -p` is such a run even at a terminal: it prints its answer and exits, so the launch skips the picker and fails rather than starting on a guessed model.
+
 A launch states the model twice, in the inline settings JSON and as the `--model` flag, and the flag takes precedence. Both spell the model the way its own `/model` row does, with `[1m]` when its tier has a 1M window. prizmal consumes a `--model` you type after the integration name, because the model decision belongs to prizmal for Claude Code. Forwarding that value let Claude Code's flag take precedence over the settings prizmal wrote, which is how a launch lost its 1M window and warned that the model was unknown.
 
 Subagents run the session model by default. `--subagent-model` gives them a different one; there is no settings-JSON equivalent, so that variable is the only channel.

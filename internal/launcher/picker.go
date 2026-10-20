@@ -115,8 +115,13 @@ func IsReservedModelName(name string) bool {
 // fall back to their full names, because two identical labels leave an
 // operator no way to tell the rows apart.
 //
-// The reserved placeholder is skipped: choosing it would send a name the Switch
-// is retiring, and the point of the picker is to name a model that routes.
+// The reserved placeholder is skipped: it selects the config the key is
+// already bound to rather than naming a model, so offering it asks the
+// operator to choose the thing they get by not choosing.
+//
+// A config the catalog folds into a tier has no row of its own, so the row it
+// is folded into names it. Without that the config is listed by `--list` and
+// absent from the picker, which reads as a name the key cannot route.
 //
 // A tier word in the model's name gives the row its tier's behavesAs and
 // description, which shape how Claude Code runs and shows the model. Neither

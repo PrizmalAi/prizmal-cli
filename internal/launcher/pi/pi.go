@@ -80,6 +80,19 @@ func piModelContextWindow(model launch.LaunchModel) int {
 
 func (p *Pi) String() string { return "Pi" }
 
+// RunsHeadless reports that Pi's print mode runs one prompt and exits.
+func (p *Pi) RunsHeadless(args []string) bool {
+	for _, arg := range args {
+		if arg == "--" {
+			return false
+		}
+		if arg == "-p" || arg == "--print" {
+			return true
+		}
+	}
+	return false
+}
+
 // SupportsDeviceMode reports that Pi can run from an enrolled device: the
 // launch loads an extension whose provider resolves its credential by running
 // this binary's device-token helper, so a device token that expires mid-session

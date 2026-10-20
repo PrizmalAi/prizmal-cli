@@ -28,6 +28,24 @@ type OpenCode struct {
 
 func (o *OpenCode) String() string { return "OpenCode" }
 
+// RunsHeadless reports that OpenCode's `run` subcommand runs one message and
+// exits. The subcommand is the first positional argument: a value of an option
+// before it is not one.
+func (o *OpenCode) RunsHeadless(args []string) bool {
+	return launch.FirstPositional(args, opencodeValueFlags) == "run"
+}
+
+// opencodeValueFlags are OpenCode's options that take a value, so the
+// subcommand scan does not read a value as the subcommand.
+var opencodeValueFlags = map[string]bool{
+	"-m": true, "--model": true,
+	"-s": true, "--session": true,
+	"--prompt": true, "--agent": true,
+	"--port": true, "--hostname": true,
+	"--mdns-domain": true, "--log-level": true,
+	"--cors": true, "--replay-limit": true,
+}
+
 // OpenCodeInstaller is OpenCode's install story. Its curl installer writes the
 // binary to ~/.opencode/bin, which is not on PATH on a machine that ran it and
 // never added it, so that directory is read before the CLI will believe

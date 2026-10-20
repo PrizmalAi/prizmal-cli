@@ -126,6 +126,10 @@ func TestNoHypotheticalSeams(t *testing.T) {
 		// know whether a tier word is a name the harness sends as it is or one
 		// the harness resolves first.
 		reflect.TypeOf((*launch.TierWordRunner)(nil)).Elem(),
+		// HeadlessRunner is part of the protocol: the launch reads it to know
+		// whether the harness runs one prompt and exits, so a model menu would
+		// block a command meant to finish on its own.
+		reflect.TypeOf((*launch.HeadlessRunner)(nil)).Elem(),
 	} {
 		for i := range iface.NumMethod() {
 			protocol[iface.Method(i).Name] = true

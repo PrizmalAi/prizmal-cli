@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -31,6 +32,40 @@ const clineLegacyProvider = "prizmal"
 type Cline struct{}
 
 func (c *Cline) String() string { return "Cline" }
+
+// RunsHeadless reports that Cline runs a prompt to the end unless --tui asks
+// for the interface. A command word such as `auth` or `config` is not a launch
+// of a model, so it is not a headless one either.
+func (c *Cline) RunsHeadless(args []string) bool {
+	for _, arg := range args {
+		if arg == "--" {
+			return false
+		}
+		if arg == "-i" || arg == "--tui" {
+			return false
+		}
+	}
+	prompt := launch.FirstPositional(args, clineValueFlags)
+	return prompt != "" && !slices.Contains(clineCommands, prompt)
+}
+
+// clineValueFlags are Cline's options that take a value.
+var clineValueFlags = map[string]bool{
+	"--id": true,
+	"-P":   true, "--provider": true,
+	"-k": true, "--key": true,
+	"-m": true, "--model": true,
+	"-s": true, "--system": true,
+	"-t": true, "--timeout": true,
+	"--config": true, "--data-dir": true, "--hooks-dir": true, "--cwd": true, "-c": true,
+}
+
+// clineCommands are Cline's command words. A launch that names one is asking
+// Cline a question rather than running a task.
+var clineCommands = []string{
+	"auth", "config", "plugin", "skill", "connect", "mcp", "doctor", "history",
+	"h", "hook", "schedule", "hub", "dashboard", "update", "version", "kanban",
+}
 
 func (c *Cline) Installed() bool {
 	_, err := exec.LookPath("cline")

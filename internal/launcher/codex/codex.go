@@ -88,6 +88,31 @@ const (
 // prizmal's own flag, and the launch states the one model itself with -m.
 func (c *Codex) OwnsModelFlag() bool { return true }
 
+// RunsHeadless reports that Codex's exec and review subcommands run one turn
+// and exit. The subcommand is the first positional argument, so a value of an
+// option before it, or a prompt that happens to start with the word, is not
+// one.
+func (c *Codex) RunsHeadless(args []string) bool {
+	switch launch.FirstPositional(args, codexValueFlags) {
+	case "exec", "e", "review":
+		return true
+	}
+	return false
+}
+
+// codexValueFlags are Codex's options that take a value, so the subcommand
+// scan does not read a value as the subcommand.
+var codexValueFlags = map[string]bool{
+	"-c": true, "--config": true,
+	"-m": true, "--model": true,
+	"-s": true, "--sandbox": true,
+	"-a": true, "--ask-for-approval": true,
+	"-C": true, "--cd": true,
+	"-i": true, "--image": true,
+	"-p": true, "--profile": true,
+	"--enable": true, "--disable": true,
+}
+
 func (c *Codex) args(model, modelCatalogPath string, extra []string) ([]string, error) {
 	if err := codexValidateExtraArgs(extra); err != nil {
 		return nil, err

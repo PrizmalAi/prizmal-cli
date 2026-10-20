@@ -13,6 +13,10 @@ The inline config declares the `prizmal` provider (`@ai-sdk/openai-compatible`),
 
 OpenCode is the one harness whose key is not on the child environment: the key is a field in the inline config, which lives only in the variable for the life of the process and is never written to a file.
 
+## Model
+
+`prizmal opencode` takes the model from `--model`, from the default an earlier `--pick` saved, or from the picker. `prizmal opencode run` runs one message and exits, and a launch on a pipe has no terminal, so neither opens the picker: with no model named they stop with an error that lists the names `prizmal --list` prints.
+
 ## Device login
 
 OpenCode can't refresh a device token during a session, and a device token expires ten minutes after issue. So a `prizmal opencode` launch on a machine signed in with a device key ignores device login and runs on the switch key from the config file, the environment, or `--api-key`. With no switch key, prizmal asks for one, as any unauthenticated launch does.

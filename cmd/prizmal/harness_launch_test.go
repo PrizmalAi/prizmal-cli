@@ -102,7 +102,14 @@ func TestHarnessLaunchRegistryCompleteness(t *testing.T) {
 			t.Errorf("integration %q: %v", spec.Name, err)
 			continue
 		}
-		for _, want := range []string{"-run '" + tc.test + "$'", harnessLaunchRequireEnv + ": require"} {
+		// The launch and the launch with no model share a workflow: both are
+		// the same harness running against the same stub, and the second is
+		// the case a script hits first.
+		withoutModel := tc.test + "WithoutAModel"
+		for _, want := range []string{
+			"-run '" + tc.test + "$|" + withoutModel + "$'",
+			harnessLaunchRequireEnv + ": require",
+		} {
 			if !strings.Contains(string(raw), want) {
 				t.Errorf("%s does not contain %q", path, want)
 			}
@@ -156,6 +163,17 @@ func skipHarnessLaunchInShortMode(t *testing.T) {
 // stub's reply is on stdout. The key mode decides what credential the machine
 // starts with and which key source the launch must announce.
 func runHarnessLaunch(t *testing.T, harness string, mode harnessLaunchKeyMode) {
+	runHarnessLaunchWith(t, harness, mode, true)
+}
+
+// runHarnessLaunchWithoutAModel runs the harness's one-shot case with no model
+// named at all, on a pipe. The picker cannot open there, so the launch must
+// stop with the names the stub's catalog routes, and the harness must not run.
+func runHarnessLaunchWithoutAModel(t *testing.T, harness string) {
+	runHarnessLaunchWith(t, harness, harnessLaunchConfigKey, false)
+}
+
+func runHarnessLaunchWith(t *testing.T, harness string, mode harnessLaunchKeyMode, withModel bool) {
 	t.Helper()
 	// A harness with no launch case is a bug in the test, not a launch with no
 	// arguments, so fail on it before anything else runs.
@@ -175,7 +193,10 @@ func runHarnessLaunch(t *testing.T, harness string, mode harnessLaunchKeyMode) {
 	}
 
 	recorder := &stubserver.Recorder{}
-	srvOpts := []stubserver.ServerOption{stubserver.WithModels(harnessLaunchModel), stubserver.WithRecorder(recorder)}
+	srvOpts := []stubserver.ServerOption{
+		stubserver.WithModels(harnessLaunchModel),
+		stubserver.WithRecorder(recorder),
+	}
 	switch mode {
 	case harnessLaunchDeviceLogin:
 		// The stub accepts one credential: the device token its refresh just
@@ -191,7 +212,27 @@ func runHarnessLaunch(t *testing.T, harness string, mode harnessLaunchKeyMode) {
 	// first launch on a new machine starts from.
 	prizmalBin, home, project := harnessLaunchSandbox(t, srv.URL, mode != harnessLaunchConfigKey)
 
-	stdout, stderr, timedOut, runErr := runHarnessCommand(t, prizmalBin, home, project, harnessPath, harness, harnessArgs)
+	prizmalArgs := []string{"-y", "-m", harnessLaunchModel, harness, "--"}
+	if !withModel {
+		prizmalArgs = []string{"-y", harness, "--"}
+	}
+	stdout, stderr, timedOut, runErr := runPrizmalInSandbox(t, prizmalBin, home, project, harnessPath, append(prizmalArgs, harnessArgs...)...)
+
+	if !withModel {
+		if runErr == nil {
+			t.Fatalf("a launch with no model and no terminal must fail\n--- stdout ---\n%s\n--- stderr ---\n%s", tail(stdout, 50), tail(stderr, 50))
+		}
+		for _, want := range []string{"no model selected", harnessLaunchModel} {
+			if !strings.Contains(stderr, want) {
+				t.Errorf("the failure does not name %q:\n--- stderr ---\n%s", want, tail(stderr, 50))
+			}
+		}
+		if served := modelsOf(recorder); len(served) != 0 {
+			t.Errorf("the harness sent %q, want no request without a model", served)
+		}
+		// Nothing ran, so the success assertions below have nothing to read.
+		return
+	}
 
 	switch mode {
 	case harnessLaunchConfigKey:
@@ -281,9 +322,16 @@ func harnessLaunchSandbox(t *testing.T, switchURL string, enrollDevice bool) (pr
 // reached (so a caller can tell a timeout from a plain failure).
 func runHarnessCommand(t *testing.T, prizmalBin, home, project, harnessPath, harness string, harnessArgs []string) (stdout, stderr string, timedOut bool, runErr error) {
 	t.Helper()
+	return runPrizmalInSandbox(t, prizmalBin, home, project, harnessPath,
+		append([]string{"-y", "-m", harnessLaunchModel, harness, "--"}, harnessArgs...)...)
+}
+
+// runPrizmalInSandbox runs prizmal with the given arguments in the launch
+// sandbox, with stdin closed so nothing can prompt.
+func runPrizmalInSandbox(t *testing.T, prizmalBin, home, project, harnessPath string, args ...string) (stdout, stderr string, timedOut bool, runErr error) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), harnessLaunchTimeout)
 	t.Cleanup(cancel)
-	args := append([]string{"-y", "-m", harnessLaunchModel, harness, "--"}, harnessArgs...)
 	cmd := exec.CommandContext(ctx, prizmalBin, args...)
 	cmd.Dir = project
 	// The harness's own directory leads PATH, so an npm-installed harness

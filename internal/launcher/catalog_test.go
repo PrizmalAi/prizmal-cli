@@ -676,7 +676,7 @@ func TestClaudeTiersFoldTheConfigThatHoldsEachTier(t *testing.T) {
 	// Only opus is held here: a config carries its tier tag. The other tiers
 	// get no alias row, so no row offers a name the Switch would refuse.
 	want := []string{
-		"tier-opus=Smart blend",
+		"tier-opus=smart · Smart blend",
 		"team-opus-blend=Team blend", "experimental=",
 	}
 	if !slices.Equal(got, want) {
@@ -698,7 +698,7 @@ func TestClaudeTiersFoldOnlyTheFirstHolderOfATier(t *testing.T) {
 	folded := map[string]string{}
 	for _, m := range models {
 		folded[m.Name] = m.FoldedInto
-		if m.Name == "claude-tier-opus" && m.Description != "First" {
+		if m.Name == "claude-tier-opus" && m.Description != "first · First" {
 			t.Errorf("opus tier description = %q, want the first holder's", m.Description)
 		}
 	}

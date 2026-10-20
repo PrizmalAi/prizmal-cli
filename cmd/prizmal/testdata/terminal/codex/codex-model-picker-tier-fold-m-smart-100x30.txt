@@ -1,0 +1,30 @@
+
+  >_ OpenAI Codex (v0.163.0)
+     ~/project
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  Select Model and Effort
+
+
+› 1. smart (current)  Balanced blend
+  2. tier-opus        smart · Balanced blend
+  3. tier-haiku       flash
+  4. advisor-router
+
+  enter select · esc back

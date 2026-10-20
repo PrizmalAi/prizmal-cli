@@ -200,6 +200,8 @@ prizmal --restore codex
 prizmal --list
 ```
 
+The picker shows every name `--list` prints with one exception and one fold. `default` is the placeholder the Switch is retiring, so it is not a row to choose. A model whose `GET /v1/models` entry carries a `tier` sits under that tier's alias row, and the row names the folded model beside the tier's description.
+
 `prizmal` never writes your key to disk for any of the five harnesses. It sets the key on the launched process's environment, and the config files it writes refer to that variable. Each harness's doc lists the variable. When the harness exits, the key goes with its process, and a plain launch also removes a key that an older `prizmal` wrote into one of those files.
 
 Pass extra arguments for the harness after the integration name. prizmal's
@@ -214,6 +216,12 @@ default an earlier `--pick` saved, or from the interactive picker when neither
 supplies one. When a launch has no model and no terminal to choose on, it stops,
 and the error lists the names `--list` prints. The launch never sends the
 Switch's `default` placeholder, which selects the config the key is bound to.
+
+A launch that cannot ask stops. When stdin is not a terminal, or the harness
+runs one prompt and exits (`claude -p`, `codex exec`, `opencode run`, `pi
+--print`, or a Cline prompt), there is no session for a menu, so the launch
+fails with an error that lists the names `--list` prints for your key. Pass one
+of them with `--model`, or run `--pick` on a terminal.
 
 `--model` takes a name your switch key routes, or the label `--list` and the
 pickers print for it. A label drops the `claude-` prefix from the model's name, so

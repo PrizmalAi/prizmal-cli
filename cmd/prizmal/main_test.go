@@ -363,7 +363,7 @@ func TestHarnessModelOverridesTheSavedDefault(t *testing.T) {
 	// launch carries no way to ask.
 	ask := askNobody
 
-	chosen, _, err := resolveLaunchModel(cfg, "operator-choice", ask)
+	chosen, _, err := resolveLaunchModel(cfg, "operator-choice", ask, false)
 	if err != nil {
 		t.Fatalf("resolveLaunchModel: %v", err)
 	}
@@ -371,7 +371,7 @@ func TestHarnessModelOverridesTheSavedDefault(t *testing.T) {
 		t.Errorf("chosen = %q, want operator-choice (the harness form must outrank the default)", chosen)
 	}
 
-	chosen, _, err = resolveLaunchModel(cfg, "", ask)
+	chosen, _, err = resolveLaunchModel(cfg, "", ask, false)
 	if err != nil {
 		t.Fatalf("resolveLaunchModel: %v", err)
 	}
