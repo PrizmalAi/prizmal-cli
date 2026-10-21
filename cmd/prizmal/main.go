@@ -206,6 +206,7 @@ Examples:
 	// They are the only two things that need the device key, and they run
 	// without a model, a catalog or a harness.
 	root.AddCommand(deviceCommands()...)
+	root.AddCommand(mcpCommand())
 
 	// Flag parsing stops at the first non-flag token, the integration name,
 	// and every later token is handed to the harness unchanged. Interspersed

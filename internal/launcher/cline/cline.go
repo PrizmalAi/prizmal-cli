@@ -285,11 +285,8 @@ func writeClineDataDir(dataDir string, relocated bool, model string) error {
 // Search is an extra, not a precondition for the session: a launch that
 // cannot write it still runs, just without web search.
 func writeClineSearch(dataDir, model, backup string) {
-	serverPath, err := writeClineSearchServer()
-	if err == nil {
-		err = writeClineMCPSettings(dataDir, serverPath, model, backup)
-	}
-	if err != nil {
+	removeLegacyClineSearchServer()
+	if err := writeClineMCPSettings(dataDir, model, backup); err != nil {
 		fmt.Fprintf(os.Stderr, "Cline web search is unavailable for this launch: %v\n", err)
 	}
 }

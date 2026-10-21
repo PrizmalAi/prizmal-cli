@@ -2,12 +2,12 @@ package cline
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -33,6 +33,8 @@ func TestClineEditMergesSearchServerAndKeepsOthers(t *testing.T) {
 	home := internaltest.SandboxedHome(t)
 	internaltest.WithAPIKey(t, internaltest.FakeKeyAtRest)
 	internaltest.SandboxedSeed(t, home, clineMCPPath, `{"mcpServers":{`+userMCPServer+`},"other":true}`)
+	legacy := filepath.Join(".cache", "prizmal", "cline", "prizmal_search.mjs")
+	internaltest.SandboxedSeed(t, home, legacy, "// an older prizmal's Node server\n")
 
 	if err := (&Cline{}).Edit([]launch.LaunchModel{{Name: "probe-model"}}); err != nil {
 		t.Fatal(err)
@@ -49,18 +51,25 @@ func TestClineEditMergesSearchServerAndKeepsOthers(t *testing.T) {
 	entry, _ := servers[clineSearchServerName].(map[string]any)
 	transport, _ := entry["transport"].(map[string]any)
 	env, _ := transport["env"].(map[string]any)
-	if transport["type"] != "stdio" || transport["command"] != "node" {
-		t.Errorf("prizmal_search transport = %v, want stdio via node", transport)
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
 	}
-	wantPath := filepath.Join(home, ".cache", "prizmal", "cline", "prizmal_search.mjs")
-	if args, _ := transport["args"].([]any); len(args) != 1 || args[0] != wantPath {
-		t.Errorf("args = %v, want [%s]", transport["args"], wantPath)
+	if transport["type"] != "stdio" || transport["command"] != exe {
+		t.Errorf("prizmal_search transport = %v, want stdio via %s", transport, exe)
+	}
+	if args, _ := transport["args"].([]any); len(args) != 2 || args[0] != "mcp" || args[1] != "search" {
+		t.Errorf("args = %v, want [mcp search]", transport["args"])
+	}
+	raw, _ := json.Marshal(entry)
+	if strings.Contains(string(raw), "node") || strings.Contains(string(raw), ".mjs") {
+		t.Errorf("entry %s still names node or a .mjs file", raw)
 	}
 	if env[clineSearchURLEnv] != envconfig.OpenAIBaseURL(false) || env[clineSearchModelEnv] != "probe-model" {
 		t.Errorf("env = %v, want the Switch's /v1 base and probe-model", env)
 	}
-	if _, err := os.Stat(wantPath); err != nil {
-		t.Errorf("generated server: %v", err)
+	if _, err := os.Stat(filepath.Join(home, legacy)); !os.IsNotExist(err) {
+		t.Errorf("the old Node server is still there or cannot be checked: %v", err)
 	}
 	internaltest.AssertNoKeyUnder(t, home, "a cline launch with web search")
 }
@@ -147,36 +156,9 @@ func TestClineRunWritesSearchServerIntoDataDirFlagTree(t *testing.T) {
 	}
 }
 
-func TestClineSearchServerSourceIsValidAndHoldsNoKey(t *testing.T) {
-	internaltest.SandboxedHome(t)
-	internaltest.WithAPIKey(t, internaltest.FakeKeyAtRest)
-	source := clineSearchServerSource()
-	for _, bad := range []string{internaltest.FakeKeyAtRest, "__URL_ENV__", "__MODEL_ENV__", "__TOOL__", "__SERVER__"} {
-		if strings.Contains(source, bad) {
-			t.Fatalf("generated server carries %q", bad)
-		}
-	}
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("node is not on PATH")
-	}
-	path, err := writeClineSearchServer()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out, err := exec.Command(node, "--check", path).CombinedOutput(); err != nil {
-		t.Fatalf("node --check: %v\n%s", err, out)
-	}
-}
-
-// TestClineSearchServerAnswersOverStdio speaks to the generated server the
-// way Cline does and checks the request it sends the Switch.
+// TestClineSearchServerAnswersOverStdio speaks to the server the way Cline
+// does, over a pipe, and checks the request it sends the Switch.
 func TestClineSearchServerAnswersOverStdio(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("node is not on PATH")
-	}
-	internaltest.SandboxedHome(t)
 	var got struct {
 		path, auth string
 		body       map[string]any
@@ -186,37 +168,37 @@ func TestClineSearchServerAnswersOverStdio(t *testing.T) {
 		data, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(data, &got.body)
 		if strings.Contains(string(data), "fail me") {
-			http.Error(w, "nope", http.StatusForbidden)
+			http.Error(w, strings.Repeat("x", 600), http.StatusForbidden)
 			return
 		}
 		_, _ = io.WriteString(w, `{"output":[{"type":"message","content":[{"type":"output_text","text":"Go 9.9 https://go.example/dl"}]}]}`)
 	}))
 	defer srv.Close()
 
-	path, err := writeClineSearchServer()
-	if err != nil {
-		t.Fatal(err)
+	env := map[string]string{
+		clineSearchURLEnv:   srv.URL + "/v1/",
+		clineSearchModelEnv: "probe-model",
+		"OPENAI_API_KEY":    "probe-key",
 	}
-	cmd := exec.Command(node, path)
-	cmd.Env = append(os.Environ(), clineSearchURLEnv+"="+srv.URL+"/v1/", clineSearchModelEnv+"=probe-model", "OPENAI_API_KEY=probe-key")
-	stdin, _ := cmd.StdinPipe()
-	stdout, _ := cmd.StdoutPipe()
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = stdin.Close(); _ = cmd.Wait() }()
-	lines := bufio.NewScanner(stdout)
+	inR, inW := io.Pipe()
+	outR, outW := io.Pipe()
+	done := make(chan error, 1)
+	go func() {
+		done <- ServeSearch(context.Background(), inR, outW, func(k string) string { return env[k] }, srv.Client())
+		_ = outW.Close()
+	}()
+	lines := bufio.NewScanner(outR)
 	call := func(msg string) map[string]any {
 		t.Helper()
-		if _, err := io.WriteString(stdin, msg+"\n"); err != nil {
+		if _, err := io.WriteString(inW, msg+"\n"); err != nil {
 			t.Fatal(err)
 		}
-		done := make(chan bool, 1)
-		go func() { done <- lines.Scan() }()
+		read := make(chan bool, 1)
+		go func() { read <- lines.Scan() }()
 		select {
-		case ok := <-done:
+		case ok := <-read:
 			if !ok {
-				t.Fatalf("server closed stdout: %v", lines.Err())
+				t.Fatalf("server closed its output: %v", lines.Err())
 			}
 		case <-time.After(10 * time.Second):
 			t.Fatal("no answer from the server")
@@ -231,8 +213,11 @@ func TestClineSearchServerAnswersOverStdio(t *testing.T) {
 	if r := call(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}`); r["result"] == nil {
 		t.Fatalf("initialize = %v", r)
 	}
-	// A notification gets no answer, so the next line read is tools/list's.
-	_, _ = io.WriteString(stdin, `{"jsonrpc":"2.0","method":"notifications/initialized"}`+"\n")
+	// A notification gets no answer, so the next line read is ping's.
+	_, _ = io.WriteString(inW, `{"jsonrpc":"2.0","method":"notifications/initialized"}`+"\n")
+	if r := call(`{"jsonrpc":"2.0","id":"p","method":"ping"}`); r["id"] != "p" || r["result"] == nil {
+		t.Fatalf("ping = %v", r)
+	}
 	list := call(`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`)
 	tools, _ := list["result"].(map[string]any)["tools"].([]any)
 	if len(tools) != 1 || tools[0].(map[string]any)["name"] != "search" {
@@ -240,7 +225,7 @@ func TestClineSearchServerAnswersOverStdio(t *testing.T) {
 	}
 
 	result, _ := call(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"search","arguments":{"query":"latest go"}}}`)["result"].(map[string]any)
-	if result["isError"] == true || !strings.Contains(toolText(result), "go.example") {
+	if result["isError"] == true || !strings.Contains(resultText(result), "go.example") {
 		t.Fatalf("tools/call result = %v", result)
 	}
 	if got.path != "/v1/responses" || got.auth != "Bearer probe-key" || got.body["model"] != "probe-model" {
@@ -251,12 +236,21 @@ func TestClineSearchServerAnswersOverStdio(t *testing.T) {
 	}
 
 	failed, _ := call(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"search","arguments":{"query":"fail me"}}}`)["result"].(map[string]any)
-	if failed["isError"] != true || !strings.Contains(toolText(failed), "403") {
-		t.Fatalf("failed call = %v, want isError with the status", failed)
+	text := resultText(failed)
+	if failed["isError"] != true || !strings.Contains(text, "403") || strings.Count(text, "x") > 500 {
+		t.Fatalf("failed call = %v, want isError with the status and at most 500 bytes of body", failed)
+	}
+
+	if r := call(`{"jsonrpc":"2.0","id":5,"method":"resources/list"}`); r["error"] == nil {
+		t.Fatalf("unknown method = %v, want an error", r)
+	}
+	_ = inW.Close()
+	if err := <-done; err != nil {
+		t.Fatalf("ServeSearch: %v", err)
 	}
 }
 
-func toolText(result map[string]any) string {
+func resultText(result map[string]any) string {
 	content, _ := result["content"].([]any)
 	if len(content) == 0 {
 		return ""
