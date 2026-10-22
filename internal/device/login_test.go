@@ -102,21 +102,66 @@ func TestLoginTimesOutWhilePending(t *testing.T) {
 	}
 }
 
-func TestLoginStopsOnReauthRequired(t *testing.T) {
+func reauthRequired(w http.ResponseWriter) {
+	w.WriteHeader(http.StatusUnauthorized)
+	_, _ = w.Write([]byte(`{"error":{"code":"REAUTH_REQUIRED","message":"x"}}`))
+}
+
+func TestLoginKeepsPollingThroughReauthRequired(t *testing.T) {
 	key, _ := GenerateKey()
+	clk := &fakeClock{t: time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)}
+
+	const expiredPolls = 3
+	var polls int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusUnauthorized)
-		_, _ = w.Write([]byte(`{"error":{"code":"REAUTH_REQUIRED","message":"x"}}`))
+		if atomic.AddInt32(&polls, 1) <= expiredPolls {
+			reauthRequired(w)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"device_token": "pz-d-dt-token", "expires_in": 600})
+	}))
+	defer srv.Close()
+
+	tok, err := Login(NewClient(srv.URL), key, LoginOptions{
+		AuthorizeBaseURL: "https://app.prizmal.ai",
+		Interval:         time.Second,
+		Timeout:          time.Minute,
+		Sleep:            clk.sleep,
+		Now:              clk.now,
+		OpenBrowser:      func(string) error { return nil },
+		Confirm:          confirmYes,
+	})
+	if err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	if tok.Value != "pz-d-dt-token" {
+		t.Fatalf("token = %q", tok.Value)
+	}
+	if got := atomic.LoadInt32(&polls); got != expiredPolls+1 {
+		t.Fatalf("polled %d times, want %d", got, expiredPolls+1)
+	}
+}
+
+func TestLoginTimesOutWhileReauthRequired(t *testing.T) {
+	key, _ := GenerateKey()
+	clk := &fakeClock{t: time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reauthRequired(w)
 	}))
 	defer srv.Close()
 
 	_, err := Login(NewClient(srv.URL), key, LoginOptions{
 		AuthorizeBaseURL: "https://app.prizmal.ai",
+		Interval:         time.Second,
+		Timeout:          5 * time.Second,
+		Sleep:            clk.sleep,
+		Now:              clk.now,
 		OpenBrowser:      func(string) error { return nil },
 		Confirm:          confirmYes,
 	})
-	if err == nil || !strings.Contains(err.Error(), "prizmal login") {
-		t.Fatalf("error = %v, want a message that says run prizmal login", err)
+	if err == nil || !strings.Contains(err.Error(), "timed out waiting for approval") {
+		t.Fatalf("error = %v, want the timed-out-waiting-for-approval error", err)
 	}
 }
 
