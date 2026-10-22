@@ -1,9 +1,12 @@
 package opencode
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -104,5 +107,78 @@ func TestOpenCodeRunSendsOnlyRoutableNames(t *testing.T) {
 	}
 	if refused := rec.RefusedModels(); len(refused) > 0 {
 		t.Errorf("OpenCode sent names the Switch would refuse: %q (all: %s)", refused, strings.Join(sent, ", "))
+	}
+}
+
+// Two projects under one home launch with different models. Each run's
+// requests name only its own model, and the launch leaves the operator's
+// model.json exactly as it found it.
+func TestOpenCodeRunsInTwoProjectsKeepTheirModelsAndLeaveState(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping the OpenCode launch in short mode")
+	}
+	if _, err := exec.LookPath("opencode"); err != nil {
+		if os.Getenv("PRIZMAL_HARNESS_LAUNCH") == "require" {
+			t.Fatal("opencode is not on PATH")
+		}
+		t.Skip("opencode is not on PATH")
+	}
+	home := sandboxedHome(t)
+	for _, name := range []string{"OPENCODE_CONFIG", "OPENCODE_CONFIG_CONTENT", "XDG_STATE_HOME", "XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME"} {
+		unsetEnv(t, name)
+	}
+
+	rec := &stubserver.Recorder{}
+	srv := stubserver.NewServer(stubserver.WithModels("smart", "flash"), stubserver.WithRecorder(rec))
+	defer srv.Close()
+	envconfig.SetBaseURL(srv.URL)
+	envconfig.SetAPIKey(stubserver.StubKey)
+	t.Cleanup(func() { envconfig.SetBaseURL(""); envconfig.SetAPIKey("") })
+
+	// The operator's picker state, which a launch must not touch.
+	statePath := filepath.Join(home, ".local", "state", "opencode", "model.json")
+	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(statePath, []byte(`{"recent":[{"providerID":"other","modelID":"theirs"}],"favorite":[],"variant":{}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := func() []byte {
+		data, err := os.ReadFile(statePath)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data
+	}
+
+	models := []launch.LaunchModel{{Name: "smart"}, {Name: "flash"}}
+	for _, model := range []string{"smart", "flash"} {
+		t.Chdir(t.TempDir())
+		before := snapshot()
+		seen := len(rec.ModelCalls())
+
+		o := &OpenCode{}
+		if err := o.Edit(models); err != nil {
+			t.Fatal(err)
+		}
+		if err := o.Run(model, models, []string{"run", "hi"}); err != nil {
+			t.Fatalf("opencode run -m %s: %v", model, err)
+		}
+
+		calls := rec.ModelCalls()[seen:]
+		if len(calls) == 0 {
+			t.Fatalf("-m %s: OpenCode sent the stub no inference request", model)
+		}
+		for _, call := range calls {
+			if call.Model != model {
+				t.Errorf("-m %s: a request named %q", model, call.Model)
+			}
+		}
+		if after := snapshot(); !bytes.Equal(before, after) {
+			t.Errorf("-m %s: the launch changed model.json\nbefore: %s\nafter:  %s", model, before, after)
+		}
 	}
 }

@@ -109,24 +109,6 @@ func TestOpenCodeEmptyKeyIsEmptyNotPlaceholder(t *testing.T) {
 	}
 }
 
-func TestOpenCodeManagedProviderAcceptsPrizmalOnly(t *testing.T) {
-	cases := []struct {
-		id   string
-		want bool
-	}{
-		{"prizmal", true},
-		{"ollama", false},
-		{"openai", false},
-		{"anthropic", false},
-		{"", false},
-	}
-	for _, tc := range cases {
-		if got := isOpenCodeManagedProvider(map[string]any{"providerID": tc.id}); got != tc.want {
-			t.Fatalf("isOpenCodeManagedProvider(%q) = %v, want %v", tc.id, got, tc.want)
-		}
-	}
-}
-
 // opencodeModelEntry renders buildInlineConfig for a single model and returns
 // that model's entry from provider.prizmal.models.
 func opencodeModelEntry(t *testing.T, m launch.LaunchModel) map[string]any {
@@ -189,7 +171,7 @@ func TestOpenCodeResolvesTheCatalogEntryAcrossTheSuffix(t *testing.T) {
 		{Name: "vision-model", Capabilities: launch.CapabilitiesFromModalities([]string{"text", "image"})},
 	}
 
-	resolved := resolveOpenCodeRunModels("vision-model[1m]", catalog, nil)
+	resolved := resolveOpenCodeRunModels("vision-model[1m]", catalog)
 	if len(resolved) != 1 {
 		t.Fatalf("resolved %d models, want 1: %v", len(resolved), launch.LaunchModelNames(resolved))
 	}
@@ -202,7 +184,7 @@ func TestOpenCodeResolvesTheCatalogEntryAcrossTheSuffix(t *testing.T) {
 // is told what to run, and the permissive modality list is what an unknown
 // model gets.
 func TestOpenCodeKeepsAnUnknownNameAsABareEntry(t *testing.T) {
-	resolved := resolveOpenCodeRunModels("not-in-catalog", []launch.LaunchModel{{Name: "vision-model"}}, nil)
+	resolved := resolveOpenCodeRunModels("not-in-catalog", []launch.LaunchModel{{Name: "vision-model"}})
 	if len(resolved) != 2 || resolved[0].Name != "not-in-catalog" || len(resolved[0].Capabilities) != 0 {
 		t.Fatalf("resolved = %+v, want a bare not-in-catalog first, then the catalog", resolved)
 	}

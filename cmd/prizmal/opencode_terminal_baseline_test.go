@@ -14,7 +14,7 @@ const opencodeBaselineDir = "testdata/terminal/opencode"
 
 var (
 	stepOpencodePrompt     = baselineStep{waitFor: "Build · smart"}
-	stepOpencodeOpenModels = baselineStep{literal: "/models", waitFor: "/models"}
+	stepOpencodeOpenModels = baselineStep{literal: "/models"}
 	stepOpencodeModels     = baselineStep{key: "Enter", waitFor: "Select model"}
 )
 
