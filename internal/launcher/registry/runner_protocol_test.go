@@ -43,10 +43,10 @@ var runnerPostures = map[string]runnerPosture{
 	// OPENAI_API_KEY when the settings hold no apiKey, so the key can stay on
 	// the environment — but the entry itself is on disk and needs the undo.
 	"cline": {restorable: true, editor: true, keyOnEnvironment: true},
-	// opencode: OPENCODE_CONFIG_CONTENT carries the config at launch, but Edit
-	// also writes ~/.local/state/opencode/model.json through
-	// fileutil.WriteWithBackup and a search tool under ~/.cache/prizmal/.
-	// Neither is reachable from --restore, so this harness has no launch.Restorer.
+	// opencode: OPENCODE_CONFIG_CONTENT carries the config at launch. Edit
+	// writes nothing, and the launch only generates the search tool under
+	// ~/.cache/prizmal/, which --restore does not reach, so this harness has no
+	// launch.Restorer.
 	// That gap is tracked separately; it is a product question, not a gap
 	// this table papers over.
 	"opencode": {restorable: false, editor: true, keyOnEnvironment: true},

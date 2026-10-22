@@ -7,11 +7,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
-	"github.com/PrizmalAi/prizmal-cli/internal/fileutil"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher"
 )
 
@@ -129,6 +127,9 @@ func (o *OpenCode) childEnv(model string, models []launch.LaunchModel) []string 
 // OPENCODE_ENABLE_* search flags: those switch on a websearch tool that calls
 // opencode's hosted search backends directly. Search goes through the Switch
 // instead, via the generated tool wired up here.
+//
+// It leaves opencode's XDG directories alone: the model picker state, prompt
+// history, sign-ins and sessions are opencode's own.
 func (o *OpenCode) envVars(model string, models []launch.LaunchModel) []string {
 	var env []string
 	if content := o.resolveContent(model, models); content != "" {
@@ -177,13 +178,13 @@ func OpenCodeInstallerCommand(goos string) (string, []string, error) {
 }
 
 // resolveContent returns the inline config to send via OPENCODE_CONFIG_CONTENT.
-// Returns content built by Edit if available, otherwise builds from model.json
-// with the requested model as primary (e.g. re-launch with saved config).
+// Returns content built by Edit if available, otherwise builds it from the
+// requested model and the catalog.
 func (o *OpenCode) resolveContent(model string, models []launch.LaunchModel) string {
 	if o.configContent != "" {
 		return o.configContent
 	}
-	resolvedModels := resolveOpenCodeRunModels(model, models, readModelJSONModels())
+	resolvedModels := resolveOpenCodeRunModels(model, models)
 	if len(resolvedModels) == 0 {
 		return ""
 	}
@@ -194,12 +195,12 @@ func (o *OpenCode) resolveContent(model string, models []launch.LaunchModel) str
 	return content
 }
 
-func resolveOpenCodeRunModels(primary string, models []launch.LaunchModel, stateModels []string) []launch.LaunchModel {
+func resolveOpenCodeRunModels(primary string, models []launch.LaunchModel) []launch.LaunchModel {
 	if primary == "" {
 		return nil
 	}
 
-	resolved := make([]launch.LaunchModel, 0, 1+len(models)+len(stateModels))
+	resolved := make([]launch.LaunchModel, 0, 1+len(models))
 	appendModel := func(name string) {
 		if name == "" || hasLaunchModel(resolved, name) {
 			return
@@ -215,9 +216,6 @@ func resolveOpenCodeRunModels(primary string, models []launch.LaunchModel, state
 	for _, model := range models {
 		appendModel(model.Name)
 	}
-	for _, model := range stateModels {
-		appendModel(model)
-	}
 	return resolved
 }
 
@@ -230,27 +228,9 @@ func hasLaunchModel(models []launch.LaunchModel, name string) bool {
 	return false
 }
 
-func (o *OpenCode) Paths() []string {
-	sp, err := openCodeStatePath()
-	if err != nil {
-		return nil
-	}
-	if _, err := os.Stat(sp); err == nil {
-		return []string{sp}
-	}
-	return nil
-}
-
-// openCodeStatePath returns the path to opencode's model state file.
-// TODO: this hardcodes the Linux/macOS XDG path. On Windows, opencode stores
-// state under %LOCALAPPDATA% (or similar) — verify and branch on runtime.GOOS.
-func openCodeStatePath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".local", "state", "opencode", "model.json"), nil
-}
+// Paths lists the files prizmal edited. It edits none: the launch passes its
+// configuration in the environment.
+func (o *OpenCode) Paths() []string { return nil }
 
 func (o *OpenCode) Edit(models []launch.LaunchModel) error {
 	modelList := launch.LaunchModelNames(models)
@@ -263,72 +243,7 @@ func (o *OpenCode) Edit(models []launch.LaunchModel) error {
 		return err
 	}
 	o.configContent = content
-
-	// Write model state file so models appear in OpenCode's model picker
-	statePath, err := openCodeStatePath()
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
-		return err
-	}
-
-	state := map[string]any{
-		"recent":   []any{},
-		"favorite": []any{},
-		"variant":  map[string]any{},
-	}
-	if data, err := os.ReadFile(statePath); err == nil {
-		_ = json.Unmarshal(data, &state) // Ignore parse errors; use defaults
-	}
-
-	recent, _ := state["recent"].([]any)
-
-	// Remove existing managed entries so we can re-add the current models.
-	newRecent := slices.DeleteFunc(slices.Clone(recent), func(entry any) bool {
-		e, ok := entry.(map[string]any)
-		if !ok {
-			return false
-		}
-		return isOpenCodeManagedProvider(e)
-	})
-
-	// Prepend models in reverse order so first model ends up first
-	for _, model := range slices.Backward(modelList) {
-		newRecent = slices.Insert(newRecent, 0, any(map[string]any{
-			"providerID": "prizmal",
-			"modelID":    model,
-		}))
-	}
-
-	const maxRecentModels = 10
-	newRecent = newRecent[:min(len(newRecent), maxRecentModels)]
-
-	state["recent"] = newRecent
-
-	// Clean up managed entries from the favorite list and variant map.
-	if favorite, ok := state["favorite"].([]any); ok {
-		state["favorite"] = slices.DeleteFunc(slices.Clone(favorite), func(entry any) bool {
-			e, ok := entry.(map[string]any)
-			if !ok {
-				return false
-			}
-			return isOpenCodeManagedProvider(e)
-		})
-	}
-	if variants, ok := state["variant"].(map[string]any); ok {
-		for k := range variants {
-			if strings.HasPrefix(k, "prizmal/") {
-				delete(variants, k)
-			}
-		}
-	}
-
-	stateData, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return err
-	}
-	return fileutil.WriteWithBackup(statePath, stateData, "opencode")
+	return nil
 }
 
 func (o *OpenCode) Models() []string {
@@ -370,44 +285,6 @@ func buildInlineConfig(primary launch.LaunchModel, models []launch.LaunchModel) 
 		return "", err
 	}
 	return string(data), nil
-}
-
-// readModelJSONModels reads launch-managed model IDs from the opencode model.json state file
-func readModelJSONModels() []string {
-	statePath, err := openCodeStatePath()
-	if err != nil {
-		return nil
-	}
-	data, err := os.ReadFile(statePath)
-	if err != nil {
-		return nil
-	}
-	var state map[string]any
-	if err := json.Unmarshal(data, &state); err != nil {
-		return nil
-	}
-	recent, _ := state["recent"].([]any)
-	var models []string
-	for _, entry := range recent {
-		e, ok := entry.(map[string]any)
-		if !ok {
-			continue
-		}
-		if !isOpenCodeManagedProvider(e) {
-			continue
-		}
-		if id, ok := e["modelID"].(string); ok && id != "" {
-			models = append(models, id)
-		}
-	}
-	return models
-}
-
-// isOpenCodeManagedProvider reports whether a model-picker state entry is one
-// this CLI manages: the 'prizmal' provider id.
-func isOpenCodeManagedProvider(e map[string]any) bool {
-	id, _ := e["providerID"].(string)
-	return id == "prizmal"
 }
 
 func buildModelEntries(modelList []launch.LaunchModel) map[string]any {

@@ -41,7 +41,7 @@ func openCodeSearchDir() (string, error) {
 	return filepath.Join(home, ".cache", "prizmal", "opencode"), nil
 }
 
-// writeOpenCodeSearchTool generates the search tool under dir/tool. The file is
+// writeOpenCodeSearchTool generates the search tool under dir/tool. It is
 // rewritten on every launch so an older prizmal's version never lingers.
 func writeOpenCodeSearchTool(dir string) error {
 	toolDir := filepath.Join(dir, "tool")

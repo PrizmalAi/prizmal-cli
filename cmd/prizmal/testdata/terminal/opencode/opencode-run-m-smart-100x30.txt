@@ -1,0 +1,7 @@
+using api key from: config file (~/.prizmal/config.json)
+
+> build · smart
+
+PRIZMAL-STUB-REPLY
+
+[prizmal exited 0]
