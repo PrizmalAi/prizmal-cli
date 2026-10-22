@@ -176,8 +176,9 @@ func Login(client *Client, key *Key, opts LoginOptions) (*Token, error) {
 				_, _ = fmt.Fprintf(out, "Approved in your browser.\n")
 			}
 			return tok, nil
-		case errors.Is(err, ErrDeviceUnknown):
-			// Not approved yet. Keep waiting.
+		case errors.Is(err, ErrDeviceUnknown), errors.Is(err, ErrReauthRequired):
+			// Not approved yet. An expired sign-in answers REAUTH_REQUIRED
+			// until the browser approval resets its re-auth deadline.
 		case errors.Is(err, ErrRateLimited):
 			// A parallel helper refreshed first; wait out the throttle and
 			// try again.
@@ -224,8 +225,6 @@ func (l *lockedWriter) Write(p []byte) (int, error) {
 // never claims to know which check failed.
 func loginError(err error) error {
 	switch {
-	case errors.Is(err, ErrReauthRequired):
-		return fmt.Errorf("this device's sign-in expired; run prizmal login to approve it again")
 	case errors.Is(err, ErrNotAuthorized):
 		return fmt.Errorf("device not authorized; ask a tenant manager to approve this device, or run prizmal login again")
 	case errors.Is(err, ErrUnavailable):
