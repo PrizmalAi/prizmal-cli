@@ -13,7 +13,7 @@ The inline config declares the `prizmal` provider (`@ai-sdk/openai-compatible`),
 
 Prizmal writes no OpenCode state. The model picker's Recent list, the prompt history and the interface toggles are OpenCode's own, in its usual state directory, and every project shares them. Your sessions, sign-ins and settings stay there too.
 
-OpenCode is the one harness whose key is not on the child environment: the key is a field in the inline config, which lives only in the variable for the life of the process and is never written to a file.
+The key is a field in the inline config, which lives only in the variable for the life of the process and is never written to a file. The search tool also reads the key from `PRIZMAL_OPENCODE_SEARCH_KEY` on the child environment, so the key is on that environment too.
 
 ## Model
 

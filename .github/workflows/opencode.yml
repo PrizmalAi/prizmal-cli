@@ -52,7 +52,7 @@ jobs:
       - name: OpenCode sends only routable model names
         env:
           PRIZMAL_HARNESS_LAUNCH: require
-        run: go test -count=1 -v -run 'TestOpenCodeRunSendsOnlyRoutableNames$' ./internal/launcher/opencode
+        run: go test -count=1 -v -run 'TestOpenCodeRunSendsOnlyRoutableNames$|TestOpenCodeRunsInTwoProjectsKeepTheirModelsAndLeaveState$' ./internal/launcher/opencode
 
   terminal-baselines:
     runs-on: ubuntu-latest
