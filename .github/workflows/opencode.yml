@@ -49,6 +49,18 @@ jobs:
         env:
           PRIZMAL_HARNESS_LAUNCH: require
         run: go test -count=1 -v -run 'TestHarnessLaunchOpencode$|TestHarnessLaunchOpencodeWithoutAModel$' ./cmd/prizmal
+      - name: Launch opencode from a device login
+        env:
+          PRIZMAL_HARNESS_LAUNCH: require
+        run: go test -count=1 -v -run 'TestHarnessLaunchOpencodeFromDeviceLogin$' ./cmd/prizmal
+      - name: Run an opencode session past a device-token expiry
+        env:
+          PRIZMAL_HARNESS_LAUNCH: require
+        run: go test -count=1 -v -run 'TestHarnessLaunchOpencodeOutlivesOneDeviceToken$' ./cmd/prizmal
+      - name: Run opencode's search tool past a device-token expiry
+        env:
+          PRIZMAL_HARNESS_LAUNCH: require
+        run: go test -count=1 -v -run 'TestHarnessLaunchOpencodeSearchOutlivesOneDeviceToken$' ./cmd/prizmal
       - name: OpenCode sends only routable model names
         env:
           PRIZMAL_HARNESS_LAUNCH: require

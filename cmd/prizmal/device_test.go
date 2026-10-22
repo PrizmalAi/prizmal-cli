@@ -197,7 +197,7 @@ func TestDeviceLoginAppliesByHarness(t *testing.T) {
 		{"pi refreshes through its credential command", false, []string{"pi"}, true},
 		{"codex refreshes its own token", false, []string{"codex"}, true},
 		{"cline receives the key once", false, []string{"cline"}, false},
-		{"opencode receives the key once", false, []string{"opencode"}, false},
+		{"opencode refreshes through its plugin", false, []string{"opencode"}, true},
 		{"an unknown word is not a harness", false, []string{"bogus"}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -207,7 +207,7 @@ func TestDeviceLoginAppliesByHarness(t *testing.T) {
 		})
 	}
 	for _, spec := range registry.ListAllIntegrationSpecs() {
-		want := spec.Name == "claude" || spec.Name == "pi" || spec.Name == "codex"
+		want := spec.Name == "claude" || spec.Name == "pi" || spec.Name == "codex" || spec.Name == "opencode"
 		if got := deviceLoginApplies(false, []string{spec.Name}); got != want {
 			t.Errorf("deviceLoginApplies for %q = %v, want %v", spec.Name, got, want)
 		}

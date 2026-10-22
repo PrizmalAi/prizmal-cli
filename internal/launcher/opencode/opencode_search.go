@@ -65,6 +65,7 @@ func openCodeSearchToolSource() string {
 		"__URL_ENV__", openCodeSearchURLEnv,
 		"__KEY_ENV__", openCodeSearchKeyEnv,
 		"__MODEL_ENV__", openCodeSearchModelEnv,
+		"__AUTH_BIN_ENV__", openCodeAuthBinEnv,
 	).Replace(openCodeSearchToolTemplate)
 }
 
@@ -86,6 +87,20 @@ function collectText(payload) {
   return parts.join("\n\n")
 }
 
+// A device-mode launch names the prizmal executable instead of a key, because a
+// device token expires ten minutes in: the tool asks it for a token per call.
+// Without that variable the key from the environment is used as before.
+async function bearer() {
+  const bin = process.env.__AUTH_BIN_ENV__ || ""
+  if (!bin) return process.env.__KEY_ENV__ || ""
+  try {
+    const proc = Bun.spawn([bin, "auth", "token"], { stdout: "pipe", stderr: "ignore" })
+    const out = await new Response(proc.stdout).text()
+    if ((await proc.exited) === 0) return out.trim()
+  } catch {}
+  return ""
+}
+
 export default {
   description:
     "Search the web through PrizmalSwitch. Returns a summary of current sources with their URLs. " +
@@ -98,7 +113,7 @@ export default {
     if (!base) {
       throw new Error("prizmal search is unconfigured: __URL_ENV__ is unset. Relaunch through the prizmal CLI.")
     }
-    const key = process.env.__KEY_ENV__ || ""
+    const key = await bearer()
     const model = process.env.__MODEL_ENV__ || ""
 
     const headers = { "content-type": "application/json" }

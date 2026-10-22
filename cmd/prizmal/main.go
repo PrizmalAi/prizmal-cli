@@ -669,7 +669,7 @@ func launch(name string, extraArgs []string, cfg *config.Config, ask launcher.As
 
 	// A first-run browser sign-in can leave device mode on before any
 	// harness was named. For a runner with no refresh contract —
-	// Cline, OpenCode — device login is ignored: the launch runs on the
+	// Cline — device login is ignored: the launch runs on the
 	// ordinary key sources, exactly as if the machine had never signed in
 	// with a device. Leaving device mode on would outrank the switch key the
 	// config already holds and hand the harness a token that expires in ten
