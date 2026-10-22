@@ -4,6 +4,7 @@ package main
 
 import (
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/stubserver"
@@ -63,5 +64,55 @@ func TestHarnessLaunchOpencodeOutlivesOneDeviceToken(t *testing.T) {
 	}
 	if n := issuer.RejectedExpired(); n > 0 {
 		t.Fatalf("the stub refused %d expired token(s); opencode sent a token past its life", n)
+	}
+}
+
+// TestHarnessLaunchOpencodeSearchOutlivesOneDeviceToken pins that the search
+// tool authenticates with a fresh token too. The stub scripts a sleep that
+// outlasts the first token and then a prizmal_search call, and refuses any
+// expired token, so the /v1/responses request the tool makes must carry a token
+// minted after the first expired.
+func TestHarnessLaunchOpencodeSearchOutlivesOneDeviceToken(t *testing.T) {
+	skipHarnessLaunchInShortMode(t)
+	harnessPath := harnessLaunchOnPath(t, "opencode")
+
+	issuer := stubserver.NewDeviceTokenIssuer(piDeviceTokenLife)
+	var mu sync.Mutex
+	var searchAuth []string
+	srv := stubserver.NewServer(
+		stubserver.WithModels(harnessLaunchModel),
+		stubserver.WithShortLivedDeviceTokens(issuer),
+		stubserver.WithToolSteps(
+			stubserver.ToolStep{Name: "bash", Args: `{"command":"sleep 3","description":"wait"}`},
+			stubserver.ToolStep{Name: "prizmal_search", Args: `{"query":"anything"}`},
+		),
+		stubserver.WithRequestLog(func(r stubserver.Request) {
+			if r.Path == "/v1/responses" {
+				mu.Lock()
+				searchAuth = append(searchAuth, r.Authorization)
+				mu.Unlock()
+			}
+		}),
+	)
+	t.Cleanup(srv.Close)
+
+	prizmalBin, home, project := harnessLaunchSandbox(t, srv.URL, true)
+	harnessArgs := harnessLaunchCases["opencode"].args
+	stdout, stderr, timedOut, runErr := runHarnessCommand(t, prizmalBin, home, project, harnessPath, "opencode", harnessArgs)
+
+	if !strings.Contains(stdout, stubserver.Reply) {
+		t.Fatalf("opencode did not finish the session (run error: %v, timed out: %v)\n--- stdout ---\n%s\n--- stderr ---\n%s",
+			runErr, timedOut, tail(stdout, 50), tail(stderr, 50))
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(searchAuth) == 0 {
+		t.Fatal("the search tool never called /v1/responses")
+	}
+	if n := issuer.RejectedExpired(); n > 0 {
+		t.Fatalf("the stub refused %d expired token(s); the search tool sent a token past its life", n)
+	}
+	if strings.HasSuffix(searchAuth[0], "-1") {
+		t.Fatalf("the search request carried the launch's first token %q", searchAuth[0])
 	}
 }

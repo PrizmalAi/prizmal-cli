@@ -145,7 +145,7 @@ type serverConfig struct {
 	refreshes           atomic.Int32
 	deviceOnly          bool
 	issuer              *DeviceTokenIssuer
-	toolLoop            *piToolLoop
+	toolLoop            *toolScript
 	usagePlan           *UsagePlan
 	recorder            *Recorder
 	codexModels         bool
@@ -203,7 +203,20 @@ func WithShortLivedDeviceTokens(issuer *DeviceTokenIssuer) ServerOption {
 // short device-token expiry. It is Pi-specific because it names Pi's bash tool.
 func WithPiToolLoop(turns int, sleep time.Duration) ServerOption {
 	return func(c *serverConfig) {
-		c.toolLoop = &piToolLoop{turns: turns, sleep: sleep}
+		steps := make([]ToolStep, turns)
+		for i := range steps {
+			steps[i] = ToolStep{Name: "bash", Args: fmt.Sprintf(`{"command":%q}`, "sleep "+fmt.Sprintf("%g", sleep.Seconds()))}
+		}
+		c.toolLoop = &toolScript{steps: steps}
+	}
+}
+
+// WithToolSteps makes the chat-completions route answer each of its first
+// requests with the next scripted tool call, then with Reply. A test uses it to
+// make a harness call a tool the harness itself provides.
+func WithToolSteps(steps ...ToolStep) ServerOption {
+	return func(c *serverConfig) {
+		c.toolLoop = &toolScript{steps: steps}
 	}
 }
 
@@ -327,25 +340,31 @@ func (i *DeviceTokenIssuer) CrossedExpiry() bool {
 	return false
 }
 
-// piToolLoop is the state of WithPiToolLoop: how many tool-call turns remain,
-// and how long the bash call sleeps.
-type piToolLoop struct {
-	mu        sync.Mutex
-	turns     int
-	sleep     time.Duration
-	completed int
+// ToolStep is one scripted tool call: the tool's name and its JSON arguments.
+type ToolStep struct {
+	Name string
+	Args string
 }
 
-// next reports whether the current request gets a tool call, and how long its
-// bash call should sleep. It consumes a turn until the count is spent.
-func (l *piToolLoop) next() (bool, time.Duration) {
+// toolScript is the state of WithPiToolLoop and WithToolSteps: the tool calls
+// still to answer with, one per chat-completions request, before the reply.
+type toolScript struct {
+	mu     sync.Mutex
+	steps  []ToolStep
+	cursor int
+}
+
+// next returns the tool call the current request gets, and false once the
+// steps are spent.
+func (l *toolScript) next() (ToolStep, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.completed >= l.turns {
-		return false, 0
+	if l.cursor >= len(l.steps) {
+		return ToolStep{}, false
 	}
-	l.completed++
-	return true, l.sleep
+	step := l.steps[l.cursor]
+	l.cursor++
+	return step, true
 }
 
 // WithModels serves exactly ids from /v1/models, each as text-only.
@@ -931,7 +950,7 @@ func defaultModels() []map[string]any {
 	}
 }
 
-func handleChatCompletions(w http.ResponseWriter, r *http.Request, loop *piToolLoop) {
+func handleChatCompletions(w http.ResponseWriter, r *http.Request, loop *toolScript) {
 	body := requestBody(r)
 	toolCall := wantsToolCall(body)
 	stream := wantsStream(body)
@@ -942,10 +961,10 @@ func handleChatCompletions(w http.ResponseWriter, r *http.Request, loop *piToolL
 	toolName := "stub_tool"
 	toolArgs := "{}"
 	if loop != nil {
-		if again, sleep := loop.next(); again {
+		if step, again := loop.next(); again {
 			toolCall = true
-			toolName = "bash"
-			toolArgs = fmt.Sprintf(`{"command":%q}`, "sleep "+fmt.Sprintf("%g", sleep.Seconds()))
+			toolName = step.Name
+			toolArgs = step.Args
 		}
 	}
 

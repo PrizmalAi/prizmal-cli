@@ -176,11 +176,10 @@ func (o *OpenCode) envVars(model string, models []launch.LaunchModel) []string {
 		// reads.
 		"OPENCODE_CONFIG_DIR="+dir,
 		openCodeSearchURLEnv+"="+envconfig.OpenAIBaseURL(false),
-		openCodeSearchKeyEnv+"="+envconfig.APIKey(),
 		openCodeSearchModelEnv+"="+model,
 	)
 	if !envconfig.DeviceMode() {
-		return env
+		return append(env, openCodeSearchKeyEnv+"="+envconfig.APIKey())
 	}
 	// The plugin runs `prizmal auth token`, a separate prizmal process that
 	// resolves the Switch host from scratch, so the launch pins its own.

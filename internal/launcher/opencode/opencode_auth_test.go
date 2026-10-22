@@ -128,3 +128,26 @@ func TestOpenCodeDeviceInlineConfigIsValidJSON(t *testing.T) {
 		t.Fatalf("invalid device config: %v", err)
 	}
 }
+
+// In device mode the search tool must not be handed the launch's device token:
+// it would expire ten minutes in. The tool runs the auth command per call.
+func TestOpenCodeDeviceLaunchPutsNoTokenInTheSearchEnv(t *testing.T) {
+	sandboxedHome(t)
+	launchtest.WithDeviceMode(t)
+	env := (&OpenCode{}).envVars("wire-test-model", wireKeyTestModel())
+	if key, _ := envLookup(env, openCodeSearchKeyEnv); key != "" {
+		t.Fatalf("%s = %q in device mode; the token would expire mid-session", openCodeSearchKeyEnv, key)
+	}
+	if bin, _ := envLookup(env, openCodeAuthBinEnv); bin == "" {
+		t.Fatalf("%s unset; the search tool cannot run the auth command", openCodeAuthBinEnv)
+	}
+}
+
+func TestOpenCodeSearchToolRunsTheAuthCommandPerCall(t *testing.T) {
+	source := openCodeSearchToolSource()
+	for _, want := range []string{openCodeAuthBinEnv, "auth", "token"} {
+		if !strings.Contains(source, want) {
+			t.Errorf("search tool does not use %q", want)
+		}
+	}
+}
