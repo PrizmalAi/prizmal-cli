@@ -243,7 +243,7 @@ var claudeBaselineCases = []baselineCase{
 }
 
 func TestTerminalBaselinesClaude(t *testing.T) {
-	runBaselineCases(t, claudeBaselineCases, claudeBaselineDir, true, false)
+	runBaselineCases(t, claudeBaselineCases, claudeBaselineDir, claudeBaselineHarness)
 }
 
 // withStableElapsed replaces the wall-clock duration the /usage screen prints
@@ -261,6 +261,14 @@ func withBaselineVersion(got, want string) string {
 		return got
 	}
 	return claudeVersionPattern.ReplaceAllLiteralString(got, recorded)
+}
+
+// claudeBaselineHarness is the real Claude Code, run by the cases that set
+// claude.
+var claudeBaselineHarness = baselineHarness{
+	name:      "claude",
+	pinnedDir: pinnedClaudeDir,
+	runs:      func(tc baselineCase) bool { return tc.claude },
 }
 
 // pinnedClaudeDir returns the directory of the claude binary on PATH when its

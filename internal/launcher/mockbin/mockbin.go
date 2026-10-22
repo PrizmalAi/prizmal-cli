@@ -10,8 +10,8 @@
 //     was actually invoked and what it saw;
 //   - on `codex debug models --bundled`, prints a one-model catalog with a
 //     system prompt;
-//   - on a bare `--version` first arg, prints a version string and exits 0
-//     (codex install-discovery path);
+//   - on a bare `--version` first arg, prints a version string in the
+//     harness's own shape and exits 0 (the launch's version check);
 //   - validates expectations from mock.json under $MOCK_EXPECTATIONS_DIR and
 //     exits non-zero with a per-check report on stderr if any fail.
 package mockbin
@@ -89,13 +89,18 @@ func Run() int {
 	sort.Strings(env)
 	writeMarker(expDir, binName+".called.env", strings.Join(env, "\n"))
 
-	// codex install discovery calls `codex --version`.
+	// The launch checks the installed version with `<harness> --version`
+	// before it runs codex, opencode or cline. Each answers in its own shape,
+	// at the release the launch requires unless the test sets another.
 	if len(args) == 1 && args[0] == "--version" {
-		version := os.Getenv("MOCKBIN_CODEX_VERSION")
-		if version == "" {
-			version = "0.163.0"
+		switch binName {
+		case "opencode":
+			fmt.Println(envOr("MOCKBIN_OPENCODE_VERSION", "1.19.3"))
+		case "cline":
+			fmt.Println(envOr("MOCKBIN_CLINE_VERSION", "3.0.73"))
+		default:
+			fmt.Println("codex-cli " + envOr("MOCKBIN_CODEX_VERSION", "0.163.0"))
 		}
-		fmt.Println("codex-cli " + version)
 		return 0
 	}
 
@@ -288,4 +293,12 @@ func modelFromSettingsArg(args []string) (string, error) {
 		return claudecode.RoutableName(settings.Model), nil
 	}
 	return "", fmt.Errorf("no --settings argument on the command line")
+}
+
+// envOr returns the variable's value, or fallback when it is unset or empty.
+func envOr(name, fallback string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+	return fallback
 }
