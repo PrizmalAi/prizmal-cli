@@ -129,13 +129,23 @@ func askWith(interactive bool, chosen string, sawRows *[]string) launcher.Asking
 	if chosen == "" {
 		return ask
 	}
-	ask.Menu = func(rows []launcher.ModelRow) (string, error) {
+	ask.Menu = func(rows []launcher.ModelRow) (launcher.Selection, error) {
 		if sawRows != nil {
 			for _, row := range rows {
 				*sawRows = append(*sawRows, row.Model)
 			}
 		}
-		return chosen, nil
+		return launcher.Selection{Model: chosen}, nil
+	}
+	return ask
+}
+
+// askSaving is askWith for an operator who picks chosen with the menu's save
+// shortcut.
+func askSaving(chosen string) launcher.Asking {
+	ask := askWith(true, chosen, nil)
+	ask.Menu = func([]launcher.ModelRow) (launcher.Selection, error) {
+		return launcher.Selection{Model: chosen, Save: true}, nil
 	}
 	return ask
 }
@@ -220,8 +230,8 @@ func TestSavedDefaultOfDefaultOpensThePicker(t *testing.T) {
 	if !slices.Contains(rows, "saved-model") {
 		t.Errorf("the picker offered %v, want the catalog's rows", rows)
 	}
-	if got := readDefaultModel(t, home); got != "picked-model" {
-		t.Errorf("default_model = %q, want the picker's choice saved", got)
+	if got := readDefaultModel(t, home); got != "default" {
+		t.Errorf("default_model = %q, want the plain launch's pick left unsaved", got)
 	}
 }
 
@@ -374,20 +384,18 @@ func captureStream(t *testing.T, stream **os.File, f func()) string {
 	return string(out)
 }
 
-// A pick with no config file has nowhere to save the choice, so the mode fails
-// rather than silently doing nothing. Unlike a pick during a launch, where the
-// model in hand is the point, this mode exists only to set the default.
-func TestPickDefaultModelRefusesWithoutAConfig(t *testing.T) {
+// A machine with no config file, such as one that signed in with a device key,
+// gets one when --pick saves a default.
+func TestPickDefaultModelCreatesTheConfig(t *testing.T) {
 	useStubSwitch(t)
+	home := emptyHome(t)
 	setPick(t, true)
-	ask := askWith(true, "picked", nil)
 
-	err := pickDefaultModel(nil, ask)
-	if err == nil {
-		t.Fatal("--pick with no config file must fail rather than pretend to save")
+	if err := pickDefaultModel(nil, askWith(true, "picked-model", nil)); err != nil {
+		t.Fatalf("pickDefaultModel: %v", err)
 	}
-	if !strings.Contains(err.Error(), "config") {
-		t.Errorf("error does not name the missing config file: %v", err)
+	if got := readDefaultModel(t, home); got != "picked-model" {
+		t.Fatalf("default_model = %q, want picked-model", got)
 	}
 }
 
@@ -493,9 +501,9 @@ func TestHeadlessRunDoesNotOpenTheMenu(t *testing.T) {
 	menuOpened := false
 	ask := launcher.Asking{
 		Interactive: func() bool { return true },
-		Menu: func([]launcher.ModelRow) (string, error) {
+		Menu: func([]launcher.ModelRow) (launcher.Selection, error) {
 			menuOpened = true
-			return "picked-model", nil
+			return launcher.Selection{Model: "picked-model"}, nil
 		},
 	}
 
@@ -596,8 +604,8 @@ func TestBareLaunchOnATerminalOpensThePicker(t *testing.T) {
 	if len(catalog) != 3 {
 		t.Fatalf("catalog has %d models, want 3", len(catalog))
 	}
-	if got := readDefaultModel(t, home); got != "chosen-here" {
-		t.Fatalf("default_model = %q, want the bare launch's pick saved", got)
+	if got := readDefaultModel(t, home); got != "" {
+		t.Fatalf("default_model = %q, want a plain launch's pick left unsaved", got)
 	}
 }
 
@@ -738,5 +746,148 @@ func TestCatalogFetchFailureStopsThePicker(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "could not read models") {
 		t.Errorf("error does not say the list could not be read: %v", err)
+	}
+}
+
+// emptyHome points HOME at a directory with no config file and returns it.
+func emptyHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	return home
+}
+
+// The picker's save shortcut keeps the pick as the default, though the launch
+// is a plain one.
+func TestSaveShortcutSavesAPlainLaunchPick(t *testing.T) {
+	useStubSwitch(t)
+	cfg, home := writeConfig(t, map[string]any{"version": 1})
+	setModel(t, "")
+	setPick(t, false)
+
+	chosen, _, err := resolveLaunchModel(cfg, "", askSaving("picked-model"), false)
+	if err != nil {
+		t.Fatalf("resolveLaunchModel: %v", err)
+	}
+	if chosen != "picked-model" {
+		t.Fatalf("resolved %q, want picked-model", chosen)
+	}
+	if got := readDefaultModel(t, home); got != "picked-model" {
+		t.Fatalf("default_model = %q, want the shortcut to save the pick", got)
+	}
+}
+
+// A pick taken in a plain launch runs that launch and is never saved, with or
+// without a config file to hold it.
+func TestPlainLaunchPickIsNeverSaved(t *testing.T) {
+	useStubSwitch(t)
+	setModel(t, "")
+	setPick(t, false)
+
+	cfg, home := writeConfig(t, map[string]any{"version": 1})
+	if _, _, err := resolveLaunchModel(cfg, "", askWith(true, "picked-model", nil), false); err != nil {
+		t.Fatalf("resolveLaunchModel with a config: %v", err)
+	}
+	if got := readDefaultModel(t, home); got != "" {
+		t.Errorf("default_model = %q, want nothing saved", got)
+	}
+
+	home = emptyHome(t)
+	if _, _, err := resolveLaunchModel(nil, "", askWith(true, "picked-model", nil), false); err != nil {
+		t.Fatalf("resolveLaunchModel without a config: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, config.PrizmalDir, config.PrizmalFileName)); !os.IsNotExist(err) {
+		t.Errorf("a plain launch's pick created a config file (stat error: %v)", err)
+	}
+}
+
+// --model picks the model for one launch and never writes, even when the
+// operator also passes --pick's shortcut elsewhere or no config exists.
+func TestModelFlagNeverWritesTheConfig(t *testing.T) {
+	useStubSwitch(t)
+	setPick(t, false)
+
+	home := emptyHome(t)
+	setModel(t, "flag-model")
+	chosen, _, err := resolveLaunchModel(nil, "", askNobody, false)
+	if err != nil {
+		t.Fatalf("resolveLaunchModel: %v", err)
+	}
+	if chosen != "flag-model" {
+		t.Fatalf("resolved %q, want flag-model", chosen)
+	}
+	if _, err := os.Stat(filepath.Join(home, config.PrizmalDir, config.PrizmalFileName)); !os.IsNotExist(err) {
+		t.Errorf("--model created a config file (stat error: %v)", err)
+	}
+
+	cfg, home := writeConfig(t, map[string]any{"version": 1, "default_model": "saved-model"})
+	if _, _, err := resolveLaunchModel(cfg, "", askNobody, false); err != nil {
+		t.Fatalf("resolveLaunchModel with a config: %v", err)
+	}
+	if got := readDefaultModel(t, home); got != "saved-model" {
+		t.Errorf("default_model = %q, want --model to leave the saved default alone", got)
+	}
+}
+
+// On a device-login machine the config file does not exist. Saving a default
+// creates it for the non-credential fields: the file carries the version and
+// the default, and neither base_url nor api_key.
+func TestSavedDefaultCreatesAConfigWithoutCredentials(t *testing.T) {
+	useStubSwitch(t)
+	home := emptyHome(t)
+	setModel(t, "")
+	setPick(t, false)
+
+	cfg, err := ensureConfigWith(func(string) (string, error) { return "", nil }, false)
+	if err != nil || cfg != nil {
+		t.Fatalf("ensureConfigWith = %v, %v; want a nil config and no error", cfg, err)
+	}
+	if _, _, err := resolveLaunchModel(cfg, "", askSaving("picked-model"), false); err != nil {
+		t.Fatalf("resolveLaunchModel: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(home, config.PrizmalDir, config.PrizmalFileName))
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	if len(fields) != 2 || fields["version"] != float64(1) || fields["default_model"] != "picked-model" {
+		t.Fatalf("config = %s, want only version and default_model", data)
+	}
+}
+
+// A bare launch on a device-login machine that saved a default earlier runs it
+// without opening the picker.
+func TestBareLaunchUsesTheSavedDefaultOnADeviceMachine(t *testing.T) {
+	useStubSwitch(t)
+	_, home := writeConfig(t, map[string]any{"version": 1, "default_model": "saved-model"})
+	if err := os.WriteFile(filepath.Join(home, config.PrizmalDir, "device.key"), []byte("key"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	setModel(t, "")
+	setPick(t, false)
+
+	cfg, err := ensureConfigWith(func(string) (string, error) { return "", nil }, false)
+	if err != nil || cfg == nil {
+		t.Fatalf("ensureConfigWith = %v, %v; want the saved config", cfg, err)
+	}
+	opened := false
+	ask := askWith(true, "other-model", nil)
+	menu := ask.Menu
+	ask.Menu = func(rows []launcher.ModelRow) (launcher.Selection, error) {
+		opened = true
+		return menu(rows)
+	}
+
+	chosen, _, err := resolveLaunchModel(cfg, "", ask, false)
+	if err != nil {
+		t.Fatalf("resolveLaunchModel: %v", err)
+	}
+	if chosen != "saved-model" || opened {
+		t.Fatalf("resolved %q (picker opened: %v), want saved-model without the picker", chosen, opened)
 	}
 }

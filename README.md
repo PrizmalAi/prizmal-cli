@@ -174,6 +174,7 @@ Examples:
 prizmal claude
 
 # Choose a model from the menu, and save the choice as the default
+# (a pick without --pick runs once; ctrl+s in the menu saves it)
 prizmal --pick claude
 
 # prizmal's own flags come before the integration name
@@ -225,7 +226,12 @@ through the same way.
 
 A launch always runs a real model. It takes the model from `--model`, from the
 default an earlier `--pick` saved, or from the interactive picker when neither
-supplies one. When a launch has no model and no terminal to choose on, it stops,
+supplies one. A model chosen in the picker during a plain launch runs that
+launch only. Press `ctrl+s` in the picker, or pass `--pick`, to save the choice
+as the default. The first save creates `~/.prizmal/config.json` if the machine
+has none, such as one that signed in with `prizmal login`, and the file holds
+the default alone. The device key stays the credential. A saved default skips
+the picker on a bare launch. When a launch has no model and no terminal to choose on, it stops,
 and the error lists the names `--list` prints. The launch never sends the
 Switch's `default` placeholder, which selects the config the key is bound to.
 

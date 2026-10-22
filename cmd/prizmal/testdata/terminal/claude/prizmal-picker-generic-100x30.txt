@@ -4,4 +4,4 @@ Select a model
   Haiku           quick · Quick answers
   advisor-router
 
-  ↑/k up • ↓/j down • / filter • esc quit without saving
+  ↑/k up • ↓/j down • / filter • ctrl+s save as default • esc quit without saving

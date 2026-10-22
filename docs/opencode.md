@@ -15,7 +15,7 @@ OpenCode is the one harness whose key is not on the child environment: the key i
 
 ## Model
 
-`prizmal opencode` takes the model from `--model`, from the default an earlier `--pick` saved, or from the picker. `prizmal opencode run` runs one message and exits, and a launch on a pipe has no terminal, so neither opens the picker: with no model named they stop with an error that lists the names `prizmal --list` prints.
+`prizmal opencode` takes the model from `--model`, from the default an earlier `--pick` or the picker's `ctrl+s` saved, or from the picker. `prizmal opencode run` runs one message and exits, and a launch on a pipe has no terminal, so neither opens the picker: with no model named they stop with an error that lists the names `prizmal --list` prints.
 
 ## Device login
 
