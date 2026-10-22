@@ -57,6 +57,20 @@ Before a launch, `prizmal` checks once a day for a newer release. In a terminal,
 
 To turn the check off, set `"check_updates": false` in `~/.prizmal/config.json`, or export `PRIZMAL_NO_UPDATE_CHECK=1`.
 
+## Harness arguments
+
+To add arguments to every launch of a harness, put them in a `harnesses` section of `~/.prizmal/config.json`, keyed by the name you type after `prizmal`:
+
+```json
+{
+  "harnesses": {
+    "claude": { "args": "--allow-dangerously-skip-permissions" }
+  }
+}
+```
+
+`args` is one string, split like a shell line, so quotes keep a value together. `prizmal` doesn't check the arguments against the harness. A flag you already pass on the command line wins, and `prizmal` doesn't add the configured copy.
+
 ## Credentials
 
 A `prizmal` launch can use one of two credentials. You paste a **switch key** in, or this machine enrolls a **device key** once in your browser. The switch key is simplest, since it doesn't expire, while the device key means you don't type a secret on this machine and keeps a long Claude Code session working without a restart.

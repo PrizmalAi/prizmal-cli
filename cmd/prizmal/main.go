@@ -535,6 +535,20 @@ func splitLaunchInvocation(args []string) (string, []string) {
 	return args[0], slices.Clone(args[1:])
 }
 
+// withConfiguredArgs adds the arguments the config's harnesses section holds
+// for the integration, except the flags the launch already carries. cfg may be
+// nil on a machine with no config file.
+func withConfiguredArgs(cfg *config.Config, name string, extra []string) ([]string, error) {
+	if cfg == nil {
+		return extra, nil
+	}
+	configured, err := launcher.SplitArgs(cfg.Harnesses[name].Args)
+	if err != nil {
+		return nil, fmt.Errorf("%s: harnesses.%s.args: %w", config.PrizmalFileName, name, err)
+	}
+	return launcher.MergeMissingFlags(extra, configured), nil
+}
+
 // dropSeparators removes every `--` separator from the harness arguments. The
 // old parser ended flag parsing at `--` before the harness ever saw it, and
 // this keeps that behaviour.
@@ -732,6 +746,9 @@ func launch(name string, extraArgs []string, cfg *config.Config, ask launcher.As
 		}
 	}
 	extraArgs = dropSeparators(extraArgs)
+	if extraArgs, err = withConfiguredArgs(cfg, spec.Name, extraArgs); err != nil {
+		return err
+	}
 
 	// Every launch runs a real model: the model flag in either position, the
 	// saved default, or a choice the operator makes here. A harness run that
