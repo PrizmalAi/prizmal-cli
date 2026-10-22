@@ -11,6 +11,7 @@ import (
 
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher"
+	"github.com/PrizmalAi/prizmal-cli/internal/launcher/claude"
 )
 
 const openCodeInstallScript = "curl -fsSL https://opencode.ai/install | bash"
@@ -25,6 +26,12 @@ type OpenCode struct {
 }
 
 func (o *OpenCode) String() string { return "OpenCode" }
+
+// SupportsDeviceMode reports that OpenCode can run from an enrolled device: a
+// device-mode launch loads a plugin whose chat.headers hook runs `prizmal auth
+// token` before each request, so a device token that expires mid-session is
+// replaced rather than sent again.
+func (o *OpenCode) SupportsDeviceMode() bool { return true }
 
 // RunsHeadless reports that OpenCode's `run` subcommand runs one message and
 // exits. The subcommand is the first positional argument: a value of an option
@@ -98,6 +105,19 @@ func (o *OpenCode) Run(model string, models []launch.LaunchModel, args []string)
 		return err
 	}
 
+	// A device-mode launch has no key in its config: the plugin is the
+	// credential, so a launch that cannot write it stops here rather than
+	// start a session every request of which would be refused.
+	if envconfig.DeviceMode() {
+		dir, err := openCodeSearchDir()
+		if err != nil {
+			return fmt.Errorf("find the directory for OpenCode's auth plugin: %w", err)
+		}
+		if err := writeOpenCodeAuthPlugin(dir); err != nil {
+			return fmt.Errorf("write OpenCode's auth plugin: %w", err)
+		}
+	}
+
 	cmd := exec.Command(opencodePath, args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -140,12 +160,17 @@ func (o *OpenCode) envVars(model string, models []launch.LaunchModel) []string {
 	if err != nil {
 		return env
 	}
+	// The plugin is written on a device-mode launch and removed on any other,
+	// so a static-key launch never runs the command.
+	if err := syncOpenCodeAuthPlugin(dir, envconfig.DeviceMode()); err != nil && envconfig.DeviceMode() {
+		return env
+	}
 	if err := writeOpenCodeSearchTool(dir); err != nil {
 		// Search is an extra, not a precondition for the session. A launch that
 		// cannot write the tool still runs, just without web search.
 		return env
 	}
-	return append(env,
+	env = append(env,
 		// childEnv drops any inherited copy of this variable, so the
 		// directory the launch writes the search tool to is the one opencode
 		// reads.
@@ -154,6 +179,16 @@ func (o *OpenCode) envVars(model string, models []launch.LaunchModel) []string {
 		openCodeSearchKeyEnv+"="+envconfig.APIKey(),
 		openCodeSearchModelEnv+"="+model,
 	)
+	if !envconfig.DeviceMode() {
+		return env
+	}
+	// The plugin runs `prizmal auth token`, a separate prizmal process that
+	// resolves the Switch host from scratch, so the launch pins its own.
+	exe, err := os.Executable()
+	if err != nil {
+		return env
+	}
+	return claude.EnsureHelperBaseURL(append(env, openCodeAuthBinEnv+"="+exe), envconfig.BaseURL())
 }
 
 // OpenCodeInstallerDependencies lists what OpenCode's installer needs to run.
@@ -257,17 +292,21 @@ func buildInlineConfig(primary launch.LaunchModel, models []launch.LaunchModel) 
 		return "", fmt.Errorf("buildInlineConfig: primary and models are required")
 	}
 
+	options := map[string]any{"baseURL": envconfig.OpenAIBaseURL(false)}
+	// A device-mode launch carries no key: the auth plugin sets the header from
+	// a fresh token for each request, and a static one would expire.
+	if !envconfig.DeviceMode() {
+		options["apiKey"] = envconfig.APIKey()
+	}
+
 	config := map[string]any{
 		"$schema": "https://opencode.ai/config.json",
 		"provider": map[string]any{
 			"prizmal": map[string]any{
-				"npm":  "@ai-sdk/openai-compatible",
-				"name": "Prizmal",
-				"options": map[string]any{
-					"baseURL": envconfig.OpenAIBaseURL(false),
-					"apiKey":  envconfig.APIKey(),
-				},
-				"models": buildModelEntries(models),
+				"npm":     "@ai-sdk/openai-compatible",
+				"name":    "Prizmal",
+				"options": options,
+				"models":  buildModelEntries(models),
 			},
 		},
 		"model": "prizmal/" + primary.Name,

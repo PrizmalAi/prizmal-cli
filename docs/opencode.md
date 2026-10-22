@@ -13,7 +13,7 @@ The inline config declares the `prizmal` provider (`@ai-sdk/openai-compatible`),
 
 Prizmal writes no OpenCode state. The model picker's Recent list, the prompt history and the interface toggles are OpenCode's own, in its usual state directory, and every project shares them. Your sessions, sign-ins and settings stay there too.
 
-The key is a field in the inline config, which lives only in the variable for the life of the process and is never written to a file. The search tool also reads the key from `PRIZMAL_OPENCODE_SEARCH_KEY` on the child environment, so the key is on that environment too.
+On a switch-key launch the key is a field in the inline config, which lives only in the variable for the life of the process and is never written to a file. The search tool also reads the key from `PRIZMAL_OPENCODE_SEARCH_KEY` on the child environment, so the key is on that environment too. A device-mode launch has no key to place in either; see Device login.
 
 ## Model
 
@@ -21,7 +21,11 @@ The key is a field in the inline config, which lives only in the variable for th
 
 ## Device login
 
-OpenCode can't refresh a device token during a session, and a device token expires ten minutes after issue. So a `prizmal opencode` launch on a machine signed in with a device key ignores device login and runs on the switch key from the config file, the environment, or `--api-key`. With no switch key, prizmal asks for one, as any unauthenticated launch does.
+OpenCode can refresh a device token during a session, so a `prizmal opencode` launch runs in device mode on a machine signed in with a device key.
+
+Device mode puts no key in the inline config. The launch writes a small plugin to `~/.cache/prizmal/opencode/plugin/prizmal_auth.ts`, the directory `OPENCODE_CONFIG_DIR` already names for the search tool. Its `chat.headers` hook runs `prizmal auth token` before every request to the `prizmal` provider and sets the `Authorization` header from what it prints, so a session that outlives one device token keeps working. The command reuses a cached token until it is close to expiry, so most requests cost one short subprocess. If the command fails, the request goes out with no header and the Switch answers `401`. The plugin holds a command, not a key, and a launch that is not in device mode removes it.
+
+This needs an OpenCode release that has the `chat.headers` hook (1.2.0 or later).
 
 ## Restore
 
