@@ -56,6 +56,17 @@ type Config struct {
 	// so an absent field reads as the on default and a saved false is
 	// preserved exactly. The check only reads it; nothing else writes it.
 	CheckUpdates *bool `json:"check_updates,omitempty"`
+	// Harnesses holds per-harness settings, keyed by the integration name
+	// typed after `prizmal` (claude, codex, ...).
+	Harnesses map[string]HarnessConfig `json:"harnesses,omitempty"`
+}
+
+// HarnessConfig is one harness's section of the config file.
+type HarnessConfig struct {
+	// Args is a free string of command-line arguments added to every launch of
+	// the harness, split like a shell line. prizmal does not validate it. A
+	// flag the launch already carries is not added again.
+	Args string `json:"args,omitempty"`
 }
 
 // apiKeyKind discriminates the three accepted api_key forms plus an

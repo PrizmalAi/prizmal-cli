@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -246,5 +247,32 @@ func writeRaw(t *testing.T, path, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestHarnessesRoundTrip(t *testing.T) {
+	useTempHome(t)
+	c := &Config{Harnesses: map[string]HarnessConfig{"claude": {Args: `--allow-dangerously-skip-permissions --append-system-prompt "be brief"`}}}
+	if err := c.Save(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Harnesses["claude"].Args != c.Harnesses["claude"].Args {
+		t.Fatalf("args = %q, want %q", got.Harnesses["claude"].Args, c.Harnesses["claude"].Args)
+	}
+}
+
+func TestHarnessesOmittedWhenEmpty(t *testing.T) {
+	useTempHome(t)
+	if err := (&Config{}).Save(); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := Path()
+	data, _ := os.ReadFile(p)
+	if strings.Contains(string(data), "harnesses") {
+		t.Fatalf("empty config wrote a harnesses key: %s", data)
 	}
 }
