@@ -16,7 +16,7 @@ Each model entry states a `contextWindow` and a `maxTokens`. Pi budgets the sess
 
 ## Model
 
-`prizmal pi` takes the model from `--model`, from the default an earlier `--pick` saved, or from the picker. `prizmal pi --print` runs one prompt and exits, and a launch on a pipe has no terminal, so neither opens the picker: with no model named they stop with an error that lists the names `prizmal --list` prints.
+`prizmal pi` takes the model from `--model`, from the default an earlier `--pick` or the picker's `ctrl+s` saved, or from the picker. `prizmal pi --print` runs one prompt and exits, and a launch on a pipe has no terminal, so neither opens the picker: with no model named they stop with an error that lists the names `prizmal --list` prints.
 
 ## Device login
 

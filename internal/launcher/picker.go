@@ -514,9 +514,26 @@ type pickerModel struct {
 	list    list.Model
 	chosen  string
 	aborted bool
+	// canSave says the menu offers the save shortcut, and save says the
+	// operator used it on the row that was chosen.
+	canSave bool
+	save    bool
+}
+
+// saveBinding is the shortcut that picks the highlighted row and asks for it
+// to be kept as the default. ctrl+s works while filtering too, where a bare
+// letter would be typed into the search.
+func saveBinding() key.Binding {
+	return key.NewBinding(key.WithKeys("ctrl+s"), key.WithHelp("ctrl+s", "save as default"))
 }
 
 func newPickerModel(heading string, options []Option) pickerModel {
+	return newPickerModelSaving(heading, options, false)
+}
+
+// newPickerModelSaving is newPickerModel for a menu that may offer the save
+// shortcut. Only the model picker does: the sign-in menu has no default to keep.
+func newPickerModelSaving(heading string, options []Option, canSave bool) pickerModel {
 	items := make([]list.Item, 0, len(options))
 	for _, opt := range options {
 		items = append(items, pickerItem{label: opt.Label, value: opt.Value, description: opt.Description})
@@ -561,8 +578,11 @@ func newPickerModel(heading string, options []Option) pickerModel {
 	l.Help.Styles.ShortKey = lipgloss.NewStyle()
 	l.Help.Styles.ShortDesc = lipgloss.NewStyle().Faint(true)
 	l.Help.Styles.ShortSeparator = lipgloss.NewStyle().Faint(true)
+	if canSave {
+		l.AdditionalShortHelpKeys = func() []key.Binding { return []key.Binding{saveBinding()} }
+	}
 
-	return pickerModel{list: l}
+	return pickerModel{list: l, canSave: canSave}
 }
 
 func (m pickerModel) Init() tea.Cmd { return nil }
@@ -585,6 +605,12 @@ func (m pickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, quitBinding()):
 			m.aborted = true
 			return m, tea.Quit
+		case m.canSave && key.Matches(msg, saveBinding()):
+			if item, ok := m.list.SelectedItem().(pickerItem); ok {
+				m.chosen = item.value
+				m.save = true
+				return m, tea.Quit
+			}
 		case msg.String() == "enter":
 			// Enter selects, but only when the list is not mid-search: while
 			// filtering, the list's own keymap uses enter to apply the filter.
@@ -606,28 +632,35 @@ func (m pickerModel) View() string { return m.list.View() }
 
 // defaultPickerMenu is the menu: a filterable list where typing narrows the
 // rows and Enter selects.
+func defaultPickerMenu(heading string, options []Option) (string, error) {
+	sel, err := runPicker(heading, options, false)
+	return sel.Model, err
+}
+
+// runPicker runs the menu and returns the row chosen, and whether the operator
+// asked to keep it as the default.
 //
 // The program reads stdin and draws on stderr, so the launched harness's own
 // stdout stays clean.
-func defaultPickerMenu(heading string, options []Option) (string, error) {
-	p := tea.NewProgram(newPickerModel(heading, options), tea.WithInput(os.Stdin), tea.WithOutput(os.Stderr))
+func runPicker(heading string, options []Option, canSave bool) (Selection, error) {
+	p := tea.NewProgram(newPickerModelSaving(heading, options, canSave), tea.WithInput(os.Stdin), tea.WithOutput(os.Stderr))
 	final, err := p.Run()
 	if err != nil {
-		return "", fmt.Errorf("picker: %w", err)
+		return Selection{}, fmt.Errorf("picker: %w", err)
 	}
 
 	done, ok := final.(pickerModel)
 	if !ok || done.aborted || done.chosen == "" {
-		return "", ErrCancelled
+		return Selection{}, ErrCancelled
 	}
-	return done.chosen, nil
+	return Selection{Model: done.chosen, Save: done.save}, nil
 }
 
 // modelPickerHeading is the model picker's title, drawn in the list's title bar.
 const modelPickerHeading = "Select a model"
 
 // defaultModelPickerMenu is the model picker: the default picker over the
-// model rows, adapted to options.
-func defaultModelPickerMenu(rows []ModelRow) (string, error) {
-	return defaultPickerMenu(modelPickerHeading, modelOptions(rows))
+// model rows, adapted to options, with the save shortcut on.
+func defaultModelPickerMenu(rows []ModelRow) (Selection, error) {
+	return runPicker(modelPickerHeading, modelOptions(rows), true)
 }

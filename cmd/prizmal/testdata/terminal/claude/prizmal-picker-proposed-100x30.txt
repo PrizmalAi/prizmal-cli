@@ -6,4 +6,4 @@ Select a model
   experimental
   team-opus-blend  Team blend for refactors
 
-  ↑/k up • ↓/j down • / filter • esc quit without saving
+  ↑/k up • ↓/j down • / filter • ctrl+s save as default • esc quit without saving

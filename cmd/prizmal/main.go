@@ -341,6 +341,10 @@ func runnerShowsModelList(runner launcher.Runner) bool {
 // which is what makes `prizmal --pick claude` open the menu on a machine that
 // already has a default.
 //
+// Nothing saves a default unless --pick is passed or the operator uses the
+// picker's save shortcut. A pick taken in a plain launch runs that launch and
+// is forgotten, and --model never writes.
+//
 // It returns the launch's model list too, which is the model plus, for the
 // runners that show one, the rest of the catalog. Only the picker path needs
 // the list to succeed: a launch that already has its model treats an unreadable
@@ -348,8 +352,8 @@ func runnerShowsModelList(runner launcher.Runner) bool {
 // CLI points at arbitrary provider endpoints, and one that serves no
 // /v1/models is a supported target.
 //
-// cfg may be nil on a machine with no config file. Then a pick still launches
-// with the model the operator chose; there is simply nowhere to save it.
+// cfg may be nil on a machine with no config file, such as one that signed in
+// with a device key. Saving a default then creates the file.
 //
 // harnessModel is the model taken from a --model written after the integration
 // name, which is empty for a runner that does not own that flag. It ranks with
@@ -413,21 +417,35 @@ func resolveLaunchModelFor(cfg *config.Config, harnessModel string, ask launcher
 		return "", nil, launcher.CatalogError(err)
 	}
 
-	chosen, err := ask.Pick(launcher.ModelRowsFor(catalog, vocab))
+	picked, err := ask.Pick(launcher.ModelRowsFor(catalog, vocab))
 	if err != nil {
 		return "", nil, err
 	}
 
-	// The choice becomes the default, so the next bare launch repeats it. A
-	// launch with no config file keeps the choice for this launch only: it is
-	// still the model the operator picked.
-	if cfg != nil {
-		cfg.DefaultModel = chosen
-		if err := cfg.Save(); err != nil {
-			return "", nil, fmt.Errorf("could not save the default model: %w", err)
+	// A pick taken in a plain launch is for that launch only. It becomes the
+	// default when the operator asked for that: --pick, or the picker's save
+	// shortcut.
+	if pickFlag || picked.Save {
+		if err := saveDefaultModel(cfg, picked.Model); err != nil {
+			return "", nil, err
 		}
 	}
-	return chosen, catalog, nil
+	return picked.Model, catalog, nil
+}
+
+// saveDefaultModel writes model as the default, creating the config file when
+// the machine has none. A device-login machine has no file because the device
+// key is its credential, so the new file holds the version and the default
+// alone; base_url and api_key are omitted when empty.
+func saveDefaultModel(cfg *config.Config, model string) error {
+	if cfg == nil {
+		cfg = &config.Config{}
+	}
+	cfg.DefaultModel = model
+	if err := cfg.Save(); err != nil {
+		return fmt.Errorf("could not save the default model: %w", err)
+	}
+	return nil
 }
 
 // noModelSelectedError names the ways to give a launch a model, and the models
@@ -454,18 +472,12 @@ func noModelSelectedError(ctx context.Context) error {
 // answers 401, and the operator reads that as a rejected key rather than a
 // missing one.
 //
-// A machine with no config file has nowhere to save the choice, so that is
-// refused rather than silently doing nothing. Unlike a pick during a launch,
-// where the model in hand is the point, this mode exists only to set the
-// default; a run that cannot set it has not done what was asked.
+// A machine with no config file gets one, holding the default alone.
 //
 // ask is the launch's way of reaching the operator, carried from the command
 // that started it: whether a person is there to answer, and the menu that asks
 // them.
 func pickDefaultModel(cfg *config.Config, ask launcher.Asking) error {
-	if cfg == nil {
-		return fmt.Errorf("no config file to save a default model in; run a launch once to create one")
-	}
 	// The menu needs a person. Refusing up front beats opening a full-screen list on a
 	// pipe, which would read whatever arrives on stdin as keystrokes.
 	if !ask.CanAsk() {
@@ -482,14 +494,14 @@ func pickDefaultModel(cfg *config.Config, ask launcher.Asking) error {
 		return launcher.CatalogError(err)
 	}
 
-	chosen, err := ask.Pick(launcher.ModelRows(catalog))
+	picked, err := ask.Pick(launcher.ModelRows(catalog))
 	if err != nil {
 		return err
 	}
+	chosen := picked.Model
 
-	cfg.DefaultModel = chosen
-	if err := cfg.Save(); err != nil {
-		return fmt.Errorf("could not save the default model: %w", err)
+	if err := saveDefaultModel(cfg, chosen); err != nil {
+		return err
 	}
 
 	// Confirm on stderr, where the CLI's other confirmations go, and where the

@@ -323,7 +323,7 @@ func TestPickerQuitBindingExcludesSelectionKeys(t *testing.T) {
 // cancellation so a caller can exit quietly instead of printing an error the
 // operator caused on purpose.
 func TestAskingReportsCancellation(t *testing.T) {
-	ask := Asking{Menu: func([]ModelRow) (string, error) { return "", ErrCancelled }}
+	ask := Asking{Menu: func([]ModelRow) (Selection, error) { return Selection{}, ErrCancelled }}
 
 	_, err := ask.Pick(ModelRows([]LaunchModel{{Name: "a-model"}}))
 	if !errors.Is(err, ErrCancelled) {
@@ -404,9 +404,9 @@ func TestPickerEscAbortsWithoutChoosing(t *testing.T) {
 // menu it was handed.
 func TestAskingRefusesAnEmptyList(t *testing.T) {
 	opened := false
-	ask := Asking{Menu: func([]ModelRow) (string, error) {
+	ask := Asking{Menu: func([]ModelRow) (Selection, error) {
 		opened = true
-		return "a-model", nil
+		return Selection{Model: "a-model"}, nil
 	}}
 
 	_, err := ask.Pick(nil)
@@ -435,7 +435,7 @@ func TestZeroAskingRefusesRatherThanPansics(t *testing.T) {
 // A selection returns the chosen model id, not its label.
 func TestAskingReturnsTheChosenModel(t *testing.T) {
 	ask := Asking{
-		Menu: func(rows []ModelRow) (string, error) {
+		Menu: func(rows []ModelRow) (Selection, error) {
 			if len(rows) != 2 {
 				t.Fatalf("menu saw %d rows, want 2", len(rows))
 			}
@@ -443,7 +443,7 @@ func TestAskingReturnsTheChosenModel(t *testing.T) {
 			if rows[0].Label != "tier-haiku" || rows[0].Model != "claude-tier-haiku" {
 				t.Fatalf("row 0 = %+v", rows[0])
 			}
-			return rows[1].Model, nil
+			return Selection{Model: rows[1].Model}, nil
 		},
 	}
 
@@ -451,8 +451,8 @@ func TestAskingReturnsTheChosenModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Pick: %v", err)
 	}
-	if got != "gpt-oss:20b" {
-		t.Fatalf("chosen = %q, want gpt-oss:20b", got)
+	if got.Model != "gpt-oss:20b" {
+		t.Fatalf("chosen = %q, want gpt-oss:20b", got.Model)
 	}
 }
 
@@ -713,7 +713,7 @@ func TestPickerCapsTheLabelColumn(t *testing.T) {
 // picker does, so the model-specific tests keep asserting the model picker's
 // behaviour on top of the generalized widget.
 func modelPickerModel(rows []ModelRow) pickerModel {
-	return newPickerModel(modelPickerHeading, modelOptions(rows))
+	return newPickerModelSaving(modelPickerHeading, modelOptions(rows), true)
 }
 
 // The picker is not model-specific: PickOption takes a heading and options and
@@ -772,5 +772,37 @@ func TestPickerSelectsTheValueAndDrawsTheHeading(t *testing.T) {
 
 	if got := model.(pickerModel).chosen; got != "browser" {
 		t.Fatalf("selected %q, want the value browser", got)
+	}
+}
+
+// ctrl+s chooses the highlighted row and marks it to be kept as the default;
+// enter chooses without the mark.
+func TestPickerSaveShortcutMarksTheChoice(t *testing.T) {
+	rows := []ModelRow{{Label: "a", Model: "a"}, {Label: "b", Model: "b"}}
+
+	var model tea.Model = modelPickerModel(rows)
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	if got := model.(pickerModel); got.chosen != "b" || !got.save {
+		t.Fatalf("ctrl+s chose %q (save %v), want b with save", got.chosen, got.save)
+	}
+
+	model = modelPickerModel(rows)
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if got := model.(pickerModel); got.chosen != "a" || got.save {
+		t.Fatalf("enter chose %q (save %v), want a without save", got.chosen, got.save)
+	}
+}
+
+// The sign-in menu has no default to keep, so it neither shows nor honours the
+// shortcut.
+func TestPickerWithoutSavingIgnoresTheShortcut(t *testing.T) {
+	var model tea.Model = newPickerModel("Sign in", []Option{{Label: "a", Value: "a"}})
+	if strings.Contains(model.View(), "save as default") {
+		t.Errorf("the menu advertises a shortcut it does not offer:\n%s", model.View())
+	}
+	model, _ = model.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	if got := model.(pickerModel); got.chosen != "" || got.save {
+		t.Fatalf("ctrl+s chose %q (save %v) in a menu without the shortcut", got.chosen, got.save)
 	}
 }

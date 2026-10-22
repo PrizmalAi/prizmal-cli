@@ -27,7 +27,7 @@ Cline has no web search that routes through the Switch. Its own search requests 
 
 ## Model
 
-`prizmal cline` takes the model from `--model`, from the default an earlier `--pick` saved, or from the picker. A launch with a prompt after the integration name runs that task and exits, and a launch on a pipe has no terminal, so neither opens the picker: with no model named they stop with an error that lists the names `prizmal --list` prints. `--tui` asks for the interactive interface, where the picker still opens.
+`prizmal cline` takes the model from `--model`, from the default an earlier `--pick` or the picker's `ctrl+s` saved, or from the picker. A launch with a prompt after the integration name runs that task and exits, and a launch on a pipe has no terminal, so neither opens the picker: with no model named they stop with an error that lists the names `prizmal --list` prints. `--tui` asks for the interactive interface, where the picker still opens.
 
 ## Device login
 

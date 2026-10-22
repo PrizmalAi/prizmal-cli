@@ -31,7 +31,14 @@ type Asking struct {
 	// Menu asks which of rows to run and returns the chosen model id. It
 	// reports ErrCancelled when the operator backed out, so a caller exits
 	// quietly instead of printing an error the operator caused on purpose.
-	Menu func(rows []ModelRow) (string, error)
+	Menu func(rows []ModelRow) (Selection, error)
+}
+
+// Selection is what the model menu returns: the model chosen, and whether the
+// operator used the menu's shortcut to keep it as the default.
+type Selection struct {
+	Model string
+	Save  bool
 }
 
 // AskOperator returns the Asking a real launch uses: this process's own
@@ -63,12 +70,12 @@ func (a Asking) CanAsk() bool {
 // It refuses an empty list with ErrNoModels rather than opening a menu over
 // nothing, which would render a frame with no rows to select and no way to
 // leave with a model.
-func (a Asking) Pick(rows []ModelRow) (string, error) {
+func (a Asking) Pick(rows []ModelRow) (Selection, error) {
 	if len(rows) == 0 {
-		return "", ErrNoModels
+		return Selection{}, ErrNoModels
 	}
 	if a.Menu == nil {
-		return "", errors.New("no model picker is wired for this launch")
+		return Selection{}, errors.New("no model picker is wired for this launch")
 	}
 	return a.Menu(rows)
 }
