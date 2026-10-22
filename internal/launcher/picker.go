@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/claudecode"
+	"github.com/PrizmalAi/prizmal-cli/internal/tiers"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -59,11 +61,28 @@ func modelDisplayLabel(name string) string {
 // Only a name the catalog lists is decorated. Anything else is the operator's
 // own text, which the CLI does not rewrite.
 func RouteName(catalog []LaunchModel, name string) string {
+	return RouteNameFor(catalog, name, tiers.ConfigNames)
+}
+
+// RouteNameFor is RouteName for a harness whose rows carry vocab's words. A
+// person who types a row's word, such as Codex's "sol", gets the tier's alias,
+// because the Switch routes the alias and no harness word. A word whose tier
+// the tenant holds no config for is left as typed, and the routable check
+// refuses it.
+//
+// Claude Code's words are left alone: Claude Code resolves them to its own ids
+// inside the client, and the launch maps those ids onto the alias.
+func RouteNameFor(catalog []LaunchModel, name string, vocab tiers.Vocabulary) string {
 	if len(catalog) == 0 || name == "" {
 		return name
 	}
 	if _, ok := FindCatalogModel(catalog, name); ok {
 		return name
+	}
+	if vocab != tiers.ClaudeCode {
+		if tier, ok := vocab.FromWord(name); ok && holdsGeneric(catalog, tier) {
+			return tier.Alias()
+		}
 	}
 	if _, ok := FindCatalogModel(catalog, claudecode.ModelPrefix+name); ok {
 		return claudecode.ModelPrefix + name
@@ -82,6 +101,16 @@ type ModelRow struct {
 
 	// tier is the row's Claude tier, empty for a model with none.
 	Tier claudecode.Tier
+	// Generic is the generic tier a tier alias's row stands for, empty for a
+	// row that names a router config.
+	Generic tiers.Tier
+	// keepLabel exempts the row from disambiguation. A Codex tier row is
+	// named after its config, and its like word tells it from the config's
+	// other tiers.
+	keepLabel bool
+	// like is the tier word a Codex tier row adds to its name when another
+	// tier row shows the same config: "Sol-like".
+	like string
 }
 
 // reservedModelNames are the placeholder rows a menu never offers and a launch
@@ -108,7 +137,14 @@ func IsReservedModelName(name string) bool {
 	return name == reservedModelName || name == reservedModelNameLegacy
 }
 
-// ModelRows builds the picker's rows from a switch catalog.
+// ModelRows builds the picker's rows from a switch catalog, with each generic
+// tier row labelled by the tier's own name. It is the rows of a pick that names
+// no harness.
+func ModelRows(models []LaunchModel) []ModelRow {
+	return ModelRowsFor(models, tiers.Generic)
+}
+
+// ModelRowsFor builds the rows a harness shows from a switch catalog.
 //
 // Rows are de-duplicated on the model id, so a catalog that lists the same
 // model twice is not offered twice. Two distinct models whose labels collide
@@ -119,6 +155,12 @@ func IsReservedModelName(name string) bool {
 // already bound to rather than naming a model, so offering it asks the
 // operator to choose the thing they get by not choosing.
 //
+// A generic tier row's model is the tier's alias, the name the Switch routes,
+// and its label is the harness's word for the tier: Opus in Claude Code, Sol in
+// Codex. A vocabulary without words (pi, OpenCode, Cline) gets no tier rows at
+// all, and the configs folded into them come back under their own names. The
+// legacy claude-tier-<family> rows keep the labels they always had.
+//
 // A config the catalog folds into a tier has no row of its own, so the row it
 // is folded into names it. Without that the config is listed by `--list` and
 // absent from the picker, which reads as a name the key cannot route.
@@ -127,26 +169,49 @@ func IsReservedModelName(name string) bool {
 // description, which shape how Claude Code runs and shows the model. Neither
 // selects what serves the request: that is the Model id alone, resolved by
 // the Switch.
-func ModelRows(models []LaunchModel) []ModelRow {
+func ModelRowsFor(models []LaunchModel, vocab tiers.Vocabulary) []ModelRow {
 	rows := make([]ModelRow, 0, len(models))
 	seen := make(map[string]bool, len(models))
+	showsTiers := vocab.ShowsTiers()
 
 	for _, m := range models {
 		name := ModelNameWithoutSuffix(m.Name)
-		if name == "" || seen[name] || IsReservedModelName(name) || m.FoldedInto != "" {
+		generic := genericRowTier(m)
+		if name == "" || seen[name] || IsReservedModelName(name) {
+			continue
+		}
+		// A harness without tier words shows the tenant's router configs and
+		// none of the aliases the CLI adds, so a config a tier row would stand
+		// for keeps its own row.
+		if !showsTiers && m.AddedTier {
+			continue
+		}
+		if showsTiers && m.FoldedInto != "" {
 			continue
 		}
 		seen[name] = true
 
 		row := ModelRow{Label: modelDisplayLabel(name), Model: name, Description: m.Description}
+		if generic != "" && showsTiers {
+			row.Generic = generic
+			row.Label = vocab.Word(generic)
+			if vocab.LabelsByConfig() {
+				row.Label, row.Description = configLabel(m, vocab, generic)
+				row.keepLabel = true
+				row.like = vocab.Like(generic)
+			}
+		}
 		tier, ok := claudecode.Tier(m.Tier), m.Tier != ""
+		if !ok && len(m.Tiers) > 0 {
+			tier, ok = claudecode.FamilyOf(m.Tiers[0])
+		}
 		if !ok {
 			tier, ok = claudecode.InferTier(name)
 		}
 		if ok {
 			row.Tier = tier
 			row.BehavesAs = claudecode.Profiles[tier].BehavesAs
-			if row.Description == "" {
+			if row.Description == "" && !row.keepLabel {
 				row.Description = claudecode.Profiles[tier].Description
 			}
 		}
@@ -154,7 +219,57 @@ func ModelRows(models []LaunchModel) []ModelRow {
 	}
 
 	disambiguateLabels(rows)
+	nameSharedConfigRows(rows)
 	return rows
+}
+
+// nameSharedConfigRows adds the tier word to every tier row whose config name
+// another tier row shows too, so a config that holds two tiers reads
+// "smart (Sol-like)" and "smart (Terra-like)", and the word leaves the
+// description it would repeat. A name only one tier row shows stays plain.
+func nameSharedConfigRows(rows []ModelRow) {
+	counts := make(map[string]int, len(rows))
+	for _, row := range rows {
+		if row.like != "" {
+			counts[row.Label]++
+		}
+	}
+	for i := range rows {
+		if rows[i].like != "" && counts[rows[i].Label] > 1 {
+			rows[i].Label += " (" + rows[i].like + ")"
+			rows[i].Description = strings.TrimPrefix(strings.TrimPrefix(rows[i].Description, rows[i].like), " · ")
+		}
+	}
+}
+
+// configLabel is a tier row's label and description in a vocabulary that
+// names the row after its config: the config that holds the tier, or the alias
+// when none does, and "Sol-like" ahead of the config's own description.
+func configLabel(m LaunchModel, vocab tiers.Vocabulary, tier tiers.Tier) (string, string) {
+	label, desc := ModelNameWithoutSuffix(m.Name), m.Description
+	if m.HeldBy != "" {
+		label = m.HeldBy
+		desc = strings.TrimPrefix(strings.TrimPrefix(desc, m.HeldBy), " · ")
+	}
+	return label, strings.TrimSuffix(vocab.Like(tier)+" · "+desc, " · ")
+}
+
+// genericRowTier returns the generic tier an entry's row stands for: the tier
+// whose alias is the entry's own name. A config that holds tiers under other
+// names is a config, and its row names it.
+func genericRowTier(m LaunchModel) tiers.Tier {
+	for _, tier := range m.Tiers {
+		if ModelNamesSame(m.Name, tier.Alias()) {
+			return tier
+		}
+	}
+	return ""
+}
+
+// holdsGeneric reports whether the catalog has a row for the generic tier's
+// alias, which it has when some config holds the tier.
+func holdsGeneric(catalog []LaunchModel, tier tiers.Tier) bool {
+	return slices.ContainsFunc(catalog, func(m LaunchModel) bool { return genericRowTier(m) == tier })
 }
 
 // disambiguateLabels makes every row's label unique, so an operator can tell
@@ -179,7 +294,7 @@ func disambiguateLabels(rows []ModelRow) {
 
 		changed := false
 		for i := range rows {
-			if counts[rows[i].Label] > 1 && rows[i].Label != rows[i].Model {
+			if counts[rows[i].Label] > 1 && rows[i].Label != rows[i].Model && !rows[i].keepLabel {
 				rows[i].Label = rows[i].Model
 				changed = true
 			}

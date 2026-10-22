@@ -14,6 +14,7 @@ import (
 	"github.com/PrizmalAi/prizmal-cli/internal/claudecode"
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher"
+	"github.com/PrizmalAi/prizmal-cli/internal/tiers"
 )
 
 // Claude implements launch.Runner for Claude Code integration.
@@ -29,6 +30,9 @@ func (c *Claude) String() string { return "Claude Code" }
 // cline read models[0] as the model to select and write into their config, so
 // widening their list would silently change what a bare launch selects.
 func (c *Claude) ShowsModelList() bool { return true }
+
+// TierVocabulary labels the tier rows with Claude Code's words.
+func (c *Claude) TierVocabulary() tiers.Vocabulary { return tiers.ClaudeCode }
 
 // OwnsModelFlag reports that prizmal owns Claude Code's model decision. A
 // --model the operator types after the integration name is consumed by the CLI
@@ -155,7 +159,7 @@ func (c *Claude) Run(model string, models []launch.LaunchModel, args []string) e
 		return err
 	}
 
-	rows := launch.ModelRows(models)
+	rows := launch.ModelRowsFor(models, tiers.ClaudeCode)
 	settings, err := claudeSettingsJSON(model, rows)
 	if err != nil {
 		return err
@@ -405,7 +409,7 @@ func claudeUnheldTierDefaults(model string, rows []launch.ModelRow) []string {
 	name := claudeEnvModelName(model, rows)
 	var vars []string
 	for _, tier := range claudecode.Tiers {
-		if tier == claudecode.Opus || held[tier] {
+		if tier == claudecode.Opus || held[tier] != "" {
 			continue
 		}
 		vars = append(vars, "ANTHROPIC_DEFAULT_"+strings.ToUpper(string(tier))+"_MODEL="+name)
@@ -424,23 +428,38 @@ func claudeUnheldTierDefaults(model string, rows []launch.ModelRow) []string {
 // model names itself.
 func claudeEnvModelName(model string, rows []launch.ModelRow) string {
 	if tier, ok := claudecode.TierWord(model); ok {
-		for _, row := range rows {
-			if row.Model == claudecode.TierModel(tier) {
-				return claudeRowModelName(row)
+		if alias := claudeHeldTiers(rows)[tier]; alias != "" {
+			for _, row := range rows {
+				if row.Model == alias {
+					return claudeRowModelName(row)
+				}
 			}
 		}
 	}
 	return claudeLaunchModelName(model, rows)
 }
 
-// claudeHeldTiers reports which tiers have an alias row, so a config on the
-// tier. A row for the alias is how the catalog says the tier is held.
-func claudeHeldTiers(rows []launch.ModelRow) map[claudecode.Tier]bool {
-	held := make(map[claudecode.Tier]bool, len(rows))
+// claudeHeldTiers maps each tier that has an alias row, so a config on the
+// tier, to the alias that routes it. A row for the alias is how the catalog
+// says the tier is held.
+//
+// The generic alias (frontier for the opus family, and so on) wins over the
+// legacy claude-tier-<family> alias when a tenant holds both, so a session
+// routes by the name the Switch keeps after the transition.
+func claudeHeldTiers(rows []launch.ModelRow) map[claudecode.Tier]string {
+	held := make(map[claudecode.Tier]string, len(rows))
+	for _, row := range rows {
+		if row.Generic == "" {
+			continue
+		}
+		if family, ok := claudecode.FamilyOf(row.Generic); ok && held[family] == "" {
+			held[family] = row.Model
+		}
+	}
 	for _, row := range rows {
 		for _, tier := range claudecode.Tiers {
-			if row.Model == claudecode.TierModel(tier) {
-				held[tier] = true
+			if row.Model == claudecode.TierModel(tier) && held[tier] == "" {
+				held[tier] = row.Model
 			}
 		}
 	}
@@ -560,7 +579,10 @@ func claudeSettingsJSON(model string, rows []launch.ModelRow) (string, error) {
 // first-party id, and yesterday's undated key stops matching while the tier
 // word still works. The pinned-key test below documents the working set.
 //
-// Each value is spelled by claudeModelName, like the pinned model and the
+// Each value is the alias the tenant holds for the tier: the generic alias
+// (frontier, core, flash, premier) from a Switch that reports generic tiers,
+// and the legacy claude-tier-<family> alias otherwise. It is spelled by
+// claudeModelName, like the pinned model and the
 // picker rows. A request that resolves through a tier short name takes this
 // value as its model, so a value without the [1m] suffix would budget a 200k
 // window and compact a long session early.
@@ -577,14 +599,14 @@ func claudeSettingsJSON(model string, rows []launch.ModelRow) (string, error) {
 // The newest ids (claude-opus-5-5, claude-sonnet-5-5) are ones only recent
 // Claude Code releases know. An older release drops those keys, and it never
 // resolves a tier to them either.
-func claudeModelOverrides(held map[claudecode.Tier]bool) map[string]string {
+func claudeModelOverrides(held map[claudecode.Tier]string) map[string]string {
 	overrides := make(map[string]string)
 	for tier, ids := range claudecode.FamilyIDs {
-		if !held[tier] || !profileInLineage(tier) {
+		if held[tier] == "" || !profileInLineage(tier) {
 			continue
 		}
 		for _, id := range ids {
-			overrides[id] = claudeModelName(claudecode.TierModel(tier))
+			overrides[id] = claudeModelName(held[tier])
 		}
 	}
 	return overrides
@@ -636,11 +658,11 @@ func (o orderedModelOverrides) MarshalJSON() ([]byte, error) {
 // Code reads it: tier by tier, and within a tier the id its rows behave as
 // first, then the rest of the lineage. A build that does not know the first
 // id skips it and takes the next.
-func claudeOrderedModelOverrides(held map[claudecode.Tier]bool) orderedModelOverrides {
+func claudeOrderedModelOverrides(held map[claudecode.Tier]string) orderedModelOverrides {
 	overrides := claudeModelOverrides(held)
 	ordered := make(orderedModelOverrides, 0, len(overrides))
 	for _, tier := range claudecode.Tiers {
-		if !held[tier] || !profileInLineage(tier) {
+		if held[tier] == "" || !profileInLineage(tier) {
 			continue
 		}
 		profile := claudecode.Profiles[tier].BehavesAs

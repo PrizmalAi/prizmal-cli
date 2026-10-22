@@ -193,14 +193,26 @@ prizmal --restore codex
 
 # See which models your switch key can route to. The Switch resolves the list
 # from the key alone, so it holds your tenant's models and no other tenant's.
-# The Claude tier aliases your tenant holds lead, because they route too even
-# though the Switch does not list them; the same aliases head the --pick menu.
+# The tier aliases your tenant holds (frontier, core, flash, premier) lead,
+# because they route too even though the Switch does not list them; the same
+# aliases head the --pick menu.
 # `default` is left out: it names the key's bound config, and a launch never
 # sends it.
 prizmal --list
 ```
 
-The picker shows every name `--list` prints with one exception and one fold. `default` is the placeholder the Switch is retiring, so it is not a row to choose. A model whose `GET /v1/models` entry carries a `tier` sits under that tier's alias row, and the row names the folded model beside the tier's description.
+The picker shows every name `--list` prints with one exception and one fold. `default` is the placeholder the Switch is retiring, so it is not a row to choose. A model whose `GET /v1/models` entry carries a tier sits under that tier's alias row, and the row names the folded model beside the tier's description. A model that holds several tiers gives a row for each.
+
+Each harness labels the tier rows in its own words, and every row sends the tier's alias. Codex names each tier row after the config that holds it and puts the word in the row's description, as in "Sol-like":
+
+| Alias | Claude Code | Codex |
+|---|---|---|
+| `frontier` | Opus | Sol |
+| `core` | Sonnet | Terra |
+| `flash` | Haiku | Luna |
+| `premier` | Fable | Astra |
+
+pi, OpenCode and Cline show your router configs by name, with no tier rows. A tenant whose Switch reports no tier gets its router configs by name in every harness.
 
 `prizmal` never writes your key to disk for any of the five harnesses. It sets the key on the launched process's environment, and the config files it writes refer to that variable. Each harness's doc lists the variable. When the harness exits, the key goes with its process, and a plain launch also removes a key that an older `prizmal` wrote into one of those files.
 
@@ -227,7 +239,10 @@ of them with `--model`, or run `--pick` on a terminal.
 pickers print for it. A label drops the `claude-` prefix from the model's name, so
 `tier-opus` and `claude-tier-opus` name the same router config. Claude Code
 launches also take its tier words (`sonnet`, `opus`, `haiku`, `fable`, `best`,
-`opusplan`, in any case) for a tier your tenant holds.
+`opusplan`, in any case) for a tier your tenant holds, and Codex launches take
+Sol, Terra, Luna and Astra, which the launch sends as the tier's alias. The
+Switch routes the alias only, so a Codex word typed outside `prizmal` routes
+nowhere.
 
 Backups of any modified config files are kept in `~/.prizmal/backup/`.
 Each launch, `--persist` and `--restore` deletes any backup there that

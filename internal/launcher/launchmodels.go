@@ -28,6 +28,9 @@ func LaunchModels(chosen string, catalog []LaunchModel, includeCatalog bool) []L
 	if entry, ok := FindCatalogModel(catalog, chosen); ok {
 		models[0].Capabilities = entry.Capabilities
 		models[0].Tier = entry.Tier
+		models[0].Tiers = entry.Tiers
+		models[0].AddedTier = entry.AddedTier
+		models[0].HeldBy = entry.HeldBy
 		models[0].Description = entry.Description
 	}
 	if !includeCatalog {

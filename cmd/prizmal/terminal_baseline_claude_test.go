@@ -45,6 +45,16 @@ var proposedCatalog = []stubserver.Entry{
 	{ID: "team-opus-blend", Description: "Team blend for refactors"},
 }
 
+// genericCatalog is a tenant whose Switch reports generic tiers. One config
+// serves frontier and core, so it gives two tier rows, and another serves
+// flash. The fourth config holds no tier and keeps its own row.
+var genericCatalog = []stubserver.Entry{
+	{ID: "default"},
+	{ID: "smart", Tier: "frontier", Tiers: []string{"frontier", "core"}, Description: "Everyday coding"},
+	{ID: "quick", Tier: "flash", Tiers: []string{"flash"}, Description: "Quick answers"},
+	{ID: "advisor-router"},
+}
+
 // claudeVersionPattern matches the version in Claude Code's banner. A baseline
 // keeps the version it was recorded with, and the comparison reads the
 // banner as that version, so moving to a new release changes no baseline
@@ -217,6 +227,18 @@ var claudeBaselineCases = []baselineCase{
 		name: "claude-print-proposed-experimental-100x40", cols: 100, rows: 40,
 		args: []string{"claude", "--model", "experimental", "-p", "hi"}, entries: proposedCatalog, claude: true,
 		steps: []baselineStep{stepPrizmalExit},
+	},
+	// Generic tiers: the prizmal picker and Claude Code's /model label the
+	// tier rows Opus, Sonnet and Haiku, and each row sends the tier's alias.
+	{
+		name: "prizmal-picker-generic-100x30", cols: 100, rows: 30,
+		args: []string{"claude"}, entries: genericCatalog,
+		steps: []baselineStep{stepPrizmalPicker},
+	},
+	{
+		name: "claude-model-picker-generic-model-opus-100x30", cols: 100, rows: 30,
+		args: []string{"claude", "--model", "opus"}, entries: genericCatalog, claude: true,
+		steps: []baselineStep{stepClaudePrompt, stepOpenModel, stepModelPicker},
 	},
 }
 

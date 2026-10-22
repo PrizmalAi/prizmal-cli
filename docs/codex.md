@@ -20,7 +20,18 @@ Without `prizmal`, a scripted Codex run needs a model your key routes, so pass `
 
 The launch passes `--no-daemon` and the provider settings as `-c` overrides. Nothing app-visible in `~/.codex/config.toml` changes. A `CODEX_HOME` you set is kept: Codex reads its config, MCP servers, sessions and sign-in from that directory, and the launch's overrides apply on top. It states the model with `-m`, so Codex runs the model prizmal resolved rather than one of its own.
 
-Codex's `/model` lists the same rows as the prizmal picker, with the same labels and descriptions, and the model you launched comes first: a tier alias is a row, and the model folded into it is not a second one. Each catalog entry sets `display_name` to the row's label and `description` to its text. A model you launch with `-m` that no row shows still gets an entry, because Codex reads it for the model's window and prompt.
+Codex's `/model` lists the same rows as the prizmal picker, with the same labels and descriptions, and the model you launched comes first: a tier alias is a row, and the model folded into it is not a second one. Each catalog entry sets `display_name` to the row's label and `description` to its text.
+
+When your tenant holds the generic tiers, Codex shows one row per tier it holds. A row's `slug` is the tier's alias, the name the Switch routes. Its `display_name` is the router config that holds the tier, so no row reads as an OpenAI model, and its `description` starts with the tier's Codex word:
+
+| `slug` | `description` starts with |
+|---|---|
+| `frontier` | Sol-like |
+| `core` | Terra-like |
+| `flash` | Luna-like |
+| `premier` | Astra-like |
+
+For example, `{"slug": "frontier", "display_name": "smart", "description": "Sol-like · Everyday coding"}`. A config that holds several tiers gives a row for each, and each of those rows moves the tier word from its description to its name: `smart (Sol-like)` and `smart (Terra-like)`. A config name that only one row shows stays plain. When your Switch reports no tier, the rows are your router configs by name. `prizmal -m sol codex` launches `frontier`. The word is only a label, though: the Switch does not route `sol`, so a plain `codex -m sol`, or a tool call that names `sol`, reaches the Switch as an unknown name and runs on the config your key is bound to. Use the alias wherever you type a model name yourself. A model you launch with `-m` that no row shows still gets an entry, because Codex reads it for the model's window and prompt.
 
 Each catalog entry sets `supports_search_tool`, which makes Codex defer its less-used tools behind a `tool_search` tool, as `ENABLE_TOOL_SEARCH=true` does for Claude Code. A manual setup that writes its own catalog sets the same field on each entry. It needs a Switch that supports Codex's tool search.
 
@@ -44,7 +55,7 @@ Subagents run the session model by default. `--subagent-model` gives them a diff
 
 ## Model names
 
-The Switch refuses a model name that is not one of your tenant's router configs or an alias. Codex fills most model settings from the session model, and the launch sets the rest, so every request carries a name your tenant routes. `/review`, compaction, the auto reviewer and spawned subagents run the session model unless `--subagent-model` says otherwise. The memory pipeline defaults to two OpenAI model ids that Codex sends whether or not the catalog lists them, so the launch sets `memories.extract_model` and `memories.consolidation_model` to the launch model. The launch also refuses a `-m` or `--subagent-model` that your tenant does not route. A name copied off Codex's `/model` list or footer works: the row reads `tier-opus` and routes as `claude-tier-opus`.
+Every request should carry a router config name or a tier alias, because today the Switch sends a name it does not know to the config your switch key is bound to, and it returns no error. Codex fills most model settings from the session model, and the launch sets the rest, so every request carries a name your tenant routes. `/review`, compaction, the auto reviewer and spawned subagents run the session model unless `--subagent-model` says otherwise. The memory pipeline defaults to two OpenAI model ids that Codex sends whether or not the catalog lists them, so the launch sets `memories.extract_model` and `memories.consolidation_model` to the launch model. The launch also refuses a `-m` or `--subagent-model` that your tenant does not route. A `/model` row shows the router config that holds the tier, such as `smart (Sol-like)`, and sends its slug, the generic alias (`frontier`). `prizmal -m sol codex` launches `frontier` too. A literal `sol` that reaches the Switch some other way, from a plain `codex -m sol` or a tool call, is not a name the Switch routes, so it falls back to the bound config.
 
 ## Edit tool
 
@@ -155,4 +166,4 @@ To get the `apply_patch` edit tool by hand, set `"apply_patch_tool_type": "freef
 
 Give Codex its system prompt by hand too: build the catalog with `codex debug models --bundled`, and copy the `base_instructions` and `model_messages` of the model you launched into its entry. A catalog entry without them sends Codex a session with no description of its tools, its sandbox or its editing rules.
 
-For Codex's `/model` picker to list your whole tenant, point `model_catalog_json` at a catalog with one entry per model from `GET /v1/models`. Each entry needs `slug`, `display_name`, `description`, `supported_reasoning_levels` and a `priority`, where the lowest priority is the model Codex runs by default. Leave out the `claude-tier-*` aliases: those rows are for Claude Code's picker.
+For Codex's `/model` picker to list your whole tenant, point `model_catalog_json` at a catalog with one entry per model from `GET /v1/models`. Each entry needs `slug`, `display_name`, `description`, `supported_reasoning_levels` and a `priority`, where the lowest priority is the model Codex runs by default. For a tier your tenant holds, write an entry whose `slug` is the alias (`frontier`, `core`, `flash` or `premier`), whose `display_name` is the config that holds it, and whose `description` starts with Sol-like, Terra-like, Luna-like or Astra-like. Leave out the `claude-tier-*` aliases: those rows are for Claude Code's picker.

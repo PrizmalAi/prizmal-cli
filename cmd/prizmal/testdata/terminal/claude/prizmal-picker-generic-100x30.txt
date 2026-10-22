@@ -1,0 +1,7 @@
+Select a model
+▸ Opus            smart · Everyday coding
+  Sonnet          smart · Everyday coding
+  Haiku           quick · Quick answers
+  advisor-router
+
+  ↑/k up • ↓/j down • / filter • esc quit without saving
