@@ -64,7 +64,7 @@ func hashFile(path string) string {
 	if err != nil {
 		return "unreadable"
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
 		return "unreadable"
@@ -118,7 +118,7 @@ func Run(m *testing.M) int {
 		fmt.Fprintf(os.Stderr, "homeguard: create the temp home: %v\n", err)
 		return 1
 	}
-	defer os.RemoveAll(sandbox)
+	defer func() { _ = os.RemoveAll(sandbox) }()
 	defer setEnv("USERPROFILE", sandbox)()
 	defer setEnv("HOME", sandbox)()
 

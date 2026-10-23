@@ -45,6 +45,12 @@ import (
 // its baselines, because its screens change with each release. The harness's
 // workflow installs that version.
 
+// realUserCacheDir is the user cache directory before TestMain points HOME at
+// a temp directory. Codex refuses to create its helper binaries under /tmp, and
+// the sandbox home is there, so the Codex cases run from the real cache
+// directory. Package variables initialise before TestMain runs.
+var realUserCacheDir, realUserCacheDirErr = os.UserCacheDir()
+
 var updateBaselines = flag.Bool("update-baselines", false, "rewrite testdata/terminal from the current render")
 
 const (
@@ -385,7 +391,7 @@ func renderBaseline(t *testing.T, tmuxPath, prizmalBin, claudeDir string, tc bas
 	// instead, so its cases run from the user cache directory.
 	tempBase := ""
 	if tc.codex {
-		cache, err := os.UserCacheDir()
+		cache, err := realUserCacheDir, realUserCacheDirErr
 		if err != nil {
 			t.Fatal(err)
 		}
