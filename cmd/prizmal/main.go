@@ -450,13 +450,23 @@ func resolveLaunchModelFor(cfg *config.Config, harnessModel string, ask launcher
 	return picked.Model, catalog, nil
 }
 
-// saveDefaultModel writes model as the default, creating the config file when
-// the machine has none. A device-login machine has no file because the device
-// key is its credential, so the new file holds the version and the default
-// alone; base_url and api_key are omitted when empty.
+// saveDefaultModel writes model as the default. Without a loaded config it
+// reads the file on disk and changes only default_model, so no other field is
+// lost. A machine with no file gets a new one: a device-login machine has none
+// because the device key is its credential, so the new file holds the version
+// and the default alone, with base_url and api_key omitted when empty. Any
+// other read error fails the save and leaves the file as it was.
 func saveDefaultModel(cfg *config.Config, model string) error {
 	if cfg == nil {
-		cfg = &config.Config{}
+		loaded, err := config.Load()
+		switch {
+		case err == nil:
+			cfg = loaded
+		case errors.Is(err, config.ErrNoConfig):
+			cfg = &config.Config{}
+		default:
+			return fmt.Errorf("could not read the config to save the default model: %w", err)
+		}
 	}
 	cfg.DefaultModel = model
 	if err := cfg.Save(); err != nil {

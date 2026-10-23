@@ -45,6 +45,12 @@ import (
 // its baselines, because its screens change with each release. The harness's
 // workflow installs that version.
 
+// realUserCacheDir is the user cache directory before TestMain points HOME at
+// a temp directory. Codex refuses to create its helper binaries under /tmp, and
+// the sandbox home is there, so the Codex cases run from the real cache
+// directory. Package variables initialise before TestMain runs.
+var realUserCacheDir, realUserCacheDirErr = os.UserCacheDir()
+
 var updateBaselines = flag.Bool("update-baselines", false, "rewrite testdata/terminal from the current render")
 
 const (
@@ -385,7 +391,7 @@ func renderBaseline(t *testing.T, tmuxPath, prizmalBin, claudeDir string, tc bas
 	// instead, so its cases run from the user cache directory.
 	tempBase := ""
 	if tc.codex {
-		cache, err := os.UserCacheDir()
+		cache, err := realUserCacheDir, realUserCacheDirErr
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -492,7 +498,15 @@ func renderBaseline(t *testing.T, tmuxPath, prizmalBin, claudeDir string, tc bas
 	command := "env -i " + strings.Join(envVars, " ") + " sh -c " + shellQuote(
 		"cd "+shellQuote(project)+" && "+shellQuote(prizmalBin)+" "+shellJoin(launchArgs(tc))+stdin+`; echo "[prizmal exited $?]"; sleep 600`)
 
-	socket := filepath.Join(root, "tmux.sock")
+	// The socket path must stay under the ~104-byte limit, and root sits under
+	// the user cache directory for Codex, so the socket gets a short directory
+	// of its own.
+	socketDir, err := os.MkdirTemp("", "pzt-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(socketDir) })
+	socket := filepath.Join(socketDir, "tmux.sock")
 	tmux := func(args ...string) (string, error) {
 		// -f /dev/null ignores the developer's tmux.conf, and the private
 		// socket keeps this server apart from every other tmux session.
