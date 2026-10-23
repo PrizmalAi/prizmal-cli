@@ -1,6 +1,7 @@
 package cline
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -10,10 +11,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/PrizmalAi/prizmal-cli/internal/device"
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	"github.com/PrizmalAi/prizmal-cli/internal/internaltest"
 	launch "github.com/PrizmalAi/prizmal-cli/internal/launcher"
+	"github.com/PrizmalAi/prizmal-cli/internal/relay"
 )
 
 func TestClineDeviceLaunchUsesRelayAndRestoresDirectURL(t *testing.T) {
@@ -43,13 +44,19 @@ func TestClineDeviceLaunchUsesRelayAndRestoresDirectURL(t *testing.T) {
 			dataDir := filepath.Join(t.TempDir(), "cline-data")
 			tc.env(t, dataDir)
 
-			if _, _, err := device.LoadOrCreateKey(); err != nil {
-				t.Fatal(err)
-			}
 			envconfig.SetBaseURL("https://switch.example.test")
 			envconfig.SetDeviceMode(true)
 			envconfig.SetDeviceToken("pz-s-dt-current")
+			r, err := relay.New(envconfig.UnversionedBaseURL(), func(context.Context) (string, error) {
+				return "pz-s-dt-current", nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			envconfig.SetRelay(r.URL(), r.Placeholder())
 			t.Cleanup(func() {
+				envconfig.ClearRelay()
+				r.Close()
 				envconfig.SetBaseURL("")
 				envconfig.SetDeviceMode(false)
 				envconfig.SetDeviceToken("")
@@ -102,7 +109,7 @@ func TestClineDeviceLaunchUsesRelayAndRestoresDirectURL(t *testing.T) {
 				t.Fatal(err)
 			}
 			relayBase := activeProviderBaseURL(t, runningProviders)
-			if !regexp.MustCompile(`^http://127\.0\.0\.1:[0-9]+/v1$`).MatchString(relayBase) {
+			if !regexp.MustCompile(`^http://(127\.0\.0\.1|localhost):[0-9]+/v1$`).MatchString(relayBase) {
 				t.Fatalf("provider baseUrl during launch = %q, want the loopback relay", relayBase)
 			}
 			key, err := os.ReadFile(captureKey)
@@ -175,6 +182,12 @@ func TestClineDeviceLaunchUsesRelayAndRestoresDirectURL(t *testing.T) {
 				t.Errorf("planModeApiProvider after launch = %q, want %q", got, planProviderBefore)
 			}
 		})
+	}
+}
+
+func TestClineSupportsDeviceMode(t *testing.T) {
+	if !(&Cline{}).SupportsDeviceMode() {
+		t.Fatal("Cline does not support device mode")
 	}
 }
 

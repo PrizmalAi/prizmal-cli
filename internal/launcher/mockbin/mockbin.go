@@ -46,6 +46,10 @@ type Expectations struct {
 	// real HTTP server that checks them — observed effect, not constructed
 	// command — without any real harness binary or real credentials.
 	StubRequest *StubRequest `json:"stub_request,omitempty"`
+	// CaptureFiles maps a file path to a marker name under
+	// MOCK_EXPECTATIONS_DIR. Tests use it for harness config that exists only
+	// while the child runs.
+	CaptureFiles map[string]string `json:"capture_files,omitempty"`
 }
 
 // StubRequest names the env vars carrying the endpoint and credential, and
@@ -127,6 +131,14 @@ func Run() int {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "mock %s: %v\n", binName, err)
 		return 1
+	}
+	for source, marker := range exp.CaptureFiles {
+		data, err := os.ReadFile(source)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "mock %s: capture %s: %v\n", binName, source, err)
+			return 1
+		}
+		writeMarker(expDir, marker, string(data))
 	}
 
 	var failures []string

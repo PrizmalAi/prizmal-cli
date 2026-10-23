@@ -62,7 +62,9 @@ jobs:
       - name: Launch claude through prizmal
         env:
           PRIZMAL_HARNESS_LAUNCH: require
-        run: go test -count=1 -v -run 'TestHarnessLaunchClaude$|TestHarnessLaunchClaudeWithoutAModel$' ./cmd/prizmal
+        run: |
+          go test -count=1 -v -run 'TestHarnessLaunchClaude$|TestHarnessLaunchClaudeWithoutAModel$' ./cmd/prizmal
+          go test -count=1 -v -run '^TestHarnessLaunchClaudeRelay$' ./cmd/prizmal
 
   terminal-baselines:
     runs-on: ubuntu-latest

@@ -89,32 +89,27 @@ func (c *Cline) Run(model string, _ []launch.LaunchModel, args []string) (runErr
 		return err
 	}
 
-	apiKey := envconfig.APIKey()
-	if envconfig.DeviceMode() {
+	if envconfig.RelayMode() {
 		dataDir, _, err := clineDataDir(args, os.Getenv, os.UserHomeDir)
 		if err != nil {
 			return err
 		}
-		relay, err := newDeviceClineRelay()
-		if err != nil {
-			return err
-		}
+		relayBaseURL := envconfig.OpenAIBaseURL(false)
+		relayHost := envconfig.UnversionedBaseURL()
 		defer func() {
-			restoreErr := restoreClineDirectURLs(dataDir, relay.providerBaseURL(), relay.providerHost())
-			relay.Close()
+			restoreErr := restoreClineDirectURLs(dataDir, relayBaseURL, relayHost)
 			if restoreErr != nil {
-				runErr = errors.Join(runErr, fmt.Errorf("restore Cline endpoint after device session: %w", restoreErr))
+				runErr = errors.Join(runErr, fmt.Errorf("restore Cline endpoint after relayed session: %w", restoreErr))
 			}
 		}()
-		if err := writeClineRelayURLs(dataDir, relay.providerBaseURL(), relay.providerHost()); err != nil {
+		if err := writeClineRelayURLs(dataDir, relayBaseURL, relayHost); err != nil {
 			return err
 		}
-		apiKey = relay.placeholder
 	}
 
 	launchArgs := clineLaunchArgs(model, args)
 	cmd := exec.Command(bin, launchArgs...)
-	cmd.Env = c.childEnvWithKey(apiKey)
+	cmd.Env = c.childEnv()
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

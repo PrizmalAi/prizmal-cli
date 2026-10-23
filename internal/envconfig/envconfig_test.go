@@ -76,3 +76,42 @@ func TestDeviceModeOutranksSwitchKeySources(t *testing.T) {
 		t.Fatalf("device mode with no token = %q from %q, want empty", got, src)
 	}
 }
+
+func TestRelayOverridesURLAndEveryCredentialSourceUntilCleared(t *testing.T) {
+	t.Setenv(KeyEnvVar, "sk-from-env")
+	t.Setenv(EnvVar, "https://env.example.test")
+	SetAPIKey("sk-from-flag")
+	SetConfigAPIKey("sk-from-config")
+	SetBaseURL("https://flag.example.test")
+	SetConfigBaseURL("https://config.example.test")
+	SetDeviceMode(true)
+	SetDeviceToken("pz-s-dt-from-device")
+	t.Cleanup(func() {
+		ClearRelay()
+		SetAPIKey("")
+		SetConfigAPIKey("")
+		SetBaseURL("")
+		SetConfigBaseURL("")
+		SetDeviceMode(false)
+		SetDeviceToken("")
+	})
+
+	SetRelay("http://127.0.0.1:43210/v1", "relay-placeholder")
+	if got := BaseURL(); got != "http://127.0.0.1:43210/v1" {
+		t.Fatalf("BaseURL() = %q, want the relay URL", got)
+	}
+	if got, src := APIKey(), APIKeySource(); got != "relay-placeholder" || src != KeySourceRelay {
+		t.Fatalf("APIKey() = %q from %q, want the relay placeholder", got, src)
+	}
+	if got := UpstreamBaseURL(); got != "https://flag.example.test" {
+		t.Fatalf("UpstreamBaseURL() = %q, want the direct flag URL", got)
+	}
+
+	ClearRelay()
+	if got := BaseURL(); got != "https://flag.example.test" {
+		t.Fatalf("BaseURL() after ClearRelay = %q, want the flag URL", got)
+	}
+	if got, src := APIKey(), APIKeySource(); got != "pz-s-dt-from-device" || src != KeySourceDevice {
+		t.Fatalf("APIKey() after ClearRelay = %q from %q, want device precedence restored", got, src)
+	}
+}

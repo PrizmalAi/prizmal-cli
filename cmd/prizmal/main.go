@@ -39,6 +39,7 @@ var (
 	restore              bool
 	persistOnly          bool
 	allowUnauthenticated bool
+	relayFlag            bool
 	listFlag             bool
 	pickFlag             bool
 	subagentModel        string
@@ -72,10 +73,15 @@ Launching against a remote host with no credential is refused; loopback
 URLs need no key, and --allow-unauthenticated overrides the refusal.
 
 Flags before the integration name are prizmal's own: --model, --url,
---api-key, --yes, --list, --restore, --persist. Every argument after the
+--api-key, --relay, --yes, --list, --restore, --persist. Every argument after the
 integration name is handed to the harness unchanged, so claude --resume
 <session-id> and any other harness flag needs no separator and can never
 be read as a prizmal flag.
+
+--relay starts a loopback relay for the launch. The harness receives a random
+placeholder credential, and the relay sends the launch's real credential to the
+Switch. It stops when the harness exits. Cline uses it automatically for a
+device login.
 
 --list answers a different question: it prints the models this switch key's
 tenant serves, one per line, and exits without launching. It holds exactly the
@@ -97,6 +103,16 @@ Examples:
 		Args:          cobra.ArbitraryArgs,
 		Version:       resolveVersion(version),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if relayFlag && listFlag {
+				return fmt.Errorf("--relay cannot be used with --list: --list answers a query without launching a harness")
+			}
+			if relayFlag && (restore || persistOnly) {
+				return fmt.Errorf("--relay only applies to a launch and cannot be used with --restore or --persist")
+			}
+			if relayFlag && len(args) == 0 {
+				return fmt.Errorf("--relay needs an integration to launch")
+			}
+
 			// A launch checks for a newer release first. --list, --pick alone,
 			// --restore and --persist answer a question, and the device
 			// subcommands feed another program, so none of them ask.
@@ -241,6 +257,7 @@ func registerFlags(flags *pflag.FlagSet) {
 	flags.StringVar(&subagentModel, "subagent-model", "", "model for subagents, which default to the session model (Claude Code and Codex)")
 	flags.StringVarP(&url, "url", "u", "", "provider base URL (or $"+envconfig.EnvVar+")")
 	flags.StringVarP(&apiKey, "api-key", "k", "", "provider API key (or $"+envconfig.KeyEnvVar+")")
+	flags.BoolVar(&relayFlag, "relay", false, "route the launched harness through a per-session loopback relay")
 	flags.BoolVarP(&yes, "yes", "y", false, "auto-approve confirmation prompts")
 	flags.BoolVar(&restore, "restore", false, "restore the integration's original configuration and exit")
 	flags.BoolVar(&persistOnly, "persist", false, "write the integration configuration without launching (persistent until --restore)")
@@ -782,17 +799,16 @@ func launch(name string, extraArgs []string, cfg *config.Config, ask launcher.As
 	// them every model would change the default they write.
 	models := launchModels(chosen, catalog, runnerShowsModelList(runner))
 
-	// Editor integrations persist their configuration via Edit before launch.
-	if editor, ok := runner.(launcher.Editor); ok {
+	if persistOnly {
+		editor, ok := runner.(launcher.Editor)
+		if !ok {
+			return fmt.Errorf("%s does not support standalone configuration", spec.Name)
+		}
 		if err := editor.Edit(models); err != nil {
 			return fmt.Errorf("failed to configure %s: %w", spec.Name, err)
 		}
-		if persistOnly {
-			fmt.Fprintf(os.Stderr, "%s configuration updated.%s\n", launcher.AnsiGreen, launcher.AnsiReset)
-			return nil
-		}
-	} else if persistOnly {
-		return fmt.Errorf("%s does not support standalone configuration", spec.Name)
+		fmt.Fprintf(os.Stderr, "%s configuration updated.%s\n", launcher.AnsiGreen, launcher.AnsiReset)
+		return nil
 	}
 
 	// Announce the key source, then gate an unauthenticated remote launch.
@@ -814,5 +830,30 @@ func launch(name string, extraArgs []string, cfg *config.Config, ask launcher.As
 		}
 	}
 
+	if shouldUseRelay(spec.Name) {
+		r, err := newLaunchRelay(envconfig.DeviceMode(), envconfig.APIKey())
+		if err != nil {
+			return err
+		}
+		envconfig.SetRelay(r.URL(), r.Placeholder())
+		defer func() {
+			envconfig.ClearRelay()
+			r.Close()
+		}()
+		fmt.Fprintf(os.Stderr, "relaying through %s; the harness holds a per-launch placeholder\n", r.URL())
+	}
+
+	// Editor integrations persist their configuration via Edit before launch.
+	// Relay mode is set first, so an endpoint written here is the loopback URL.
+	if editor, ok := runner.(launcher.Editor); ok {
+		if err := editor.Edit(models); err != nil {
+			return fmt.Errorf("failed to configure %s: %w", spec.Name, err)
+		}
+	}
+
 	return runner.Run(chosen, models, extraArgs)
+}
+
+func shouldUseRelay(integration string) bool {
+	return relayFlag || (envconfig.DeviceMode() && integration == "cline")
 }

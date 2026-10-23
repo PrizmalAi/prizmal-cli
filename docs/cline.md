@@ -1,6 +1,6 @@
 # Cline
 
-`prizmal cline` launches Cline against the Prizmal Switch. Cline keeps its provider settings in its data directory, so the launch writes a prizmal provider entry there and puts the key on the child environment. With a device login, a per-session loopback relay refreshes that credential while Cline is running.
+`prizmal cline` launches Cline against the Prizmal Switch. Cline keeps its provider settings in its data directory, so the launch writes a prizmal provider entry there and puts the key on the child environment. A device login starts a per-session loopback relay automatically so Cline can use a short-lived credential.
 
 The launch uses the same data directory as Cline: `--data-dir DIR`, then `CLINE_DATA_DIR`, then `--config DIR` as `DIR/data`, then `CLINE_DIR` as `$CLINE_DIR/data`, then `~/.cline/data`. Use `--data-dir` or `CLINE_DATA_DIR` to keep two worktrees from sharing provider settings:
 
@@ -31,7 +31,7 @@ Cline has no web search that routes through the Switch. Its own search requests 
 
 ## Device login
 
-When `~/.prizmal/device.key` exists, `prizmal cline` starts a relay on an ephemeral `127.0.0.1` port. For that launch, it points Cline's provider and mode base URLs at `http://127.0.0.1:<port>/v1` and sets `OPENAI_API_KEY` to a random placeholder. The relay accepts only that placeholder, gets a device token for each request, replaces the bearer, and forwards the request to the Switch. It also serves `GET /v1/models`, so the model picker can use the same credential.
+When `~/.prizmal/device.key` exists, `prizmal cline` starts a relay on an ephemeral `127.0.0.1` port without requiring `--relay`. For that launch, it points Cline's provider and mode base URLs at `http://127.0.0.1:<port>/v1` and sets `OPENAI_API_KEY` to a random placeholder. The relay accepts only that placeholder, gets a device token for each request, replaces the bearer, and forwards the request to the Switch. It also serves `GET /v1/models`, so the model picker can use the same credential. A switch-key launch can opt into the same relay with `--relay`.
 
 If the Switch answers 401, the relay refreshes the device token once and replays the buffered request. This lets a session continue after its first ten-minute token expires. A rejected placeholder is answered locally with 401 and never reaches the Switch.
 

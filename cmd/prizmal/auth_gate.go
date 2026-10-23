@@ -19,6 +19,7 @@ const (
 	KeySourceFlag   = envconfig.KeySourceFlag
 	KeySourceEnv    = envconfig.KeySourceEnv
 	KeySourceConfig = envconfig.KeySourceConfig
+	KeySourceRelay  = envconfig.KeySourceRelay
 	KeySourceNone   = envconfig.KeySourceNone
 )
 

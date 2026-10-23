@@ -87,13 +87,13 @@ Once your tenant approves a device, a launch uses it automatically. `prizmal cla
 
 A device token is a bearer credential that expires 10 minutes after issue, and the Switch binds it to one tenant. The private key never leaves the machine. The next refresh stops once a tenant manager revokes the device or disables the tenant, or sets the member inactive.
 
-Claude Code, Pi, Codex, OpenCode and Cline can refresh a device token during a session, so all five run in device mode. Each does it through a mechanism its own docs describe, under [Supported integrations](#supported-integrations). Cline uses a per-session loopback relay that refreshes its bearer per request and retries once after a 401.
+Claude Code, Pi, Codex, OpenCode and Cline can refresh a device token during a session, so all five run in device mode. Each does it through a mechanism its own docs describe, under [Supported integrations](#supported-integrations). Cline starts the loopback relay automatically for a device login, without `--relay`, because its provider configuration takes a fixed key.
 
 ### Switch key
 
 `prizmal` stores a Prizmal Switch API key in a single config file at `~/.prizmal/config.json`, created on first run and written with `0600` permissions (`0700` on the directory). On first launch it prompts for the key. Type a key and `prizmal` writes it to the file. Leave it empty and the next run prompts again. To run without the prompt, set the key with `--api-key` or `$PRIZMAL_SWITCH_KEY`, or write the file yourself.
 
-The key is stored as **plain text by default**. This matches how the downstream coding harnesses store their own credentials, and switch-key launches use no local proxy or OS keyring, so there is no extra infrastructure. A Cline device session uses a loopback relay so it can rotate a short-lived token. If you prefer not to keep a secret on disk, the `api_key` field is extensible to two other forms. It is one of:
+The key is stored as **plain text by default**. This matches how the downstream coding harnesses store their own credentials, and a direct switch-key launch uses no local proxy or OS keyring. Passing `--relay`, or starting Cline from a device login, adds a process-local loopback relay for that session. If you prefer not to keep a secret on disk, the `api_key` field is extensible to two other forms. It is one of:
 
 **Plain string** (default)
 ```json
@@ -174,6 +174,7 @@ Flags:
   -m, --model string           model to launch with (defaults to the saved default_model)
       --pick                   choose a model from this switch key's tenant, and save it as the default
       --persist                write the integration configuration without launching (persistent until --restore)
+      --relay                  route the launched harness through a per-session loopback relay
       --restore                restore the integration's original configuration and exit
       --subagent-model string  model for subagents, which default to the session model (Claude Code and Codex)
   -u, --url string             provider base URL (or $PRIZMAL_SWITCH_URL)
@@ -193,6 +194,9 @@ prizmal --pick claude
 
 # prizmal's own flags come before the integration name
 prizmal --model gpt-oss:20b claude
+
+# Keep the real credential in a loopback relay while any harness runs
+prizmal --relay --model flash codex
 
 # Claude Code, passing a harness flag straight through without a separator
 prizmal claude --resume <session-id>
@@ -215,6 +219,16 @@ prizmal --restore codex
 # sends it.
 prizmal --list
 ```
+
+`--relay` starts a loopback HTTP relay for one launch. The harness receives a
+random placeholder credential, and the relay replaces it with the launch's real
+device token or switch key on every request. It works with Claude Code, Codex,
+OpenCode, Pi and Cline. The relay listens on an ephemeral loopback port, accepts
+only that placeholder, streams responses as they arrive, and refreshes and
+replays once after a 401 when the credential source can refresh. It stops when
+the harness exits. `--relay` is a launch flag: `--list`, `--restore` and
+`--persist` refuse it, and the existing credential gate refuses a remote launch
+that has no credential.
 
 The picker shows every name `--list` prints with one exception and one fold. `default` is the placeholder the Switch is retiring, so it is not a row to choose. A model whose `GET /v1/models` entry carries a tier sits under that tier's alias row, and the row names the folded model beside the tier's description. A model that holds several tiers gives a row for each.
 

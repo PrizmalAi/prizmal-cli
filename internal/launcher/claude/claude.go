@@ -168,7 +168,7 @@ func (c *Claude) Run(model string, models []launch.LaunchModel, args []string) e
 	// token Claude Code must refresh, so the launch adds the apiKeyHelper to
 	// the settings JSON. The helper command is the same binary, and its TTL is
 	// set in claudeChildEnv.
-	if envconfig.DeviceMode() {
+	if envconfig.DeviceMode() && !envconfig.RelayMode() {
 		settings, err = deviceSettingsJSON(settings)
 		if err != nil {
 			return err
@@ -181,7 +181,7 @@ func (c *Claude) Run(model string, models []launch.LaunchModel, args []string) e
 	cmd.Stderr = os.Stderr
 
 	env := claudeChildEnv(model, rows)
-	if envconfig.DeviceMode() {
+	if envconfig.DeviceMode() && !envconfig.RelayMode() {
 		env = EnsureHelperBaseURL(env, envconfig.BaseURL())
 	}
 	cmd.Env = env
@@ -272,7 +272,7 @@ func (c *Claude) envVars() []string {
 		// base configured with the suffix keeps it.
 		"ANTHROPIC_BASE_URL=" + envconfig.UnversionedBaseURL(),
 	}
-	if !envconfig.DeviceMode() {
+	if !envconfig.DeviceMode() || envconfig.RelayMode() {
 		// The switch key travels as ANTHROPIC_AUTH_TOKEN, Claude Code's
 		// gateway credential (Authorization: Bearer), and nothing else.
 		env = append(env, "ANTHROPIC_AUTH_TOKEN="+envconfig.APIKey())
@@ -311,7 +311,7 @@ func (c *Claude) envVars() []string {
 		// tool_reference blocks, so turn it back on explicitly.
 		"ENABLE_TOOL_SEARCH=true",
 	)
-	if envconfig.DeviceMode() {
+	if envconfig.DeviceMode() && !envconfig.RelayMode() {
 		// The helper refreshes the device token 4 minutes before it would
 		// otherwise expire, with 6 minutes still on the token in hand: enough
 		// for the background refresh a laptop sleep interrupts.

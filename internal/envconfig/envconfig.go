@@ -31,6 +31,8 @@ var (
 	configKey   string
 	deviceToken string
 	deviceMode  bool
+	relayURL    string
+	relayKey    string
 )
 
 // KeySource names where the provider API key came from. The names are printed
@@ -48,6 +50,9 @@ const (
 	// CLI refreshes a device token from ~/.prizmal/device.key and hands it to
 	// the launch instead of a switch key.
 	KeySourceDevice KeySource = "device login (~/.prizmal/device.key)"
+	// KeySourceRelay means the launched harness holds the relay's per-launch
+	// placeholder. The relay substitutes the real credential upstream.
+	KeySourceRelay KeySource = "loopback relay placeholder"
 	// KeySourceNone means no source produced a key. The wording stays neutral
 	// between an unauthenticated launch and an unauthenticated listing, which
 	// share this announcement.
@@ -68,6 +73,32 @@ func DeviceMode() bool {
 	mu.RLock()
 	defer mu.RUnlock()
 	return deviceMode
+}
+
+// SetRelay enables the process-wide loopback relay override. While it is set,
+// BaseURL returns baseURL and APIKey returns placeholder ahead of every other
+// source. The values live only in memory.
+func SetRelay(baseURL, placeholder string) {
+	mu.Lock()
+	defer mu.Unlock()
+	relayURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	relayKey = strings.TrimSpace(placeholder)
+}
+
+// ClearRelay removes the loopback overrides and restores the ordinary URL and
+// credential precedence.
+func ClearRelay() {
+	mu.Lock()
+	defer mu.Unlock()
+	relayURL = ""
+	relayKey = ""
+}
+
+// RelayMode reports whether harness-facing URL and key reads use the relay.
+func RelayMode() bool {
+	mu.RLock()
+	defer mu.RUnlock()
+	return relayURL != ""
 }
 
 // SetDeviceToken sets the device token a device-mode process holds. It is used
@@ -103,9 +134,9 @@ func SetConfigAPIKey(k string) {
 	configKey = strings.TrimSpace(k)
 }
 
-// APIKey returns the configured provider API key: flag override, then
-// $PRIZMAL_SWITCH_KEY, then the config file's api_key, then empty
-// (unauthenticated).
+// APIKey returns the configured provider API key. A loopback relay placeholder
+// outranks every other source; otherwise device mode, the flag override,
+// $PRIZMAL_SWITCH_KEY, and the config file follow in that order.
 func APIKey() string {
 	k, _ := resolveAPIKey()
 	return k
@@ -120,7 +151,11 @@ func APIKeySource() KeySource {
 func resolveAPIKey() (string, KeySource) {
 	mu.RLock()
 	flag, cfg, devTok, dev := keyOverride, configKey, deviceToken, deviceMode
+	relay, relayActive := relayKey, relayURL != ""
 	mu.RUnlock()
+	if relayActive {
+		return relay, KeySourceRelay
+	}
 	// Device mode outranks every switch-key source. An enrolled device is the
 	// credential the tenant approved; a stale $PRIZMAL_SWITCH_KEY exported in
 	// the shell must not silently take its place and route the session under a
@@ -155,14 +190,28 @@ func SetBaseURL(u string) {
 	override = strings.TrimRight(strings.TrimSpace(u), "/")
 }
 
-// BaseURL returns the configured provider base URL in precedence order:
-// flag override, then $PRIZMAL_SWITCH_URL, then config-file base_url,
-// then DefaultURL.
+// BaseURL returns the configured provider base URL. A loopback relay URL
+// outranks every other source; otherwise the flag override,
+// $PRIZMAL_SWITCH_URL, config-file base_url, and DefaultURL follow.
 func BaseURL() string {
+	return baseURL(true)
+}
+
+// UpstreamBaseURL returns the direct Switch base the relay forwards to,
+// ignoring the relay override but keeping every other URL source unchanged.
+func UpstreamBaseURL() string {
+	return baseURL(false)
+}
+
+func baseURL(useRelay bool) string {
 	mu.RLock()
 	o := override
 	cfg := configURL
+	relay := relayURL
 	mu.RUnlock()
+	if useRelay && relay != "" {
+		return relay
+	}
 	if o != "" {
 		return o
 	}

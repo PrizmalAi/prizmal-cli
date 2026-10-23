@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	launch "github.com/PrizmalAi/prizmal-cli/internal/launcher"
 )
 
@@ -49,6 +50,7 @@ func restoreClineDirectURLs(dataDir, relayBaseURL, relayHost string) error {
 	}
 	if providers != nil {
 		changed := false
+		directBaseURL := envconfig.UpstreamOpenAIBaseURL(false)
 		all, _ := providers["providers"].(map[string]any)
 		for _, raw := range all {
 			provider, _ := raw.(map[string]any)
@@ -57,7 +59,7 @@ func restoreClineDirectURLs(dataDir, relayBaseURL, relayHost string) error {
 			if strings.TrimRight(current, "/") != strings.TrimRight(relayBaseURL, "/") {
 				continue
 			}
-			settings["baseUrl"] = clineProviderBaseURL()
+			settings["baseUrl"] = directBaseURL
 			provider["settings"] = settings
 			changed = true
 		}
@@ -77,8 +79,9 @@ func restoreClineDirectURLs(dataDir, relayBaseURL, relayHost string) error {
 		return nil
 	}
 	changed := false
+	directHost := envconfig.UpstreamUnversionedBaseURL()
 	if strings.TrimRight(stringValue(state["openAiCompatibleBaseUrl"]), "/") == strings.TrimRight(relayHost, "/") {
-		state["openAiCompatibleBaseUrl"] = clineProviderHost()
+		state["openAiCompatibleBaseUrl"] = directHost
 		changed = true
 	}
 	for _, mode := range clineModes {
@@ -86,7 +89,7 @@ func restoreClineDirectURLs(dataDir, relayBaseURL, relayHost string) error {
 		if strings.TrimRight(stringValue(state[key]), "/") != strings.TrimRight(relayHost, "/") {
 			continue
 		}
-		state[key] = clineProviderHost()
+		state[key] = directHost
 		changed = true
 	}
 	if changed {

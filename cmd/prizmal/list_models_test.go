@@ -110,6 +110,17 @@ const deployedListing = "claude-tier-opus\nclaude-tier-haiku\ncheap\nopus\n"
 // holds the opus and haiku tiers.
 var claudeTiers = []string{"claude-tier-opus", "claude-tier-haiku"}
 
+func TestRelayRefusesListMode(t *testing.T) {
+	if testing.Short() {
+		t.Skip("subprocess test in short mode")
+	}
+	prizmalBin := buildPrizmalTestBinary(t)
+	exitCode, _, stderr := runPrizmalList(t, prizmalBin, t.TempDir(), "--relay", "--list")
+	if exitCode == 0 || !strings.Contains(stderr, "--relay cannot be used with --list") {
+		t.Fatalf("prizmal --relay --list exited %d, stderr %q", exitCode, stderr)
+	}
+}
+
 // TestListFlagPrintsTheTenantsModels is the feature: `--list` answers with the
 // names the switch key's tenant can route by, one per line on stdout, so the
 // output pipes without a header in the way.

@@ -220,7 +220,7 @@ func runPassingOnTermination(cmd *exec.Cmd) error {
 // OPENAI_API_KEY the operator exported for OpenAI itself is removed, so it can
 // neither reach the Switch nor be mistaken for the provider's key.
 func (c *Codex) envVars() []string {
-	if envconfig.DeviceMode() {
+	if envconfig.DeviceMode() && !envconfig.RelayMode() {
 		return nil
 	}
 	key := envconfig.APIKey()
@@ -298,7 +298,7 @@ func codexChildEnv() []string {
 	env := launch.ChildEnv(drop, (&Codex{}).envVars())
 	// The helper is a separate prizmal process that resolves the Switch URL from
 	// scratch, so this launch's resolved host is pinned for it.
-	if envconfig.DeviceMode() {
+	if envconfig.DeviceMode() && !envconfig.RelayMode() {
 		env = claude.EnsureHelperBaseURL(env, envconfig.BaseURL())
 	}
 	return env
@@ -496,7 +496,7 @@ func codexValidateExtraArgs(args []string) error {
 // can fail to resolve. The -c overrides and the profile file both render these
 // pairs, so they are built in one place.
 func codexProviderSettings() ([]codexSetting, error) {
-	if !envconfig.DeviceMode() {
+	if !envconfig.DeviceMode() || envconfig.RelayMode() {
 		return []codexSetting{{"env_key", strconv.Quote("OPENAI_API_KEY")}}, nil
 	}
 	// Codex rejects a provider that sets both env_key and a command, so
