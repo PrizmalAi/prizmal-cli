@@ -667,14 +667,11 @@ func launch(name string, extraArgs []string, cfg *config.Config, ask launcher.As
 
 	runner := spec.Runner
 
-	// A first-run browser sign-in can leave device mode on before any
-	// harness was named. For a runner with no refresh contract —
-	// Cline — device login is ignored: the launch runs on the
-	// ordinary key sources, exactly as if the machine had never signed in
-	// with a device. Leaving device mode on would outrank the switch key the
-	// config already holds and hand the harness a token that expires in ten
-	// minutes. (launch itself never enters device mode; the enterDeviceMode
-	// gate in the root command skips it for these runners.)
+	// A first-run browser sign-in can leave device mode on before any harness
+	// was named. A runner without a refresh contract must use its ordinary key
+	// sources instead, so device mode cannot outrank a switch key it already
+	// holds. (launch itself never enters device mode; the enterDeviceMode gate
+	// in the root command applies the same rule when a harness is named.)
 	if envconfig.DeviceMode() && !launcher.SupportsDeviceMode(runner) {
 		envconfig.SetDeviceMode(false)
 	}

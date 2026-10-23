@@ -266,12 +266,12 @@ func HarnessVocabulary(runner Runner) tiers.Vocabulary {
 
 // DeviceModeRunner is a runner that can refresh its own credential from an
 // enrolled device key. Claude Code does it through its apiKeyHelper, Pi and
-// OpenCode through an extension or plugin their launch loads that runs `prizmal
-// auth token` for each request, and Codex through its command-backed provider
-// auth, so all four opt in. Every other runner receives the key once through
-// the environment and cannot refresh a short-lived device token; the CLI
-// ignores device login for them and runs them on the switch key the config
-// already holds.
+// OpenCode through an extension or plugin their launch loads that runs
+// `prizmal auth token` for each request, Codex through its command-backed
+// provider auth, and Cline through a loopback relay started for the launch.
+// Every supported harness opts in. A runner without this interface receives a
+// key once through its configuration and cannot refresh a short-lived device
+// token, so the CLI ignores device login for it.
 type DeviceModeRunner interface {
 	SupportsDeviceMode() bool
 }

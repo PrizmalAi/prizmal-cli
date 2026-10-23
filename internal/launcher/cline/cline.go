@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -34,6 +35,11 @@ const clineLegacyProvider = "prizmal"
 type Cline struct{}
 
 func (c *Cline) String() string { return "Cline" }
+
+// SupportsDeviceMode reports that Cline can run from an enrolled device: the
+// launch starts a loopback relay that refreshes the bearer for every request,
+// including one refresh and replay after an upstream 401.
+func (c *Cline) SupportsDeviceMode() bool { return true }
 
 // RunsHeadless reports that Cline runs a prompt to the end unless --tui asks
 // for the interface. A command word such as `auth` or `config` is not a launch
@@ -74,7 +80,7 @@ func (c *Cline) Installed() bool {
 	return err == nil
 }
 
-func (c *Cline) Run(model string, _ []launch.LaunchModel, args []string) error {
+func (c *Cline) Run(model string, _ []launch.LaunchModel, args []string) (runErr error) {
 	bin, err := ClineInstaller.EnsureInstalled()
 	if err != nil {
 		return err
@@ -83,9 +89,32 @@ func (c *Cline) Run(model string, _ []launch.LaunchModel, args []string) error {
 		return err
 	}
 
+	apiKey := envconfig.APIKey()
+	if envconfig.DeviceMode() {
+		dataDir, _, err := clineDataDir(args, os.Getenv, os.UserHomeDir)
+		if err != nil {
+			return err
+		}
+		relay, err := newDeviceClineRelay()
+		if err != nil {
+			return err
+		}
+		defer func() {
+			restoreErr := restoreClineDirectURLs(dataDir, relay.providerBaseURL(), relay.providerHost())
+			relay.Close()
+			if restoreErr != nil {
+				runErr = errors.Join(runErr, fmt.Errorf("restore Cline endpoint after device session: %w", restoreErr))
+			}
+		}()
+		if err := writeClineRelayURLs(dataDir, relay.providerBaseURL(), relay.providerHost()); err != nil {
+			return err
+		}
+		apiKey = relay.placeholder
+	}
+
 	launchArgs := clineLaunchArgs(model, args)
 	cmd := exec.Command(bin, launchArgs...)
-	cmd.Env = c.childEnv()
+	cmd.Env = c.childEnvWithKey(apiKey)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -97,10 +126,18 @@ func (c *Cline) Run(model string, _ []launch.LaunchModel, args []string) error {
 // settings hold no apiKey, which is how Edit writes them.
 // childEnv is the environment cline runs in: the inherited environment with
 // the launch's own variables in place of any inherited copy.
-func (c *Cline) childEnv() []string { return launch.ChildEnv(nil, c.envVars()) }
+func (c *Cline) childEnv() []string { return c.childEnvWithKey(envconfig.APIKey()) }
+
+func (c *Cline) childEnvWithKey(apiKey string) []string {
+	return launch.ChildEnv(nil, clineEnvVars(apiKey))
+}
 
 func (c *Cline) envVars() []string {
-	return []string{"OPENAI_API_KEY=" + envconfig.APIKey()}
+	return clineEnvVars(envconfig.APIKey())
+}
+
+func clineEnvVars(apiKey string) []string {
+	return []string{"OPENAI_API_KEY=" + apiKey}
 }
 
 // dataDir is the Cline data directory Edit, Paths and Restore use. The shared

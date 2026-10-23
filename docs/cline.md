@@ -1,6 +1,6 @@
 # Cline
 
-`prizmal cline` launches Cline against the Prizmal Switch. Cline keeps its provider settings in its data directory, so the launch writes a prizmal provider entry there and puts the key on the child environment.
+`prizmal cline` launches Cline against the Prizmal Switch. Cline keeps its provider settings in its data directory, so the launch writes a prizmal provider entry there and puts the key on the child environment. With a device login, a per-session loopback relay refreshes that credential while Cline is running.
 
 The launch uses the same data directory as Cline: `--data-dir DIR`, then `CLINE_DATA_DIR`, then `--config DIR` as `DIR/data`, then `CLINE_DIR` as `$CLINE_DIR/data`, then `~/.cline/data`. Use `--data-dir` or `CLINE_DATA_DIR` to keep two worktrees from sharing provider settings:
 
@@ -31,7 +31,11 @@ Cline has no web search that routes through the Switch. Its own search requests 
 
 ## Device login
 
-Cline can't refresh a device token during a session: it reads `OPENAI_API_KEY` once, and a device token expires ten minutes after issue. So a `prizmal cline` launch on a machine signed in with a device key ignores device login and runs on the switch key from the config file, the environment, or `--api-key`. With no switch key, prizmal asks for one, as any unauthenticated launch does.
+When `~/.prizmal/device.key` exists, `prizmal cline` starts a relay on an ephemeral `127.0.0.1` port. For that launch, it points Cline's provider and mode base URLs at `http://127.0.0.1:<port>/v1` and sets `OPENAI_API_KEY` to a random placeholder. The relay accepts only that placeholder, gets a device token for each request, replaces the bearer, and forwards the request to the Switch. It also serves `GET /v1/models`, so the model picker can use the same credential.
+
+If the Switch answers 401, the relay refreshes the device token once and replays the buffered request. This lets a session continue after its first ten-minute token expires. A rejected placeholder is answered locally with 401 and never reaches the Switch.
+
+The relay is process-local and lasts only while Cline runs. Before Cline starts, the launch changes the endpoint fields in `providers.json` and `globalState.json`; after Cline exits, it writes the direct Switch URL back into those fields. The active provider, model, and act and plan mode selections stay in place. This temporary endpoint change keeps a later bare `cline` from using a dead loopback port. It is separate from `--restore`, which removes Prizmal's persisted provider configuration.
 
 ## Restore
 

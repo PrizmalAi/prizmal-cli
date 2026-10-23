@@ -73,7 +73,7 @@ To add arguments to every launch of a harness, put them in a `harnesses` section
 
 ## Credentials
 
-A `prizmal` launch can use one of two credentials. You paste a **switch key** in, or this machine enrolls a **device key** once in your browser. The switch key is simplest, since it doesn't expire, while the device key means you don't type a secret on this machine and keeps a long Claude Code session working without a restart.
+A `prizmal` launch can use one of two credentials. You paste a **switch key** in, or this machine enrolls a **device key** once in your browser. The switch key is simplest, since it doesn't expire, while the device key means you don't type a secret on this machine and keeps a long harness session working without a restart.
 
 ### Device login
 
@@ -87,13 +87,13 @@ Once your tenant approves a device, a launch uses it automatically. `prizmal cla
 
 A device token is a bearer credential that expires 10 minutes after issue, and the Switch binds it to one tenant. The private key never leaves the machine. The next refresh stops once a tenant manager revokes the device or disables the tenant, or sets the member inactive.
 
-Claude Code, Pi, Codex and OpenCode can refresh a device token during a session, so all four run in device mode. Each does it through a mechanism its own docs describe, under [Supported integrations](#supported-integrations). Launching `cline` on a machine signed in with a device key ignores device login and runs on the switch key from the config file, which doesn't expire. With no switch key, prizmal prompts for one, as any unauthenticated launch does.
+Claude Code, Pi, Codex, OpenCode and Cline can refresh a device token during a session, so all five run in device mode. Each does it through a mechanism its own docs describe, under [Supported integrations](#supported-integrations). Cline uses a per-session loopback relay that refreshes its bearer per request and retries once after a 401.
 
 ### Switch key
 
 `prizmal` stores a Prizmal Switch API key in a single config file at `~/.prizmal/config.json`, created on first run and written with `0600` permissions (`0700` on the directory). On first launch it prompts for the key. Type a key and `prizmal` writes it to the file. Leave it empty and the next run prompts again. To run without the prompt, set the key with `--api-key` or `$PRIZMAL_SWITCH_KEY`, or write the file yourself.
 
-The key is stored as **plain text by default**. This matches how the downstream coding harnesses store their own credentials, and `prizmal` deliberately does not run a local proxy or an OS keyring, so there is no extra infrastructure. If you prefer not to keep a secret on disk, the `api_key` field is extensible to two other forms. It is one of:
+The key is stored as **plain text by default**. This matches how the downstream coding harnesses store their own credentials, and switch-key launches use no local proxy or OS keyring, so there is no extra infrastructure. A Cline device session uses a loopback relay so it can rotate a short-lived token. If you prefer not to keep a secret on disk, the `api_key` field is extensible to two other forms. It is one of:
 
 **Plain string** (default)
 ```json
@@ -122,7 +122,7 @@ using api key from: config file (~/.prizmal/config.json)
 
 The announcement prints the source only, never the key's value, a prefix of it, its length, or a hash.
 
-An enrolled device key takes precedence over both the config file and `$PRIZMAL_SWITCH_KEY` on the launches device login serves — `claude`, `pi`, `codex`, `opencode`, `--list`, and a model pick — since it is the credential your tenant approved for this machine. A `cline` launch ignores the device key and resolves its credential the ordinary way. `--api-key` and `--url` still win for one launch, so you can use a switch key on a device-signed machine.
+An enrolled device key takes precedence over both the config file and `$PRIZMAL_SWITCH_KEY` on the launches device login serves — `claude`, `pi`, `codex`, `opencode`, `cline`, `--list`, and a model pick — since it is the credential your tenant approved for this machine. `--api-key` and `--url` still win for one launch, so you can use a switch key on a device-signed machine.
 
 `prizmal login` prints nothing on stdout. It signs in and exits. `prizmal auth token` is the internal helper command Claude Code, Pi and Codex run for a device token: it prints one token on stdout and nothing else, and you don't run it by hand.
 
@@ -145,7 +145,7 @@ A launch that already has its model continues after the warning, without the ext
 | `claude` | Claude Code | `ANTHROPIC_AUTH_TOKEN` (`ANTHROPIC_API_KEY` is emptied) | [docs/claude-code.md](docs/claude-code.md) |
 | `codex` | OpenAI Codex CLI | `OPENAI_API_KEY` + `model_providers.<profile>` TOML. In device mode, `model_providers.<profile>.auth` runs `prizmal auth token` instead, and no key is set | [docs/codex.md](docs/codex.md) |
 | `opencode` | OpenCode | `provider.prizmal.options.apiKey` in the inline config; a device login instead loads a plugin that runs `prizmal auth token` before each request | [docs/opencode.md](docs/opencode.md) |
-| `cline` | Cline | `OPENAI_API_KEY`, which Cline reads when `providers.openai-compatible.settings` has no `apiKey`; provider state goes under the data directory that `--data-dir` or `CLINE_DATA_DIR` sets | [docs/cline.md](docs/cline.md) |
+| `cline` | Cline | `OPENAI_API_KEY`, which Cline reads when `providers.openai-compatible.settings` has no `apiKey`; a device login instead points its provider at a per-session loopback relay that refreshes the bearer per request. Provider state goes under the data directory that `--data-dir` or `CLINE_DATA_DIR` sets | [docs/cline.md](docs/cline.md) |
 | `pi` | Pi coding agent | `PRIZMAL_SWITCH_KEY`, which `"apiKey": "$PRIZMAL_SWITCH_KEY"` in `~/.pi/agent/models.json` refers to (pi 0.77.0 or later); a device login instead loads an extension whose provider runs `prizmal auth token` | [docs/pi.md](docs/pi.md) |
 
 Each doc covers how a launch configures that harness, what its device-login behavior is, how to undo the configuration with `--restore`, and how to run the harness against the Switch without the CLI.
