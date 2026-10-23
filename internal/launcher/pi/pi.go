@@ -152,7 +152,7 @@ func (p *Pi) Run(model string, models []launch.LaunchModel, args []string) error
 // switch-key launch: those select the provider entry Edit wrote and take the
 // key from the environment as before.
 func piDeviceLaunchFor(model string, models []launch.LaunchModel) (*piDeviceLaunch, error) {
-	if !envconfig.DeviceMode() {
+	if !envconfig.DeviceMode() || envconfig.RelayMode() {
 		return nil, nil
 	}
 	extension, err := writePiDeviceExtension(model, models)

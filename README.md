@@ -73,7 +73,7 @@ To add arguments to every launch of a harness, put them in a `harnesses` section
 
 ## Credentials
 
-A `prizmal` launch can use one of two credentials. You paste a **switch key** in, or this machine enrolls a **device key** once in your browser. The switch key is simplest, since it doesn't expire, while the device key means you don't type a secret on this machine and keeps a long Claude Code session working without a restart.
+A `prizmal` launch can use one of two credentials. You paste a **switch key** in, or this machine enrolls a **device key** once in your browser. The switch key is simplest, since it doesn't expire, while the device key means you don't type a secret on this machine and keeps a long harness session working without a restart.
 
 ### Device login
 
@@ -87,13 +87,13 @@ Once your tenant approves a device, a launch uses it automatically. `prizmal cla
 
 A device token is a bearer credential that expires 10 minutes after issue, and the Switch binds it to one tenant. The private key never leaves the machine. The next refresh stops once a tenant manager revokes the device or disables the tenant, or sets the member inactive.
 
-Claude Code, Pi, Codex and OpenCode can refresh a device token during a session, so all four run in device mode. Each does it through a mechanism its own docs describe, under [Supported integrations](#supported-integrations). Launching `cline` on a machine signed in with a device key ignores device login and runs on the switch key from the config file, which doesn't expire. With no switch key, prizmal prompts for one, as any unauthenticated launch does.
+Claude Code, Pi, Codex, OpenCode and Cline can refresh a device token during a session, so all five run in device mode. Each does it through a mechanism its own docs describe, under [Supported integrations](#supported-integrations). Cline starts the loopback relay automatically for a device login, without `--relay`, because its provider configuration takes a fixed key.
 
 ### Switch key
 
 `prizmal` stores a Prizmal Switch API key in a single config file at `~/.prizmal/config.json`, created on first run and written with `0600` permissions (`0700` on the directory). On first launch it prompts for the key. Type a key and `prizmal` writes it to the file. Leave it empty and the next run prompts again. To run without the prompt, set the key with `--api-key` or `$PRIZMAL_SWITCH_KEY`, or write the file yourself.
 
-The key is stored as **plain text by default**. This matches how the downstream coding harnesses store their own credentials, and `prizmal` deliberately does not run a local proxy or an OS keyring, so there is no extra infrastructure. If you prefer not to keep a secret on disk, the `api_key` field is extensible to two other forms. It is one of:
+The key is stored as **plain text by default**. This matches how the downstream coding harnesses store their own credentials, and a direct switch-key launch uses no local proxy or OS keyring. Passing `--relay`, or starting Cline from a device login, adds a process-local loopback relay for that session. If you prefer not to keep a secret on disk, the `api_key` field is extensible to two other forms. It is one of:
 
 **Plain string** (default)
 ```json
@@ -122,7 +122,7 @@ using api key from: config file (~/.prizmal/config.json)
 
 The announcement prints the source only, never the key's value, a prefix of it, its length, or a hash.
 
-An enrolled device key takes precedence over both the config file and `$PRIZMAL_SWITCH_KEY` on the launches device login serves — `claude`, `pi`, `codex`, `opencode`, `--list`, and a model pick — since it is the credential your tenant approved for this machine. A `cline` launch ignores the device key and resolves its credential the ordinary way. `--api-key` and `--url` still win for one launch, so you can use a switch key on a device-signed machine.
+An enrolled device key takes precedence over both the config file and `$PRIZMAL_SWITCH_KEY` on the launches device login serves — `claude`, `pi`, `codex`, `opencode`, `cline`, `--list`, and a model pick — since it is the credential your tenant approved for this machine. `--api-key` and `--url` still win for one launch, so you can use a switch key on a device-signed machine.
 
 `prizmal login` prints nothing on stdout. It signs in and exits. `prizmal auth token` is the internal helper command Claude Code, Pi and Codex run for a device token: it prints one token on stdout and nothing else, and you don't run it by hand.
 
@@ -145,7 +145,7 @@ A launch that already has its model continues after the warning, without the ext
 | `claude` | Claude Code | `ANTHROPIC_AUTH_TOKEN` (`ANTHROPIC_API_KEY` is emptied) | [docs/claude-code.md](docs/claude-code.md) |
 | `codex` | OpenAI Codex CLI | `OPENAI_API_KEY` + `model_providers.<profile>` TOML. In device mode, `model_providers.<profile>.auth` runs `prizmal auth token` instead, and no key is set | [docs/codex.md](docs/codex.md) |
 | `opencode` | OpenCode | `provider.prizmal.options.apiKey` in the inline config; a device login instead loads a plugin that runs `prizmal auth token` before each request | [docs/opencode.md](docs/opencode.md) |
-| `cline` | Cline | `OPENAI_API_KEY`, which Cline reads when `providers.openai-compatible.settings` has no `apiKey`; provider state goes under the data directory that `--data-dir` or `CLINE_DATA_DIR` sets | [docs/cline.md](docs/cline.md) |
+| `cline` | Cline | `OPENAI_API_KEY`, which Cline reads when `providers.openai-compatible.settings` has no `apiKey`; a device login instead points its provider at a per-session loopback relay that refreshes the bearer per request. Provider state goes under the data directory that `--data-dir` or `CLINE_DATA_DIR` sets | [docs/cline.md](docs/cline.md) |
 | `pi` | Pi coding agent | `PRIZMAL_SWITCH_KEY`, which `"apiKey": "$PRIZMAL_SWITCH_KEY"` in `~/.pi/agent/models.json` refers to (pi 0.77.0 or later); a device login instead loads an extension whose provider runs `prizmal auth token` | [docs/pi.md](docs/pi.md) |
 
 Each doc covers how a launch configures that harness, what its device-login behavior is, how to undo the configuration with `--restore`, and how to run the harness against the Switch without the CLI.
@@ -174,6 +174,7 @@ Flags:
   -m, --model string           model to launch with (defaults to the saved default_model)
       --pick                   choose a model from this switch key's tenant, and save it as the default
       --persist                write the integration configuration without launching (persistent until --restore)
+      --relay                  route the launched harness through a per-session loopback relay
       --restore                restore the integration's original configuration and exit
       --subagent-model string  model for subagents, which default to the session model (Claude Code and Codex)
   -u, --url string             provider base URL (or $PRIZMAL_SWITCH_URL)
@@ -193,6 +194,9 @@ prizmal --pick claude
 
 # prizmal's own flags come before the integration name
 prizmal --model gpt-oss:20b claude
+
+# Keep the real credential in a loopback relay while any harness runs
+prizmal --relay --model flash codex
 
 # Claude Code, passing a harness flag straight through without a separator
 prizmal claude --resume <session-id>
@@ -215,6 +219,16 @@ prizmal --restore codex
 # sends it.
 prizmal --list
 ```
+
+`--relay` starts a loopback HTTP relay for one launch. The harness receives a
+random placeholder credential, and the relay replaces it with the launch's real
+device token or switch key on every request. It works with Claude Code, Codex,
+OpenCode, Pi and Cline. The relay listens on an ephemeral loopback port, accepts
+only that placeholder, streams responses as they arrive, and refreshes and
+replays once after a 401 when the credential source can refresh. It stops when
+the harness exits. `--relay` is a launch flag: `--list`, `--restore` and
+`--persist` refuse it, and the existing credential gate refuses a remote launch
+that has no credential.
 
 The picker shows every name `--list` prints with one exception and one fold. `default` is the placeholder the Switch is retiring, so it is not a row to choose. A model whose `GET /v1/models` entry carries a tier sits under that tier's alias row, and the row names the folded model beside the tier's description. A model that holds several tiers gives a row for each.
 

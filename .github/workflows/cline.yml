@@ -44,4 +44,6 @@ jobs:
       - name: Launch cline through prizmal
         env:
           PRIZMAL_HARNESS_LAUNCH: require
-        run: go test -count=1 -v -run 'TestHarnessLaunchCline$|TestHarnessLaunchClineWithoutAModel$' ./cmd/prizmal
+        run: |
+          go test -count=1 -v -run 'TestHarnessLaunchCline$|TestHarnessLaunchClineWithoutAModel$' ./cmd/prizmal
+          go test -count=1 -v -run '^TestHarnessLaunchClineDeviceLogin$' ./cmd/prizmal

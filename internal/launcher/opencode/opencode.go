@@ -108,7 +108,7 @@ func (o *OpenCode) Run(model string, models []launch.LaunchModel, args []string)
 	// A device-mode launch has no key in its config: the plugin is the
 	// credential, so a launch that cannot write it stops here rather than
 	// start a session every request of which would be refused.
-	if envconfig.DeviceMode() {
+	if envconfig.DeviceMode() && !envconfig.RelayMode() {
 		dir, err := openCodeSearchDir()
 		if err != nil {
 			return fmt.Errorf("find the directory for OpenCode's auth plugin: %w", err)
@@ -162,7 +162,8 @@ func (o *OpenCode) envVars(model string, models []launch.LaunchModel) []string {
 	}
 	// The plugin is written on a device-mode launch and removed on any other,
 	// so a static-key launch never runs the command.
-	if err := syncOpenCodeAuthPlugin(dir, envconfig.DeviceMode()); err != nil && envconfig.DeviceMode() {
+	deviceAuth := envconfig.DeviceMode() && !envconfig.RelayMode()
+	if err := syncOpenCodeAuthPlugin(dir, deviceAuth); err != nil && deviceAuth {
 		return env
 	}
 	if err := writeOpenCodeSearchTool(dir); err != nil {
@@ -178,7 +179,7 @@ func (o *OpenCode) envVars(model string, models []launch.LaunchModel) []string {
 		openCodeSearchURLEnv+"="+envconfig.OpenAIBaseURL(false),
 		openCodeSearchModelEnv+"="+model,
 	)
-	if !envconfig.DeviceMode() {
+	if !envconfig.DeviceMode() || envconfig.RelayMode() {
 		return append(env, openCodeSearchKeyEnv+"="+envconfig.APIKey())
 	}
 	// The plugin runs `prizmal auth token`, a separate prizmal process that
@@ -294,7 +295,7 @@ func buildInlineConfig(primary launch.LaunchModel, models []launch.LaunchModel) 
 	options := map[string]any{"baseURL": envconfig.OpenAIBaseURL(false)}
 	// A device-mode launch carries no key: the auth plugin sets the header from
 	// a fresh token for each request, and a static one would expire.
-	if !envconfig.DeviceMode() {
+	if !envconfig.DeviceMode() || envconfig.RelayMode() {
 		options["apiKey"] = envconfig.APIKey()
 	}
 

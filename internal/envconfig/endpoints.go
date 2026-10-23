@@ -1,6 +1,9 @@
 package envconfig
 
-import "strings"
+import (
+	"net/url"
+	"strings"
+)
 
 // The endpoint shapes. Every harness is pointed at the Switch through one of
 // these three, and each one answers the same two questions once, here: is the
@@ -14,7 +17,24 @@ import "strings"
 // any trailing "/" trimmed, so the shape helpers below can cut the suffix off
 // the end without a trailing slash splitting the match.
 func resolvedBase() string {
-	return strings.TrimRight(ConnectableHost().String(), "/")
+	return normalizeBase(BaseURL())
+}
+
+func upstreamResolvedBase() string {
+	return normalizeBase(UpstreamBaseURL())
+}
+
+func normalizeBase(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		u, _ = url.Parse(DefaultURL)
+	}
+	if u.Hostname() == "127.0.0.1" || u.Hostname() == "0.0.0.0" {
+		clone := *u
+		clone.Host = "localhost" + ":" + u.Port()
+		u = &clone
+	}
+	return strings.TrimRight(u.String(), "/")
 }
 
 // UnversionedBaseURL is the resolved base for a client that appends /v1
@@ -29,7 +49,10 @@ func resolvedBase() string {
 // only other outcome. A /v1 anywhere else in the path stays: it is part of the
 // path the operator configured, not a version suffix.
 func UnversionedBaseURL() string {
-	base := resolvedBase()
+	return unversionedBase(resolvedBase())
+}
+
+func unversionedBase(base string) string {
 	for {
 		trimmed, ok := strings.CutSuffix(base, "/v1")
 		if !ok {
@@ -47,10 +70,25 @@ func UnversionedBaseURL() string {
 // reports as an unreachable provider. trailingSlash adds the slash Codex's
 // config format expects and the other three do not want.
 func OpenAIBaseURL(trailingSlash bool) string {
+	return openAIBaseURL(UnversionedBaseURL(), trailingSlash)
+}
+
+func openAIBaseURL(base string, trailingSlash bool) string {
 	if trailingSlash {
-		return UnversionedBaseURL() + "/v1/"
+		return base + "/v1/"
 	}
-	return UnversionedBaseURL() + "/v1"
+	return base + "/v1"
+}
+
+// UpstreamUnversionedBaseURL is the direct Switch base, ignoring relay mode.
+func UpstreamUnversionedBaseURL() string {
+	return unversionedBase(upstreamResolvedBase())
+}
+
+// UpstreamOpenAIBaseURL is the direct OpenAI-shaped Switch endpoint, ignoring
+// relay mode.
+func UpstreamOpenAIBaseURL(trailingSlash bool) string {
+	return openAIBaseURL(UpstreamUnversionedBaseURL(), trailingSlash)
 }
 
 // CatalogURL is the endpoint prizmal itself asks the Switch for the tenant's

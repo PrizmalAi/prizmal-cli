@@ -163,17 +163,21 @@ func skipHarnessLaunchInShortMode(t *testing.T) {
 // stub's reply is on stdout. The key mode decides what credential the machine
 // starts with and which key source the launch must announce.
 func runHarnessLaunch(t *testing.T, harness string, mode harnessLaunchKeyMode) {
-	runHarnessLaunchWith(t, harness, mode, true)
+	runHarnessLaunchWith(t, harness, mode, true, false)
+}
+
+func runHarnessLaunchThroughRelay(t *testing.T, harness string, mode harnessLaunchKeyMode) {
+	runHarnessLaunchWith(t, harness, mode, true, true)
 }
 
 // runHarnessLaunchWithoutAModel runs the harness's one-shot case with no model
 // named at all, on a pipe. The picker cannot open there, so the launch must
 // stop with the names the stub's catalog routes, and the harness must not run.
 func runHarnessLaunchWithoutAModel(t *testing.T, harness string) {
-	runHarnessLaunchWith(t, harness, harnessLaunchConfigKey, false)
+	runHarnessLaunchWith(t, harness, harnessLaunchConfigKey, false, false)
 }
 
-func runHarnessLaunchWith(t *testing.T, harness string, mode harnessLaunchKeyMode, withModel bool) {
+func runHarnessLaunchWith(t *testing.T, harness string, mode harnessLaunchKeyMode, withModel, relayMode bool) {
 	t.Helper()
 	// A harness with no launch case is a bug in the test, not a launch with no
 	// arguments, so fail on it before anything else runs.
@@ -216,6 +220,9 @@ func runHarnessLaunchWith(t *testing.T, harness string, mode harnessLaunchKeyMod
 	if !withModel {
 		prizmalArgs = []string{"-y", harness, "--"}
 	}
+	if relayMode {
+		prizmalArgs = append([]string{"--relay"}, prizmalArgs...)
+	}
 	stdout, stderr, timedOut, runErr := runPrizmalInSandbox(t, prizmalBin, home, project, harnessPath, append(prizmalArgs, harnessArgs...)...)
 
 	if !withModel {
@@ -238,6 +245,9 @@ func runHarnessLaunchWith(t *testing.T, harness string, mode harnessLaunchKeyMod
 	case harnessLaunchConfigKey:
 		// Nothing to assert about the source: no device key was enrolled, so
 		// the launch resolves the config file's key and nothing else.
+		if !relayMode && strings.Contains(stderr, "relaying through ") {
+			t.Errorf("a launch without --relay started the loopback relay")
+		}
 	case harnessLaunchDeviceLogin:
 		// The announce line names the credential in use. Device login is the
 		// source, which is the whole point of the harness running in device
@@ -245,6 +255,16 @@ func runHarnessLaunchWith(t *testing.T, harness string, mode harnessLaunchKeyMod
 		if !strings.Contains(stderr, "using api key from: device login") {
 			t.Errorf("launch did not announce device login:\n--- stderr ---\n%s", tail(stderr, 50))
 		}
+		if harness == "cline" && !strings.Contains(stderr, "relaying through ") {
+			t.Errorf("Cline device login did not start its automatic relay:\n--- stderr ---\n%s", tail(stderr, 50))
+		}
+		if harness != "cline" && !relayMode && strings.Contains(stderr, "relaying through ") {
+			t.Errorf("a device launch without --relay started the loopback relay")
+		}
+	}
+	wantRelay := relayMode || (mode == harnessLaunchDeviceLogin && harness == "cline")
+	if wantRelay != strings.Contains(stderr, "relaying through ") {
+		t.Errorf("relay announcement presence = %v, want %v", strings.Contains(stderr, "relaying through "), wantRelay)
 	}
 	if harness == "codex" {
 		// A launch that hands Codex a catalog with no system prompt sends a

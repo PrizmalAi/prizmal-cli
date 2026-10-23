@@ -41,13 +41,11 @@ func deviceKeyExists() bool {
 }
 
 // deviceLoginApplies decides whether the command about to run may use device
-// login. A device token is a credential the CLI refreshes itself, so a --list
-// and a bare --pick may, whatever a first-run sign-in left behind. A launch of
-// a harness with no refresh contract — Cline — may not:
-// entering device mode would outrank the switch key the config already holds
-// and then hand the harness a token that expires in ten minutes, so device
-// login is ignored for it and the launch runs on that key. An unknown word is
-// not a harness; the launch fails on it later either way.
+// login. A device token is a credential the CLI refreshes itself, so a --list,
+// a bare --pick, and a launch of any harness with a refresh contract may use
+// it. A runner without one cannot rotate the token and falls back to its
+// ordinary key source. An unknown word is not a harness; the launch fails on it
+// later either way.
 func deviceLoginApplies(listFlag bool, args []string) bool {
 	if listFlag || len(args) == 0 {
 		return true
@@ -77,9 +75,8 @@ func deviceLoginApplies(listFlag bool, args []string) bool {
 // credential sitting right there. Silently proceeding on the fallback, with
 // one warning, beats hard-erroring a launch that has a real key in hand.
 //
-// deviceLoginApplies decides whether this runs at all: a launch of a harness
-// without a refresh contract never reaches it, so device login stays entirely
-// out of that launch.
+// deviceLoginApplies decides whether this runs at all. A runner that cannot
+// refresh a device token falls back to its ordinary key source.
 func enterDeviceMode() error {
 	if !deviceKeyExists() {
 		return nil
