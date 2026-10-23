@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -646,6 +647,7 @@ func TestPickWithoutAConfigStillLaunches(t *testing.T) {
 	useStubSwitch(t)
 	setModel(t, "")
 	setPick(t, true)
+	home := emptyHome(t)
 	ask := askWith(true, "picked-model", nil)
 
 	chosen, _, err := resolveLaunchModel(nil, "", ask, false)
@@ -654,6 +656,76 @@ func TestPickWithoutAConfigStillLaunches(t *testing.T) {
 	}
 	if chosen != "picked-model" {
 		t.Fatalf("resolved %q, want picked-model", chosen)
+	}
+	assertConfigFields(t, home, map[string]any{"version": float64(1), "default_model": "picked-model"})
+}
+
+// assertConfigFields fails unless the config file under home holds exactly want.
+func assertConfigFields(t *testing.T, home string, want map[string]any) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(home, config.PrizmalDir, config.PrizmalFileName))
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("config = %v, want %v", got, want)
+	}
+}
+
+// A save with no loaded config keeps the fields of the file already on disk.
+func TestSaveDefaultModelWithNilConfigKeepsExistingFields(t *testing.T) {
+	_, home := writeConfig(t, map[string]any{
+		"version":       1,
+		"base_url":      "https://switch.example.test",
+		"api_key":       "sk-invented",
+		"default_model": "old-model",
+	})
+
+	if err := saveDefaultModel(nil, "picked-model"); err != nil {
+		t.Fatalf("saveDefaultModel: %v", err)
+	}
+	assertConfigFields(t, home, map[string]any{
+		"version":       float64(1),
+		"base_url":      "https://switch.example.test",
+		"api_key":       "sk-invented",
+		"default_model": "picked-model",
+	})
+}
+
+// On a machine with no config the save creates one holding the version and the
+// default alone.
+func TestSaveDefaultModelWithNilConfigCreatesMinimalFile(t *testing.T) {
+	home := emptyHome(t)
+
+	if err := saveDefaultModel(nil, "picked-model"); err != nil {
+		t.Fatalf("saveDefaultModel: %v", err)
+	}
+	assertConfigFields(t, home, map[string]any{"version": float64(1), "default_model": "picked-model"})
+}
+
+// A config that cannot be read fails the save and stays as it was, instead of
+// being replaced by a fresh one.
+func TestSaveDefaultModelWithNilConfigFailsOnUnreadableConfig(t *testing.T) {
+	home := emptyHome(t)
+	path := filepath.Join(home, config.PrizmalDir, config.PrizmalFileName)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	const broken = `{"api_key": "sk-invented", `
+	if err := os.WriteFile(path, []byte(broken), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := saveDefaultModel(nil, "picked-model"); err == nil {
+		t.Fatal("saveDefaultModel succeeded on an unparsable config")
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != broken {
+		t.Fatalf("config after failed save = %q, %v; want it untouched", got, err)
 	}
 }
 
