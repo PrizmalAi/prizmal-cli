@@ -54,7 +54,12 @@ func TestClinePathsUseResolvedDataDir(t *testing.T) {
 	if err := c.Edit([]launch.LaunchModel{{Name: "probe-model"}}); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{filepath.Join(dir, "settings", "providers.json"), filepath.Join(dir, "globalState.json")}
+	want := []string{
+		filepath.Join(dir, ".prizmal", "cline-search", clineSearchPluginName, "index.js"),
+		filepath.Join(dir, ".prizmal", "cline-search", clineSearchPluginName, clineSearchOwnerFile),
+		filepath.Join(dir, "globalState.json"),
+		filepath.Join(dir, "settings", "providers.json"),
+	}
 	if got := c.Paths(); !slices.Equal(got, want) {
 		t.Fatalf("Paths() = %v, want %v", got, want)
 	}
@@ -68,6 +73,11 @@ func TestClineRunWritesDataDirFlagTree(t *testing.T) {
 	internaltest.WithAPIKey(t, internaltest.FakeKeyAtRest)
 	t.Setenv("CLINE_DATA_DIR", "")
 	t.Setenv("CLINE_DIR", "")
+	calls := 0
+	var installedSource string
+	previousInstall := installClinePlugin
+	installClinePlugin = fakeClinePluginInstall(t, &calls, &installedSource)
+	t.Cleanup(func() { installClinePlugin = previousInstall })
 	bin := internaltest.WithEmptyPATH(t)
 	args := filepath.Join(t.TempDir(), "args")
 	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + args + "\n"

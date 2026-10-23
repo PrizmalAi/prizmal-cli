@@ -23,7 +23,13 @@ When you pass `--data-dir` or `--config` to Cline, the launch leaves the flag in
 
 ## Search
 
-Cline has no web search that routes through the Switch. Its own search requests never reach the Switch.
+`prizmal cline` installs a local Cline plugin named `prizmal_search`. It adds one tool, `prizmal_search__search`, which sends the query to the Switch's `/v1/responses` with its `web_search` tool and returns a summary with source URLs. Cline's title and summary requests do not carry session tools, so the model can call search only from the chat it is working on.
+
+The plugin reads `PRIZMAL_CLINE_SEARCH_URL`, `PRIZMAL_CLINE_SEARCH_MODEL`, and `OPENAI_API_KEY` from the environment when the tool runs. The first two name the endpoint and model; the key stays in Cline's process environment and is never written into the plugin or its settings. A switch-key launch uses the direct Switch URL and key. A device login, or `--relay`, uses the loopback URL and per-launch placeholder.
+
+The plugin stays installed after Cline exits, as every persisted launch edit does. Running the launch again replaces Prizmal's plugin. A plugin the user already installed, including another plugin named `prizmal_search`, stays untouched. `prizmal --restore cline` removes only Prizmal's copy.
+
+Cline also has its own `fetch_web_content` tool. It is not offered to the model in the headless `openai-compatible` sessions configured here, and Cline's hosted `web_search` tool does not apply to this provider. The names remain distinct from `prizmal_search__search`.
 
 ## Model
 
@@ -73,4 +79,4 @@ OPENAI_API_KEY="$PRIZMAL_SWITCH_KEY" cline
 
 The entry leaves out `apiKey`, so Cline reads the key from `OPENAI_API_KEY` and the file doesn't contain your switch key.
 
-`prizmal cline` writes this entry and the selection for you, and installs Cline when the `cline` binary is missing.
+`prizmal cline` writes this entry and the selection for you, installs the search plugin, and installs Cline when the `cline` binary is missing. The plugin's generated source and installation are launch-specific; a manual setup can install its own Cline plugin for `prizmal_search__search` and point it at the same `/v1/responses` request.

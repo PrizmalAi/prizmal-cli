@@ -88,12 +88,19 @@ func (c *Cline) Run(model string, _ []launch.LaunchModel, args []string) (runErr
 	if err := c.writeArgDataDir(model, args); err != nil {
 		return err
 	}
+	dataDir, relocated, err := clineDataDir(args, os.Getenv, os.UserHomeDir)
+	if err != nil {
+		return err
+	}
+	pluginRoot, err := clinePluginRoot(args, os.Getenv, os.UserHomeDir)
+	if err != nil {
+		return err
+	}
+	if err := writeClineSearch(dataDir, pluginRoot, relocated); err != nil {
+		return err
+	}
 
 	if envconfig.RelayMode() {
-		dataDir, _, err := clineDataDir(args, os.Getenv, os.UserHomeDir)
-		if err != nil {
-			return err
-		}
 		relayBaseURL := envconfig.OpenAIBaseURL(false)
 		relayHost := envconfig.UnversionedBaseURL()
 		defer func() {
@@ -109,7 +116,7 @@ func (c *Cline) Run(model string, _ []launch.LaunchModel, args []string) (runErr
 
 	launchArgs := clineLaunchArgs(model, args)
 	cmd := exec.Command(bin, launchArgs...)
-	cmd.Env = c.childEnv()
+	cmd.Env = c.childEnvForModel(model, pluginRoot)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -121,18 +128,40 @@ func (c *Cline) Run(model string, _ []launch.LaunchModel, args []string) (runErr
 // settings hold no apiKey, which is how Edit writes them.
 // childEnv is the environment cline runs in: the inherited environment with
 // the launch's own variables in place of any inherited copy.
-func (c *Cline) childEnv() []string { return c.childEnvWithKey(envconfig.APIKey()) }
+func (c *Cline) childEnv() []string {
+	root, err := c.pluginRoot()
+	if err != nil {
+		return c.childEnvWithKey(envconfig.APIKey(), "", "")
+	}
+	return c.childEnvForModel("", root)
+}
 
-func (c *Cline) childEnvWithKey(apiKey string) []string {
-	return launch.ChildEnv(nil, clineEnvVars(apiKey))
+func (c *Cline) childEnvForModel(model, pluginRoot string) []string {
+	return c.childEnvWithKey(envconfig.APIKey(), model, pluginRoot)
+}
+
+func (c *Cline) childEnvWithKey(apiKey, model, pluginRoot string) []string {
+	return launch.ChildEnv(nil, clineEnvVars(apiKey, model, pluginRoot))
 }
 
 func (c *Cline) envVars() []string {
-	return clineEnvVars(envconfig.APIKey())
+	return c.envVarsForModel("")
 }
 
-func clineEnvVars(apiKey string) []string {
-	return []string{"OPENAI_API_KEY=" + apiKey}
+func (c *Cline) envVarsForModel(model string) []string {
+	root, err := c.pluginRoot()
+	if err != nil {
+		return []string{"OPENAI_API_KEY=" + envconfig.APIKey()}
+	}
+	return clineEnvVars(envconfig.APIKey(), model, root)
+}
+
+func clineEnvVars(apiKey, model, pluginRoot string) []string {
+	env := []string{
+		"OPENAI_API_KEY=" + apiKey,
+		"CLINE_DIR=" + pluginRoot,
+	}
+	return append(env, clineSearchEnv(model)...)
 }
 
 // dataDir is the Cline data directory Edit, Paths and Restore use. The shared
@@ -273,6 +302,15 @@ func (c *Cline) Paths() []string {
 			paths = append(paths, p)
 		}
 	}
+	pluginRoot, err := c.pluginRoot()
+	if err == nil {
+		for _, p := range clineSearchPaths(dataDir, pluginRoot) {
+			if _, statErr := os.Stat(p); statErr == nil {
+				paths = append(paths, p)
+			}
+		}
+	}
+	slices.Sort(paths)
 	return paths
 }
 
@@ -285,7 +323,15 @@ func (c *Cline) Edit(models []launch.LaunchModel) error {
 	if err != nil {
 		return err
 	}
-	return writeClineDataDir(dataDir, relocated, models[0].Name)
+	if err := writeClineDataDir(dataDir, relocated, models[0].Name); err != nil {
+		return err
+	}
+	pluginRoot, err := c.pluginRoot()
+	if err != nil {
+		return err
+	}
+	_, err = writeClineSearchSource(pluginRoot)
+	return err
 }
 
 func writeClineDataDir(dataDir string, relocated bool, model string) error {
@@ -514,6 +560,10 @@ func (c *Cline) Restore() (launch.RestoreOutcome, error) {
 	}
 	backup := clineBackupIntegration(dataDir, relocated)
 
+	search, err := c.restoreClineSearch(dataDir)
+	if err != nil {
+		return launch.RestoreOutcome{}, err
+	}
 	providers, err := clineRestoreProviders(clineProvidersPath(dataDir), backup)
 	if err != nil {
 		return launch.RestoreOutcome{}, err
@@ -522,7 +572,7 @@ func (c *Cline) Restore() (launch.RestoreOutcome, error) {
 	if err != nil {
 		return launch.RestoreOutcome{}, err
 	}
-	return providers.Join(state), nil
+	return search.Join(providers).Join(state), nil
 }
 
 func (c *Cline) RestoreSuccessMessage() string { return clineRestoreSuccess }
