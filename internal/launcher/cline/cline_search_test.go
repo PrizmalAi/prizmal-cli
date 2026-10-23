@@ -42,8 +42,7 @@ func fakeClinePluginInstall(t *testing.T, calls *int, installedSource *string) c
 }
 
 func TestClineSearchInstallRewriteAndRestoreOwnership(t *testing.T) {
-	home := internaltest.SandboxedHome(t)
-	_ = home
+	internaltest.SandboxedHome(t)
 	internaltest.WithAPIKey(t, internaltest.FakeKeyAtRest)
 	dataDir := t.TempDir()
 	t.Setenv("CLINE_DATA_DIR", dataDir)
@@ -63,7 +62,14 @@ func TestClineSearchInstallRewriteAndRestoreOwnership(t *testing.T) {
 	var installedSource string
 	previousInstall := installClinePlugin
 	installClinePlugin = fakeClinePluginInstall(t, &calls, &installedSource)
-	t.Cleanup(func() { installClinePlugin = previousInstall })
+	previousUninstall := uninstallClinePlugin
+	uninstallClinePlugin = func(_ string, installPath string) error {
+		return os.RemoveAll(installPath)
+	}
+	t.Cleanup(func() {
+		installClinePlugin = previousInstall
+		uninstallClinePlugin = previousUninstall
+	})
 
 	c := &Cline{}
 	if err := c.Edit([]launch.LaunchModel{{Name: "probe-model"}}); err != nil {
