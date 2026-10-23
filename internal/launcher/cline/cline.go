@@ -88,7 +88,7 @@ func (c *Cline) Run(model string, _ []launch.LaunchModel, args []string) (runErr
 	if err := c.writeArgDataDir(model, args); err != nil {
 		return err
 	}
-	dataDir, relocated, err := clineDataDir(args, os.Getenv, os.UserHomeDir)
+	dataDir, _, err := clineDataDir(args, os.Getenv, os.UserHomeDir)
 	if err != nil {
 		return err
 	}
@@ -96,7 +96,7 @@ func (c *Cline) Run(model string, _ []launch.LaunchModel, args []string) (runErr
 	if err != nil {
 		return err
 	}
-	if err := writeClineSearch(dataDir, pluginRoot, relocated); err != nil {
+	if err := writeClineSearch(pluginRoot); err != nil {
 		return err
 	}
 
@@ -116,7 +116,7 @@ func (c *Cline) Run(model string, _ []launch.LaunchModel, args []string) (runErr
 
 	launchArgs := clineLaunchArgs(model, args)
 	cmd := exec.Command(bin, launchArgs...)
-	cmd.Env = c.childEnvForModel(model, pluginRoot)
+	cmd.Env = c.childEnvForModel(model)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -129,19 +129,15 @@ func (c *Cline) Run(model string, _ []launch.LaunchModel, args []string) (runErr
 // childEnv is the environment cline runs in: the inherited environment with
 // the launch's own variables in place of any inherited copy.
 func (c *Cline) childEnv() []string {
-	root, err := c.pluginRoot()
-	if err != nil {
-		return c.childEnvWithKey(envconfig.APIKey(), "", "")
-	}
-	return c.childEnvForModel("", root)
+	return c.childEnvForModel("")
 }
 
-func (c *Cline) childEnvForModel(model, pluginRoot string) []string {
-	return c.childEnvWithKey(envconfig.APIKey(), model, pluginRoot)
+func (c *Cline) childEnvForModel(model string) []string {
+	return c.childEnvWithKey(envconfig.APIKey(), model)
 }
 
-func (c *Cline) childEnvWithKey(apiKey, model, pluginRoot string) []string {
-	return launch.ChildEnv(nil, clineEnvVars(apiKey, model, pluginRoot))
+func (c *Cline) childEnvWithKey(apiKey, model string) []string {
+	return launch.ChildEnv(nil, clineEnvVars(apiKey, model))
 }
 
 func (c *Cline) envVars() []string {
@@ -149,18 +145,11 @@ func (c *Cline) envVars() []string {
 }
 
 func (c *Cline) envVarsForModel(model string) []string {
-	root, err := c.pluginRoot()
-	if err != nil {
-		return []string{"OPENAI_API_KEY=" + envconfig.APIKey()}
-	}
-	return clineEnvVars(envconfig.APIKey(), model, root)
+	return clineEnvVars(envconfig.APIKey(), model)
 }
 
-func clineEnvVars(apiKey, model, pluginRoot string) []string {
-	env := []string{
-		"OPENAI_API_KEY=" + apiKey,
-		"CLINE_DIR=" + pluginRoot,
-	}
+func clineEnvVars(apiKey, model string) []string {
+	env := []string{"OPENAI_API_KEY=" + apiKey}
 	return append(env, clineSearchEnv(model)...)
 }
 
@@ -304,7 +293,7 @@ func (c *Cline) Paths() []string {
 	}
 	pluginRoot, err := c.pluginRoot()
 	if err == nil {
-		for _, p := range clineSearchPaths(dataDir, pluginRoot) {
+		for _, p := range clineSearchPaths(pluginRoot) {
 			if _, statErr := os.Stat(p); statErr == nil {
 				paths = append(paths, p)
 			}
@@ -330,8 +319,10 @@ func (c *Cline) Edit(models []launch.LaunchModel) error {
 	if err != nil {
 		return err
 	}
-	_, err = writeClineSearchSource(pluginRoot)
-	return err
+	return withClineSearchLock(pluginRoot, func() error {
+		_, err := writeClineSearchSource(pluginRoot)
+		return err
+	})
 }
 
 func writeClineDataDir(dataDir string, relocated bool, model string) error {
@@ -560,7 +551,11 @@ func (c *Cline) Restore() (launch.RestoreOutcome, error) {
 	}
 	backup := clineBackupIntegration(dataDir, relocated)
 
-	search, err := c.restoreClineSearch(dataDir)
+	pluginRoot, err := c.pluginRoot()
+	if err != nil {
+		return launch.RestoreOutcome{}, err
+	}
+	search, err := c.restoreClineSearch(pluginRoot)
 	if err != nil {
 		return launch.RestoreOutcome{}, err
 	}

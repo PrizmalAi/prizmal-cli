@@ -50,13 +50,18 @@ func TestClinePathsUseResolvedDataDir(t *testing.T) {
 	internaltest.SandboxedHome(t)
 	dir := t.TempDir()
 	t.Setenv("CLINE_DATA_DIR", dir)
+	t.Setenv("CLINE_DIR", "")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
 	c := &Cline{}
 	if err := c.Edit([]launch.LaunchModel{{Name: "probe-model"}}); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{
-		filepath.Join(dir, ".prizmal", "cline-search", clineSearchPluginName, "index.js"),
-		filepath.Join(dir, ".prizmal", "cline-search", clineSearchPluginName, clineSearchOwnerFile),
+		filepath.Join(home, ".cline", ".prizmal", "cline-search", clineSearchPluginName, "index.js"),
+		filepath.Join(home, ".cline", ".prizmal", "cline-search", clineSearchPluginName, clineSearchOwnerFile),
 		filepath.Join(dir, "globalState.json"),
 		filepath.Join(dir, "settings", "providers.json"),
 	}

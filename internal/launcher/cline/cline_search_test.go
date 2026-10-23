@@ -7,7 +7,10 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	"github.com/PrizmalAi/prizmal-cli/internal/internaltest"
@@ -42,13 +45,13 @@ func fakeClinePluginInstall(t *testing.T, calls *int, installedSource *string) c
 }
 
 func TestClineSearchInstallRewriteAndRestoreOwnership(t *testing.T) {
-	internaltest.SandboxedHome(t)
+	home := internaltest.SandboxedHome(t)
 	internaltest.WithAPIKey(t, internaltest.FakeKeyAtRest)
 	dataDir := t.TempDir()
 	t.Setenv("CLINE_DATA_DIR", dataDir)
 	t.Setenv("CLINE_DIR", "")
 
-	userInstall := filepath.Join(dataDir, "plugins", "_installed", "local", "prizmal_search-user")
+	userInstall := filepath.Join(home, ".cline", "plugins", "_installed", "local", "prizmal_search-user")
 	if err := os.MkdirAll(userInstall, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +82,7 @@ func TestClineSearchInstallRewriteAndRestoreOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeClineSearch(dataDir, pluginRoot, true); err != nil {
+	if err := writeClineSearch(pluginRoot); err != nil {
 		t.Fatal(err)
 	}
 	if calls != 1 {
@@ -102,7 +105,7 @@ func TestClineSearchInstallRewriteAndRestoreOwnership(t *testing.T) {
 	if err := c.Edit([]launch.LaunchModel{{Name: "probe-model"}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeClineSearch(dataDir, pluginRoot, true); err != nil {
+	if err := writeClineSearch(pluginRoot); err != nil {
 		t.Fatal(err)
 	}
 	if calls != 2 {
@@ -118,7 +121,7 @@ func TestClineSearchInstallRewriteAndRestoreOwnership(t *testing.T) {
 	if _, err := os.Stat(clineSearchSourceDir(pluginRoot)); !os.IsNotExist(err) {
 		t.Fatalf("generated search source survived restore: %v", err)
 	}
-	if _, err := os.Stat(clineSearchStatePath(dataDir)); !os.IsNotExist(err) {
+	if _, err := os.Stat(clineSearchStatePath(pluginRoot)); !os.IsNotExist(err) {
 		t.Fatalf("search state survived restore: %v", err)
 	}
 	got, err := os.ReadFile(userFile)
@@ -157,7 +160,7 @@ func TestClineSearchRefusesToReplaceAnUnownedGeneratedPath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = writeClineSearch(dataDir, pluginRoot, true)
+	err = writeClineSearch(pluginRoot)
 	if err == nil || !strings.Contains(err.Error(), "without prizmal's owner marker") {
 		t.Fatalf("writeClineSearch = %v, want an ownership refusal", err)
 	}
@@ -183,7 +186,7 @@ func TestClineSearchEnvironmentFollowsRelayAndDirectMode(t *testing.T) {
 	})
 
 	c := &Cline{}
-	direct := c.childEnvForModel("probe-model", mustPluginRoot(t, c))
+	direct := c.childEnvForModel("probe-model")
 	if got := internaltest.EnvValue(direct, clineSearchURLEnv+"="); got != "https://switch.example.test/v1" {
 		t.Fatalf("%s = %q, want the direct Switch base", clineSearchURLEnv, got)
 	}
@@ -195,12 +198,108 @@ func TestClineSearchEnvironmentFollowsRelayAndDirectMode(t *testing.T) {
 	}
 
 	envconfig.SetRelay("http://127.0.0.1:43210/v1", "invented-placeholder")
-	relay := c.childEnvForModel("probe-model", mustPluginRoot(t, c))
+	relay := c.childEnvForModel("probe-model")
 	if got := internaltest.EnvValue(relay, clineSearchURLEnv+"="); got != "http://localhost:43210/v1" {
 		t.Fatalf("%s = %q, want the loopback base", clineSearchURLEnv, got)
 	}
 	if got := internaltest.EnvValue(relay, "OPENAI_API_KEY="); got != "invented-placeholder" {
 		t.Fatalf("OPENAI_API_KEY = %q, want the placeholder", got)
+	}
+}
+
+func TestClineSearchUsesConfigRootForRelocatedDataDir(t *testing.T) {
+	home := internaltest.SandboxedHome(t)
+	dataDir := t.TempDir()
+	t.Setenv("CLINE_DATA_DIR", dataDir)
+	t.Setenv("CLINE_DIR", "")
+
+	c := &Cline{}
+	root, err := c.pluginRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(home, ".cline"); root != want {
+		t.Fatalf("plugin root = %q, want the Cline config root %q", root, want)
+	}
+	env := c.envVarsForModel("probe-model")
+	if got := envvalue(env, "CLINE_DIR"); got != "" {
+		t.Fatalf("CLINE_DIR = %q, want the inherited Cline config root left in place", got)
+	}
+	userPlugin := filepath.Join(home, ".cline", "plugins", "user-plugin", "index.js")
+	if err := os.MkdirAll(filepath.Dir(userPlugin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(userPlugin, []byte("export default {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(userPlugin); err != nil {
+		t.Fatalf("unrelated plugin is outside Cline's config root: %v", err)
+	}
+}
+
+func TestConcurrentClineInstancesShareConfigPluginSafely(t *testing.T) {
+	home := internaltest.SandboxedHome(t)
+	t.Setenv("CLINE_DATA_DIR", "")
+	t.Setenv("CLINE_DIR", "")
+	root := filepath.Join(home, ".cline")
+
+	var calls atomic.Int32
+	var active atomic.Int32
+	var maxActive atomic.Int32
+	previousInstall := installClinePlugin
+	installClinePlugin = func(pluginRoot, source string) (string, error) {
+		calls.Add(1)
+		now := active.Add(1)
+		for {
+			max := maxActive.Load()
+			if now <= max || maxActive.CompareAndSwap(max, now) {
+				break
+			}
+		}
+		defer active.Add(-1)
+		time.Sleep(50 * time.Millisecond)
+
+		installPath := clineInstalledPluginPath(pluginRoot, source)
+		if err := os.MkdirAll(filepath.Join(installPath, "package"), 0o755); err != nil {
+			return "", err
+		}
+		for _, name := range []string{"index.js", clineSearchOwnerFile} {
+			data, err := os.ReadFile(filepath.Join(source, name))
+			if err != nil {
+				return "", err
+			}
+			if err := os.WriteFile(filepath.Join(installPath, "package", name), data, 0o644); err != nil {
+				return "", err
+			}
+		}
+		return installPath, nil
+	}
+	t.Cleanup(func() { installClinePlugin = previousInstall })
+
+	errs := make(chan error, 2)
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs <- writeClineSearch(root)
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("install calls = %d, want one forced install per launch", got)
+	}
+	if got := maxActive.Load(); got != 1 {
+		t.Fatalf("max concurrent installs = %d, want 1", got)
+	}
+	if !clineSearchOwnsInstall(clineInstalledPluginPath(root, clineSearchSourceDir(root))) {
+		t.Fatal("shared config-root plugin was not installed with prizmal's owner marker")
 	}
 }
 
@@ -236,10 +335,10 @@ func TestClineSearchStateIsKeyless(t *testing.T) {
 	installClinePlugin = fakeClinePluginInstall(t, &calls, &installedSource)
 	t.Cleanup(func() { installClinePlugin = previousInstall })
 	pluginRoot := mustPluginRoot(t, &Cline{})
-	if err := writeClineSearch(dataDir, pluginRoot, true); err != nil {
+	if err := writeClineSearch(pluginRoot); err != nil {
 		t.Fatal(err)
 	}
-	err := filepath.WalkDir(dataDir, func(path string, entry fs.DirEntry, err error) error {
+	err := filepath.WalkDir(pluginRoot, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil || entry.IsDir() {
 			return err
 		}

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	"github.com/PrizmalAi/prizmal-cli/internal/fileutil"
@@ -54,9 +55,9 @@ var clineSearchOwner = clinePluginOwner{
 }
 
 // clinePluginRoot is the Cline configuration tree whose plugins directory
-// discovers plugins. An explicit --config or CLINE_DIR names it directly.
-// Otherwise it follows a relocated data directory, so two CLINE_DATA_DIR trees
-// do not both install globally under ~/.cline.
+// discovers plugins. It deliberately ignores the data directory: Cline always
+// discovers plugins beside its configuration, and redirecting CLINE_DIR to an
+// isolated data tree would hide every unrelated plugin under ~/.cline.
 func clinePluginRoot(args []string, getenv func(string) string, home func() (string, error)) (string, error) {
 	_, configDir := clinePathArgs(args)
 	if configDir == "" {
@@ -65,14 +66,11 @@ func clinePluginRoot(args []string, getenv func(string) string, home func() (str
 	if configDir != "" {
 		return filepath.Abs(configDir)
 	}
-	dataDir, relocated, err := clineDataDir(args, getenv, home)
+	h, err := home()
 	if err != nil {
 		return "", err
 	}
-	if relocated {
-		return dataDir, nil
-	}
-	return filepath.Dir(dataDir), nil
+	return filepath.Abs(filepath.Join(h, ".cline"))
 }
 
 func (c *Cline) pluginRoot() (string, error) {
@@ -83,8 +81,8 @@ func clineSearchSourceDir(pluginRoot string) string {
 	return filepath.Join(pluginRoot, ".prizmal", "cline-search", clineSearchPluginName)
 }
 
-func clineSearchStatePath(dataDir string) string {
-	return filepath.Join(dataDir, "settings", clineSearchStateFile)
+func clineSearchStatePath(pluginRoot string) string {
+	return filepath.Join(pluginRoot, ".prizmal", clineSearchStateFile)
 }
 
 func clineSearchOwnerPath(dir string) string {
@@ -117,7 +115,13 @@ func writeClineSearchSource(pluginRoot string) (string, error) {
 // replacing an existing install at the generated path, it verifies the owner
 // marker. A plugin from another source, including a user's own
 // prizmal_search, has a different generated path and is never touched.
-func writeClineSearch(dataDir, pluginRoot string, relocated bool) error {
+func writeClineSearch(pluginRoot string) error {
+	return withClineSearchLock(pluginRoot, func() error {
+		return writeClineSearchLocked(pluginRoot)
+	})
+}
+
+func writeClineSearchLocked(pluginRoot string) error {
 	source, err := writeClineSearchSource(pluginRoot)
 	if err != nil {
 		return err
@@ -148,14 +152,49 @@ func writeClineSearch(dataDir, pluginRoot string, relocated bool) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(clineSearchStatePath(dataDir)), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(clineSearchStatePath(pluginRoot)), 0o755); err != nil {
 		return err
 	}
-	backup := clineBackupIntegration(dataDir, relocated)
-	if err := fileutil.WriteWithBackup(clineSearchStatePath(dataDir), data, backup); err != nil {
+	backup := clinePluginBackupIntegration(pluginRoot)
+	if err := fileutil.WriteWithBackup(clineSearchStatePath(pluginRoot), data, backup); err != nil {
 		return err
 	}
 	return nil
+}
+
+func clinePluginBackupIntegration(pluginRoot string) string {
+	sum := sha256.Sum256([]byte(filepath.Clean(pluginRoot)))
+	return filepath.Join("cline", "plugin-roots", hex.EncodeToString(sum[:8]))
+}
+
+// withClineSearchLock serializes plugin replacement across prizmal processes.
+// Several Cline data trees may share one configuration root, and Cline installs
+// the plugin for that root. A stale lock older than two minutes is discarded.
+func withClineSearchLock(pluginRoot string, fn func() error) error {
+	lockDir := filepath.Join(pluginRoot, ".prizmal", "cline-search.lock")
+	if err := os.MkdirAll(filepath.Dir(lockDir), 0o755); err != nil {
+		return err
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		err := os.Mkdir(lockDir, 0o700)
+		if err == nil {
+			defer func() { _ = os.Remove(lockDir) }()
+			return fn()
+		}
+		if !os.IsExist(err) {
+			return err
+		}
+		info, statErr := os.Stat(lockDir)
+		if statErr == nil && time.Since(info.ModTime()) > 2*time.Minute {
+			_ = os.Remove(lockDir)
+			continue
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out waiting for Cline plugin install lock %s", lockDir)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
 }
 
 // clineInstalledPluginPath mirrors Cline 3.0.73's local plugin destination:
@@ -211,8 +250,8 @@ func runClinePluginUninstall(pluginRoot, installPath string) error {
 	return cmd.Run()
 }
 
-func (c *Cline) restoreClineSearch(dataDir string) (launch.RestoreOutcome, error) {
-	path := clineSearchStatePath(dataDir)
+func (c *Cline) restoreClineSearch(pluginRoot string) (launch.RestoreOutcome, error) {
+	path := clineSearchStatePath(pluginRoot)
 	raw, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return launch.RestoreOutcome{}, nil
@@ -227,37 +266,39 @@ func (c *Cline) restoreClineSearch(dataDir string) (launch.RestoreOutcome, error
 	if !clineSearchOwnsInstall(state.InstallPath) {
 		return launch.RestoreOutcome{}, fmt.Errorf("refusing to remove Cline plugin %s without prizmal's owner marker", state.InstallPath)
 	}
-	root, err := c.pluginRoot()
-	if err != nil {
-		return launch.RestoreOutcome{}, err
-	}
-	root = filepath.Clean(root)
+	root := filepath.Clean(pluginRoot)
 	installPath := filepath.Clean(state.InstallPath)
 	rel, err := filepath.Rel(root, installPath)
 	if err != nil || rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." {
 		return launch.RestoreOutcome{}, fmt.Errorf("Cline plugin path %s is outside %s", installPath, root)
 	}
-	if err := uninstallClinePlugin(root, installPath); err != nil {
-		return launch.RestoreOutcome{}, fmt.Errorf("uninstall Cline search plugin: %w", err)
-	}
-	if clineSearchOwnsInstall(state.SourcePath) {
-		if err := os.RemoveAll(state.SourcePath); err != nil {
-			return launch.RestoreOutcome{}, err
+	err = withClineSearchLock(root, func() error {
+		if err := uninstallClinePlugin(root, installPath); err != nil {
+			return fmt.Errorf("uninstall Cline search plugin: %w", err)
 		}
-	}
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		if clineSearchOwnsInstall(state.SourcePath) {
+			if err := os.RemoveAll(state.SourcePath); err != nil {
+				return err
+			}
+		}
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
 		return launch.RestoreOutcome{}, err
 	}
 	return launch.RestoreOutcome{Removed: true}, nil
 }
 
-func clineSearchPaths(dataDir, pluginRoot string) []string {
+func clineSearchPaths(pluginRoot string) []string {
 	paths := []string{
 		clineSearchOwnerPath(clineSearchSourceDir(pluginRoot)),
 		filepath.Join(clineSearchSourceDir(pluginRoot), "index.js"),
-		clineSearchStatePath(dataDir),
+		clineSearchStatePath(pluginRoot),
 	}
-	raw, err := os.ReadFile(clineSearchStatePath(dataDir))
+	raw, err := os.ReadFile(clineSearchStatePath(pluginRoot))
 	if err == nil {
 		var state clineSearchState
 		if json.Unmarshal(raw, &state) == nil && clineSearchOwnsInstall(state.InstallPath) {
