@@ -29,7 +29,7 @@ The plugin reads `PRIZMAL_CLINE_SEARCH_URL`, `PRIZMAL_CLINE_SEARCH_MODEL`, and `
 
 The plugin stays installed after Cline exits, as every persisted launch edit does. Running the launch again replaces Prizmal's plugin. A plugin the user already installed, including another plugin named `prizmal_search`, stays untouched. `prizmal --restore cline` removes only Prizmal's copy.
 
-Cline also has its own `fetch_web_content` tool. It is not offered to the model in the headless `openai-compatible` sessions configured here, and Cline's hosted `web_search` tool does not apply to this provider. The names remain distinct from `prizmal_search__search`.
+Cline also offers its own `fetch_web_content` tool in the `openai-compatible` sessions configured here. Cline executes it in the client to read a URL; it does not search the web or call the Switch's `/responses` endpoint. Cline's hosted `web_search` tool does not apply to this provider. Both native names remain distinct from `prizmal_search__search`.
 
 ## Model
 
