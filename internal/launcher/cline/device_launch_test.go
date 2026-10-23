@@ -43,6 +43,11 @@ func TestClineDeviceLaunchUsesRelayAndRestoresDirectURL(t *testing.T) {
 			t.Setenv("CLINE_DIR", "")
 			dataDir := filepath.Join(t.TempDir(), "cline-data")
 			tc.env(t, dataDir)
+			calls := 0
+			var installedSource string
+			previousInstall := installClinePlugin
+			installClinePlugin = fakeClinePluginInstall(t, &calls, &installedSource)
+			t.Cleanup(func() { installClinePlugin = previousInstall })
 
 			envconfig.SetBaseURL("https://switch.example.test")
 			envconfig.SetDeviceMode(true)

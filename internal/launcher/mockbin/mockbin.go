@@ -17,6 +17,7 @@
 package mockbin
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -108,6 +109,25 @@ func Run() int {
 		return 0
 	}
 
+	// Cline 3.0.73 installs a local plugin from a directory by copying it under
+	// CLINE_DIR/plugins and printing the destination as JSON.
+	if binName == "cline" && len(args) == 5 && args[0] == "plugin" && args[1] == "install" &&
+		args[2] == "--force" && args[3] == "--json" {
+		return installMockClinePlugin(args[4])
+	}
+	if binName == "cline" && len(args) == 4 && args[0] == "plugin" && args[1] == "uninstall" && args[2] == "--json" {
+		if err := os.RemoveAll(args[3]); err != nil {
+			fmt.Fprintf(os.Stderr, "mock cline: uninstall plugin: %v\n", err)
+			return 1
+		}
+		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+			"name":         args[3],
+			"installPath":  args[3],
+			"removedPaths": []string{args[3]},
+		})
+		return 0
+	}
+
 	// A codex launch reads the bundled catalog for Codex's system prompt.
 	if binName == "codex" && len(args) == 3 && args[0] == "debug" && args[1] == "models" && args[2] == "--bundled" {
 		fmt.Println(`{"models":[{"slug":"mock","visibility":"list","priority":1,"base_instructions":"mock system prompt","model_messages":{"instructions_template":"mock system prompt"}}]}`)
@@ -171,6 +191,42 @@ func Run() int {
 		}
 		return 1
 	}
+	return 0
+}
+
+func installMockClinePlugin(source string) int {
+	root := os.Getenv("CLINE_DIR")
+	if root == "" {
+		fmt.Fprintln(os.Stderr, "mock cline: CLINE_DIR is not set")
+		return 1
+	}
+	cleanSource := filepath.Clean(source)
+	sum := sha256.Sum256([]byte(cleanSource))
+	installPath := filepath.Join(root, "plugins", "_installed", "local",
+		filepath.Base(cleanSource)+"-"+fmt.Sprintf("%x", sum[:])[:12])
+	if err := os.MkdirAll(filepath.Join(installPath, "package"), 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "mock cline: install plugin: %v\n", err)
+		return 1
+	}
+	owner, err := os.ReadFile(filepath.Join(source, "prizmal-owner.json"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "mock cline: read plugin owner: %v\n", err)
+		return 1
+	}
+	if err := os.WriteFile(filepath.Join(installPath, "package", "prizmal-owner.json"), owner, 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "mock cline: copy plugin owner: %v\n", err)
+		return 1
+	}
+	script, err := os.ReadFile(filepath.Join(source, "index.js"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "mock cline: read plugin source: %v\n", err)
+		return 1
+	}
+	if err := os.WriteFile(filepath.Join(installPath, "package", "index.js"), script, 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "mock cline: copy plugin source: %v\n", err)
+		return 1
+	}
+	_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"installPath": installPath})
 	return 0
 }
 
