@@ -492,7 +492,15 @@ func renderBaseline(t *testing.T, tmuxPath, prizmalBin, claudeDir string, tc bas
 	command := "env -i " + strings.Join(envVars, " ") + " sh -c " + shellQuote(
 		"cd "+shellQuote(project)+" && "+shellQuote(prizmalBin)+" "+shellJoin(launchArgs(tc))+stdin+`; echo "[prizmal exited $?]"; sleep 600`)
 
-	socket := filepath.Join(root, "tmux.sock")
+	// The socket path must stay under the ~104-byte limit, and root sits under
+	// the user cache directory for Codex, so the socket gets a short directory
+	// of its own.
+	socketDir, err := os.MkdirTemp("", "pzt-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(socketDir) })
+	socket := filepath.Join(socketDir, "tmux.sock")
 	tmux := func(args ...string) (string, error) {
 		// -f /dev/null ignores the developer's tmux.conf, and the private
 		// socket keeps this server apart from every other tmux session.
