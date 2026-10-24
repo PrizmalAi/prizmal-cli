@@ -31,6 +31,13 @@ const clineApiProvider = "openai-compatible"
 // installs and is migrated away on the next write.
 const clineLegacyProvider = "prizmal"
 
+// clineContextWindow is the window Cline budgets the session against. The
+// Switch rules every router config at one million tokens, as it does for Codex
+// and for Claude Code's [1m] ids. Cline reads the window from the provider's
+// contextWindow setting and defaults an openai-compatible model to 128,000
+// tokens when it is absent, compacting at 90 percent of that.
+const clineContextWindow = 1_000_000
+
 // Cline implements launch.Runner and Editor for the Cline CLI integration
 type Cline struct{}
 
@@ -427,9 +434,10 @@ func writeClineProvidersConfigWithBackup(configPath string, config map[string]an
 	// `settings` needs no such care: cline parses it as
 	// {settings, updatedAt, tokenSource} and drops the rest.
 	settings := map[string]any{
-		"provider": clineApiProvider,
-		"model":    model,
-		"baseUrl":  baseURL,
+		"provider":      clineApiProvider,
+		"model":         model,
+		"baseUrl":       baseURL,
+		"contextWindow": clineContextWindow,
 	}
 	provider["settings"] = settings
 
@@ -601,6 +609,7 @@ func clineRestoreProviders(configPath, backup string) (launch.RestoreOutcome, er
 			settings, _ := entry["settings"].(map[string]any)
 			delete(settings, "apiKey")
 			delete(settings, "baseUrl")
+			delete(settings, "contextWindow")
 		}
 		changed = true
 	}
@@ -662,7 +671,7 @@ func clinePrizmalShapedEntry(entry map[string]any) bool {
 	}
 	for key := range settings {
 		switch key {
-		case "provider", "model", "baseUrl", "apiKey":
+		case "provider", "model", "baseUrl", "apiKey", "contextWindow":
 		default:
 			return false
 		}
