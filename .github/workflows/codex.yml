@@ -77,3 +77,7 @@ jobs:
         env:
           PRIZMAL_TERMINAL_BASELINES: require
         run: go test -count=1 -v -run 'TestTerminalBaselinesCodex$' ./cmd/prizmal
+      - name: Check Codex compacts at the declared window
+        env:
+          PRIZMAL_TERMINAL_BASELINES: require
+        run: go test -count=1 -v -run 'TestHarnessCompactsAtTheDeclaredWindow/codex$' ./cmd/prizmal

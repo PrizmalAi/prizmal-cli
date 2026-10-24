@@ -54,3 +54,25 @@ jobs:
         env:
           PRIZMAL_HARNESS_LAUNCH: require
         run: go test -count=1 -v -run 'TestHarnessLaunchPiKeepsTheUsersExtensions$' ./cmd/prizmal
+
+  # compaction installs the pi release recorded in
+  # cmd/prizmal/testdata/terminal/pi/pi-version, because Pi's compaction
+  # threshold is a property of a release.
+  compaction:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - name: Install the pinned pi
+        run: npm install -g "@earendil-works/pi-coding-agent@$(cat cmd/prizmal/testdata/terminal/pi/pi-version)"
+      - name: Check pi compacts at the declared window
+        env:
+          PRIZMAL_HARNESS_LAUNCH: require
+        run: go test -count=1 -v -run 'TestHarnessCompactsAtTheDeclaredWindow/pi$' ./cmd/prizmal

@@ -11,6 +11,8 @@
 
 The inline config declares the `prizmal` provider (`@ai-sdk/openai-compatible`), its endpoint, an `apiKey`, the model list, and `"model": "prizmal/<your-model>"`. It also turns off OpenCode's built-in websearch tool, which posts to OpenCode's own hosted backends rather than the Switch.
 
+Each model also sets `limit.context` to 1,000,000, the window the Switch rules for every router config, and `limit.output` to 32,000. Without `limit.context`, OpenCode assumes no window and doesn't compact a session until the provider refuses it. With it, OpenCode compacts at 968,000 tokens, the window less the output budget.
+
 Prizmal writes no OpenCode state. The model picker's Recent list, the prompt history and the interface toggles are OpenCode's own, in its usual state directory, and every project shares them. Your sessions, sign-ins and settings stay there too.
 
 On a switch-key launch the key is a field in the inline config, which lives only in the variable for the life of the process and is never written to a file. The search tool also reads the key from `PRIZMAL_OPENCODE_SEARCH_KEY` on the child environment, so the key is on that environment too. A device-mode launch has no key to place in either; see Device login.
@@ -47,7 +49,10 @@ OpenCode reads its config from a file at `~/.config/opencode/opencode.json`, or 
         "apiKey": "sk-..."
       },
       "models": {
-        "your-model": { "name": "your-model" }
+        "your-model": {
+          "name": "your-model",
+          "limit": { "context": 1000000, "output": 32000 }
+        }
       }
     }
   },

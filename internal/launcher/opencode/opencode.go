@@ -326,6 +326,18 @@ func buildInlineConfig(primary launch.LaunchModel, models []launch.LaunchModel) 
 	return string(data), nil
 }
 
+// openCodeContextWindow is the window opencode budgets a session against. The
+// Switch rules every router config at one million tokens, as it does for the
+// other harnesses. opencode reads the window from a model's limit.context and
+// treats a model without one as having no window, so it never compacts ahead
+// of the provider's refusal.
+const openCodeContextWindow = 1_000_000
+
+// openCodeMaxOutputTokens is limit.output, the output budget opencode keeps
+// free in the window and caps a request's output at. It is opencode's own cap
+// for an output budget.
+const openCodeMaxOutputTokens = 32_000
+
 func buildModelEntries(modelList []launch.LaunchModel) map[string]any {
 	models := make(map[string]any)
 	for _, model := range modelList {
@@ -335,6 +347,10 @@ func buildModelEntries(modelList []launch.LaunchModel) map[string]any {
 		// permissive list so an attachment is not newly refused.
 		entry := map[string]any{
 			"name": model.Name,
+			"limit": map[string]any{
+				"context": openCodeContextWindow,
+				"output":  openCodeMaxOutputTokens,
+			},
 			"modalities": map[string]any{
 				"input":  launch.DeclaredInputs(model, launch.HarnessOpenCode),
 				"output": []string{"text"},

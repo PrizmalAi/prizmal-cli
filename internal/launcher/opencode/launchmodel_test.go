@@ -7,15 +7,16 @@ import (
 	"github.com/PrizmalAi/prizmal-cli/internal/model"
 )
 
-// TestOpenCodeEntryHasNoLimit pins that opencode's entry carries no limit
-// object. No catalog entry reported an output-token budget, so the limit block
-// never ran and opencode kept applying its own defaults; writing a limit here
-// now would change the config the harness reads.
-func TestOpenCodeEntryHasNoLimit(t *testing.T) {
-	entry := opencodeModelEntry(t, launch.LaunchModel{Name: "no-limit-model"})
+// TestOpenCodeEntryDeclaresTheContextWindow pins the limit block of opencode's
+// entry. opencode treats a model without limit.context as having no window and
+// never compacts ahead of the provider's refusal, so every entry states the
+// window the Switch rules and the output budget opencode keeps free in it.
+func TestOpenCodeEntryDeclaresTheContextWindow(t *testing.T) {
+	entry := opencodeModelEntry(t, launch.LaunchModel{Name: "any-model"})
 
-	if got, ok := entry["limit"]; ok {
-		t.Fatalf("entry has limit = %v, want no limit key", got)
+	limit, _ := entry["limit"].(map[string]any)
+	if limit["context"] != float64(1_000_000) || limit["output"] != float64(32_000) {
+		t.Fatalf("entry limit = %v, want context 1000000 and output 32000", entry["limit"])
 	}
 }
 
