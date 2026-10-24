@@ -33,7 +33,7 @@ func IsRefresh(ctx context.Context) bool {
 	return refresh
 }
 
-// Relay accepts only its placeholder bearer and forwards requests to the
+// Relay accepts only its placeholder bearer, apart from an opted-in model list, and forwards requests to the
 // upstream Switch with the launch's real credential.
 type Relay struct {
 	server      *http.Server
@@ -42,12 +42,26 @@ type Relay struct {
 	upstream    *url.URL
 	client      *http.Client
 	token       TokenSource
+	openModels  bool
+}
+
+// Option changes how a relay treats its callers.
+type Option func(*Relay)
+
+// WithUnauthenticatedModelList lets exactly GET /v1/models through without the
+// placeholder bearer; the relay still forwards it with the launch's real
+// credential. Cline's model picker sends that request with no Authorization
+// header, because Cline attaches one only from a key stored in its provider
+// settings, and a launch keeps the key off disk. Every other path, and every
+// other method on that path, still needs the placeholder.
+func WithUnauthenticatedModelList() Option {
+	return func(r *Relay) { r.openModels = true }
 }
 
 // New starts a relay on an ephemeral 127.0.0.1 port. upstream is the Switch
 // base without a trailing /v1; URL adds that version for OpenAI-shaped
 // harnesses.
-func New(upstream string, token TokenSource) (*Relay, error) {
+func New(upstream string, token TokenSource, opts ...Option) (*Relay, error) {
 	if token == nil {
 		return nil, fmt.Errorf("relay token source is required")
 	}
@@ -69,6 +83,9 @@ func New(upstream string, token TokenSource) (*Relay, error) {
 		upstream:    target,
 		client:      &http.Client{Transport: http.DefaultTransport},
 		token:       token,
+	}
+	for _, opt := range opts {
+		opt(r)
 	}
 	r.server = &http.Server{
 		Handler:           r,
@@ -104,7 +121,8 @@ func (r *Relay) Close() {
 func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	want := "Bearer " + r.placeholder
 	got := req.Header.Get("Authorization")
-	if subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1 {
+	openModelList := r.openModels && req.Method == http.MethodGet && req.URL.Path == "/v1/models"
+	if !openModelList && subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1 {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}

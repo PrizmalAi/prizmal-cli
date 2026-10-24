@@ -14,7 +14,7 @@ import (
 	"github.com/PrizmalAi/prizmal-cli/internal/stubserver"
 )
 
-func TestEveryHarnessUsesRelayOnlyWhenRequested(t *testing.T) {
+func TestEveryHarnessUsesRelayOnlyWhenRequestedExceptCline(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping subprocess test in short mode")
 	}
@@ -64,7 +64,7 @@ func TestEveryHarnessUsesRelayOnlyWhenRequested(t *testing.T) {
 				}
 
 				envDump, args := readMockInvocation(t, expDir, expectation.name)
-				if mode.flag {
+				if mode.flag || expectation.name == "cline" {
 					sourceAt := strings.Index(stderr, "using api key from:")
 					relayAt := strings.Index(stderr, "relaying through ")
 					if sourceAt < 0 || relayAt < 0 || sourceAt > relayAt {

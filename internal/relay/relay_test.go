@@ -286,3 +286,80 @@ func TestRelayReturns401WhenTokenSourceHasNothingToRefresh(t *testing.T) {
 		t.Fatalf("token source calls = %d, want an initial call and one refresh attempt", calls)
 	}
 }
+
+func TestRelayModelListOptIn(t *testing.T) {
+	var mu sync.Mutex
+	var seen []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		mu.Lock()
+		seen = append(seen, req.Method+" "+req.URL.Path+" "+req.Header.Get("Authorization"))
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":[{"id":"alpha"},{"id":"beta"}]}`)
+	}))
+	defer upstream.Close()
+
+	send := func(r *Relay, method, path, auth string) (int, string) {
+		t.Helper()
+		req, err := http.NewRequest(method, r.URL()+path, strings.NewReader("{}"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if auth != "" {
+			req.Header.Set("Authorization", auth)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		body, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(body)
+	}
+	source := func(context.Context) (string, error) { return "real-token", nil }
+
+	t.Run("opted in", func(t *testing.T) {
+		mu.Lock()
+		seen = nil
+		mu.Unlock()
+		r, err := New(upstream.URL, source, WithUnauthenticatedModelList())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Close()
+
+		status, body := send(r, http.MethodGet, "/models", "")
+		if status != http.StatusOK || body != `{"data":[{"id":"alpha"},{"id":"beta"}]}` {
+			t.Fatalf("unauthenticated model list = %d %q, want the upstream body unmodified", status, body)
+		}
+		if status, _ := send(r, http.MethodGet, "/models", "Bearer "+r.Placeholder()); status != http.StatusOK {
+			t.Fatalf("placeholder model list status = %d, want 200", status)
+		}
+		if status, _ := send(r, http.MethodPost, "/chat/completions", ""); status != http.StatusUnauthorized {
+			t.Fatalf("unauthenticated chat status = %d, want 401", status)
+		}
+		if status, _ := send(r, http.MethodPost, "/models", ""); status != http.StatusUnauthorized {
+			t.Fatalf("unauthenticated POST /models status = %d, want 401", status)
+		}
+		if status, _ := send(r, http.MethodGet, "/models/alpha", ""); status != http.StatusUnauthorized {
+			t.Fatalf("unauthenticated GET /models/alpha status = %d, want 401", status)
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		want := []string{"GET /v1/models Bearer real-token", "GET /v1/models Bearer real-token"}
+		if strings.Join(seen, "\n") != strings.Join(want, "\n") {
+			t.Fatalf("upstream saw %v, want %v", seen, want)
+		}
+	})
+
+	t.Run("default relay still requires the placeholder", func(t *testing.T) {
+		r, err := New(upstream.URL, source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Close()
+		if status, _ := send(r, http.MethodGet, "/models", ""); status != http.StatusUnauthorized {
+			t.Fatalf("unauthenticated model list without the option = %d, want 401", status)
+		}
+	})
+}
