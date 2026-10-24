@@ -476,6 +476,40 @@ type UsagePlan struct {
 	// planned usage passes it, with a 400 carrying overflowMessage.
 	overflowLimit   int
 	overflowMessage string
+	// markers are the texts that identify a harness's compaction request, on
+	// top of Claude Code's.
+	markers []string
+}
+
+// CompactionMarkers adds texts that identify a harness's compaction request:
+// a request whose body contains one is answered with the summary reply and a
+// token count of 1, and is never refused. Claude Code's marker is built in.
+// It returns the plan.
+func (p *UsagePlan) CompactionMarkers(markers ...string) *UsagePlan {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.markers = append(p.markers, markers...)
+	return p
+}
+
+// IsCompaction reports whether a request body is a compaction request.
+func (p *UsagePlan) IsCompaction(body map[string]any) bool {
+	raw, _ := json.Marshal(body)
+	return p.isCompaction(string(raw))
+}
+
+func (p *UsagePlan) isCompaction(raw string) bool {
+	if strings.Contains(raw, "CRITICAL: Respond with TEXT ONLY") {
+		return true
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, m := range p.markers {
+		if strings.Contains(raw, m) {
+			return true
+		}
+	}
+	return false
 }
 
 // NewUsagePlan builds a plan whose input_tokens follow values turn by turn.
@@ -564,7 +598,7 @@ func (p *UsagePlan) nextUsage(body map[string]any) (string, map[string]any) {
 	p.received++
 	p.mu.Unlock()
 
-	if strings.Contains(string(raw), "CRITICAL: Respond with TEXT ONLY") {
+	if p.isCompaction(string(raw)) {
 		return fmt.Sprintf("msg_stub_compact_%d", n), map[string]any{"input_tokens": 1, "output_tokens": 80, "summary": true}
 	}
 
@@ -662,7 +696,7 @@ func handler(c *serverConfig) http.HandlerFunc {
 			handleModels(w, c.models)
 
 		case method == http.MethodPost && path == "/v1/chat/completions":
-			handleChatCompletions(w, r, c.toolLoop)
+			handleChatCompletions(w, r, c.toolLoop, c.usagePlan)
 
 		case method == http.MethodPost && path == "/v1/responses":
 			if c.rejectFirstResponse && rejected.CompareAndSwap(false, true) {
@@ -671,7 +705,7 @@ func handler(c *serverConfig) http.HandlerFunc {
 				})
 				return
 			}
-			handleResponses(w, r)
+			handleResponses(w, r, c.usagePlan)
 
 		case method == http.MethodPost && path == "/v1/messages":
 			handleMessages(w, r, c.usagePlan)
@@ -950,8 +984,33 @@ func defaultModels() []map[string]any {
 	}
 }
 
-func handleChatCompletions(w http.ResponseWriter, r *http.Request, loop *toolScript) {
+// planned answers a chat-completions or responses request from the usage plan:
+// the reply text, the input tokens to report, and a refusal message when the
+// plan refuses the request. Without a plan the reply is Reply and the count 1.
+func planned(plan *UsagePlan, body map[string]any) (reply string, tokens int, refusal string) {
+	if plan == nil {
+		return Reply, 1, ""
+	}
+	_, usage := plan.nextUsage(body)
+	if message, ok := usage["overflow"].(string); ok {
+		return "", 0, message
+	}
+	tokens, _ = usage["input_tokens"].(int)
+	if isSummary, _ := usage["summary"].(bool); isSummary {
+		return SummaryReply, tokens, ""
+	}
+	return Reply, tokens, ""
+}
+
+func handleChatCompletions(w http.ResponseWriter, r *http.Request, loop *toolScript, plan *UsagePlan) {
 	body := requestBody(r)
+	reply, tokens, refusal := planned(plan, body)
+	if refusal != "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": map[string]any{
+			"message": refusal, "type": "invalid_request_error", "code": "context_length_exceeded",
+		}})
+		return
+	}
 	toolCall := wantsToolCall(body)
 	stream := wantsStream(body)
 
@@ -960,7 +1019,8 @@ func handleChatCompletions(w http.ResponseWriter, r *http.Request, loop *toolScr
 	// requests over more than one short device-token life.
 	toolName := "stub_tool"
 	toolArgs := "{}"
-	if loop != nil {
+	// A compaction request is answered with the summary, so it takes no step.
+	if loop != nil && reply != SummaryReply {
 		if step, again := loop.next(); again {
 			toolCall = true
 			toolName = step.Name
@@ -999,17 +1059,17 @@ func handleChatCompletions(w http.ResponseWriter, r *http.Request, loop *toolScr
 				}},
 			}, nil))
 		} else {
-			writeSSE(w, flusher, chunk(map[string]any{"role": "assistant", "content": Reply}, nil))
+			writeSSE(w, flusher, chunk(map[string]any{"role": "assistant", "content": reply}, nil))
 		}
 		last := chunk(map[string]any{}, finish)
-		last["usage"] = map[string]any{"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
+		last["usage"] = map[string]any{"prompt_tokens": tokens, "completion_tokens": 1, "total_tokens": tokens + 1}
 		writeSSE(w, flusher, last)
 		_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
 		flusher.Flush()
 		return
 	}
 
-	message := map[string]any{"role": "assistant", "content": Reply}
+	message := map[string]any{"role": "assistant", "content": reply}
 	finish := "stop"
 	if toolCall {
 		finish = "tool_calls"
@@ -1028,12 +1088,19 @@ func handleChatCompletions(w http.ResponseWriter, r *http.Request, loop *toolScr
 		"object":  "chat.completion",
 		"model":   "prizmal/stub",
 		"choices": []map[string]any{{"index": 0, "message": message, "finish_reason": finish}},
-		"usage":   map[string]any{"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+		"usage":   map[string]any{"prompt_tokens": tokens, "completion_tokens": 1, "total_tokens": tokens + 1},
 	})
 }
 
-func handleResponses(w http.ResponseWriter, r *http.Request) {
+func handleResponses(w http.ResponseWriter, r *http.Request, plan *UsagePlan) {
 	body := requestBody(r)
+	reply, tokens, refusal := planned(plan, body)
+	if refusal != "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": map[string]any{
+			"message": refusal, "type": "invalid_request_error", "code": "context_length_exceeded",
+		}})
+		return
+	}
 	toolCall := wantsToolCall(body)
 	spawn := wantsSpawnAgent(body)
 
@@ -1044,7 +1111,7 @@ func handleResponses(w http.ResponseWriter, r *http.Request) {
 		"role":   "assistant",
 		"content": []map[string]any{{
 			"type":        "output_text",
-			"text":        Reply,
+			"text":        reply,
 			"annotations": []any{},
 		}},
 	}
@@ -1089,7 +1156,7 @@ func handleResponses(w http.ResponseWriter, r *http.Request) {
 		"status": "completed",
 		"model":  "prizmal/stub",
 		"output": []map[string]any{item},
-		"usage":  map[string]any{"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+		"usage":  map[string]any{"input_tokens": tokens, "output_tokens": 1, "total_tokens": tokens + 1},
 	}
 
 	if !wantsStream(body) {
@@ -1114,10 +1181,10 @@ func handleResponses(w http.ResponseWriter, r *http.Request) {
 	writeSSEEvent(w, flusher, "response.output_item.added", map[string]any{"type": "response.output_item.added", "output_index": 0, "item": item})
 	if !toolCall {
 		writeSSEEvent(w, flusher, "response.output_text.delta", map[string]any{
-			"type": "response.output_text.delta", "item_id": "msg_stub", "output_index": 0, "content_index": 0, "delta": Reply,
+			"type": "response.output_text.delta", "item_id": "msg_stub", "output_index": 0, "content_index": 0, "delta": reply,
 		})
 		writeSSEEvent(w, flusher, "response.output_text.done", map[string]any{
-			"type": "response.output_text.done", "item_id": "msg_stub", "output_index": 0, "content_index": 0, "text": Reply,
+			"type": "response.output_text.done", "item_id": "msg_stub", "output_index": 0, "content_index": 0, "text": reply,
 		})
 	}
 	writeSSEEvent(w, flusher, "response.output_item.done", map[string]any{"type": "response.output_item.done", "output_index": 0, "item": item})

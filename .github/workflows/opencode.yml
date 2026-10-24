@@ -85,3 +85,7 @@ jobs:
         env:
           PRIZMAL_TERMINAL_BASELINES: require
         run: go test -count=1 -v -run 'TestTerminalBaselinesOpencode$' ./cmd/prizmal
+      - name: Check OpenCode compacts at the declared window
+        env:
+          PRIZMAL_TERMINAL_BASELINES: require
+        run: go test -count=1 -v -run 'TestHarnessCompactsAtTheDeclaredWindow/opencode$' ./cmd/prizmal
