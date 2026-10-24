@@ -43,8 +43,12 @@ const compactionWindow = 1_000_000
 
 // compactionFiller is a prompt big enough to leave older turns for a harness to
 // summarise: every harness keeps its most recent 20,000 tokens or so verbatim,
-// so two turns of this size put the first one past that.
-var compactionFiller = "Summarize this filler in one word: " + strings.Repeat("filler ", 20000)
+// so two turns of this size put the first one past that. It travels as one
+// argument, and Linux refuses an argument over 128 KiB, so it stays under that.
+var compactionFiller = "Summarize this filler in one word: " + strings.Repeat("filler ", 16000)
+
+// maxSingleArg is the longest single argument Linux passes to a new process.
+const maxSingleArg = 128 * 1024
 
 // compactionCase is one harness's proof.
 type compactionCase struct {
@@ -181,6 +185,11 @@ func TestHarnessCompactsAtTheDeclaredWindow(t *testing.T) {
 					plan := stubserver.NewUsagePlan(c.replies(arm.count - 1)...).CompactionMarkers(c.markers...)
 					s := c.newSession(t, harnessDir, plan)
 					c.drive(t, s)
+					// A harness that never started would also see no
+					// compaction, so the below arm needs the turns to have run.
+					if got := plan.Requests(); got < 3 {
+						t.Fatalf("%s sent %d requests, want at least 3; the turns did not run", c.harness, got)
+					}
 					got := s.compactions()
 					switch {
 					case arm.compact && got == 0:
@@ -201,6 +210,9 @@ func TestHarnessCompactsAtTheDeclaredWindow(t *testing.T) {
 func threeTurns(first, resume func(prompt string) []string) func(t *testing.T, s *compactionSession) {
 	return func(t *testing.T, s *compactionSession) {
 		t.Helper()
+		if len(compactionFiller) >= maxSingleArg {
+			t.Fatalf("filler is %d bytes, over the %d a single argument may carry", len(compactionFiller), maxSingleArg)
+		}
 		s.run(t, "", first(compactionFiller)...)
 		s.run(t, "", resume(compactionFiller)...)
 		s.run(t, "", resume("Reply again.")...)
@@ -212,7 +224,7 @@ func threeTurns(first, resume func(prompt string) []string) func(t *testing.T, s
 var compactionCases = []compactionCase{
 	{
 		harness: "pi", label: "Pi",
-		versionFile: filepath.Join("testdata", "terminal", "pi", "pi-version"), versionField: 0,
+		versionFile: filepath.Join("testdata", "harness", "pi-version"), versionField: 0,
 		// Pi compacts after a reply once the counted tokens pass the window less
 		// its 16,384-token reserve. The check runs before the next prompt.
 		threshold: compactionWindow - 16384 + 1,
