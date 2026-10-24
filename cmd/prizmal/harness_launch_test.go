@@ -245,7 +245,7 @@ func runHarnessLaunchWith(t *testing.T, harness string, mode harnessLaunchKeyMod
 	case harnessLaunchConfigKey:
 		// Nothing to assert about the source: no device key was enrolled, so
 		// the launch resolves the config file's key and nothing else.
-		if !relayMode && strings.Contains(stderr, "relaying through ") {
+		if harness != "cline" && !relayMode && strings.Contains(stderr, "relaying through ") {
 			t.Errorf("a launch without --relay started the loopback relay")
 		}
 	case harnessLaunchDeviceLogin:
@@ -262,7 +262,7 @@ func runHarnessLaunchWith(t *testing.T, harness string, mode harnessLaunchKeyMod
 			t.Errorf("a device launch without --relay started the loopback relay")
 		}
 	}
-	wantRelay := relayMode || (mode == harnessLaunchDeviceLogin && harness == "cline")
+	wantRelay := relayMode || harness == "cline"
 	if wantRelay != strings.Contains(stderr, "relaying through ") {
 		t.Errorf("relay announcement presence = %v, want %v", strings.Contains(stderr, "relaying through "), wantRelay)
 	}
