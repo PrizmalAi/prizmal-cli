@@ -104,14 +104,9 @@ jobs:
         run: |
           if [ "$RUNNER_OS" = macOS ]; then brew install tmux; else sudo apt-get update -qq && sudo apt-get install -y -qq tmux; fi
       - name: Install the pinned opencode
-        if: runner.os != 'Windows'
         run: |
           curl -fsSL https://opencode.ai/install | bash -s -- --version "$(cat cmd/prizmal/testdata/terminal/opencode/opencode-version)"
           echo "$HOME/.opencode/bin" >>"$GITHUB_PATH"
-      # The install script has no Windows build; the npm package carries the same release.
-      - name: Install the pinned opencode
-        if: runner.os == 'Windows'
-        run: npm install -g "opencode-ai@$(cat cmd/prizmal/testdata/terminal/opencode/opencode-version)"
       - name: Compare terminal baselines
         env:
           PRIZMAL_TERMINAL_BASELINES: require
