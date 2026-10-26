@@ -1,6 +1,6 @@
 # Cline
 
-`prizmal cline` launches Cline against the Prizmal Switch. Cline keeps its provider settings in its data directory, so the launch writes a prizmal provider entry there and puts the key on the child environment. A device login starts a per-session loopback relay automatically so Cline can use a short-lived credential.
+`prizmal cline` launches Cline against the Prizmal Switch. Cline keeps its provider settings in its data directory, so the launch writes a prizmal provider entry there and puts the key on the child environment. `prizmal cline` starts a per-session loopback relay, so Cline's `/model` picker can list the names your key routes and a device login can use a short-lived credential.
 
 The launch uses the same data directory as Cline: `--data-dir DIR`, then `CLINE_DATA_DIR`, then `--config DIR` as `DIR/data`, then `CLINE_DIR` as `$CLINE_DIR/data`, then `~/.cline/data`. Use `--data-dir` or `CLINE_DATA_DIR` to keep two worktrees from sharing provider settings:
 
@@ -27,7 +27,7 @@ When you pass `--data-dir` or `--config` to Cline, the launch leaves the flag in
 
 `prizmal cline` installs a local Cline plugin named `prizmal_search`. It adds one tool, `prizmal_search__search`, which sends the query to the Switch's `/v1/responses` with its `web_search` tool and returns a summary with source URLs. Cline's title and summary requests do not carry session tools, so the model can call search only from the chat it is working on.
 
-The plugin reads `PRIZMAL_CLINE_SEARCH_URL`, `PRIZMAL_CLINE_SEARCH_MODEL`, and `OPENAI_API_KEY` from the environment when the tool runs. The first two name the endpoint and model; the key stays in Cline's process environment and is never written into the plugin or its settings. A switch-key launch uses the direct Switch URL and key. A device login, or `--relay`, uses the loopback URL and per-launch placeholder.
+The plugin reads `PRIZMAL_CLINE_SEARCH_URL`, `PRIZMAL_CLINE_SEARCH_MODEL`, and `OPENAI_API_KEY` from the environment when the tool runs. The first two name the endpoint and model. The key stays in Cline's process environment and is never written into the plugin or its settings. A launch uses the loopback URL and per-launch placeholder.
 
 The plugin stays installed after Cline exits, as every persisted launch edit does. Running the launch again replaces Prizmal's plugin. It lives under Cline's configuration root (`--config`, `CLINE_DIR`, then `~/.cline`), independently of the data directory, so unrelated global plugins remain available. Launches with different data directories share the one plugin safely because its endpoint, model, and key come from each Cline process's environment; a cross-process lock serializes replacement. A plugin the user already installed, including another plugin named `prizmal_search`, stays untouched. `prizmal --restore cline` removes only Prizmal's copy.
 
@@ -37,11 +37,13 @@ Cline also offers its own `fetch_web_content` tool in the `openai-compatible` se
 
 `prizmal cline` takes the model from `--model`, from the default an earlier `--pick` or the picker's `ctrl+s` saved, or from the picker. A launch with a prompt after the integration name runs that task and exits, and a launch on a pipe has no terminal, so neither opens the picker: with no model named they stop with an error that lists the names `prizmal --list` prints. `--tui` asks for the interactive interface, where the picker still opens.
 
-## Device login
+## Loopback relay
 
-When `~/.prizmal/device.key` exists, `prizmal cline` starts a relay on an ephemeral `127.0.0.1` port without requiring `--relay`. For that launch, it points Cline's provider and mode base URLs at `http://127.0.0.1:<port>/v1` and sets `OPENAI_API_KEY` to a random placeholder. The relay accepts only that placeholder, gets a device token for each request, replaces the bearer, and forwards the request to the Switch. It also serves `GET /v1/models`, so the model picker can use the same credential. A switch-key launch can opt into the same relay with `--relay`.
+`prizmal cline` always starts a relay on an ephemeral `127.0.0.1` port, with a switch key or a device login, and without `--relay`. It points Cline's provider and mode base URLs at `http://127.0.0.1:<port>/v1` and sets `OPENAI_API_KEY` to a random placeholder. The relay accepts only that placeholder. It swaps in the launch's switch key, or a device token fetched for each request, and forwards the request to the Switch.
 
-If the Switch answers 401, the relay refreshes the device token once and replays the buffered request. This lets a session continue after its first ten-minute token expires. A rejected placeholder is answered locally with 401 and never reaches the Switch.
+Cline's `/model` picker sends `GET /v1/models` with no `Authorization` header, because Cline attaches one only from a key stored in its provider settings, and the launch keeps the key off disk. For that one request the relay skips the placeholder check and forwards it with the real credential, so the picker lists the names your key routes. Choosing one switches the live session's model. The next launch still starts on the model `--model` or the picker chose.
+
+If the Switch answers 401, the relay refreshes the device token once and replays the buffered request. This lets a session continue after its first ten-minute token expires. A request on any other path without the placeholder is answered locally with 401 and never reaches the Switch.
 
 The relay is process-local and lasts only while Cline runs. Before Cline starts, the launch changes the endpoint fields in `providers.json` and `globalState.json`; after Cline exits, it writes the direct Switch URL back into those fields. The active provider, model, and act and plan mode selections stay in place. This temporary endpoint change keeps a later bare `cline` from using a dead loopback port. It is separate from `--restore`, which removes Prizmal's persisted provider configuration.
 

@@ -17,24 +17,32 @@ import (
 	"github.com/PrizmalAi/prizmal-cli/internal/relay"
 )
 
-func TestClineDeviceLaunchUsesRelayAndRestoresDirectURL(t *testing.T) {
+func TestClineLaunchUsesRelayAndRestoresDirectURL(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the fake cline is a shell script")
 	}
 	for _, tc := range []struct {
-		name string
-		args func(string) []string
-		env  func(*testing.T, string)
+		name       string
+		deviceMode bool
+		args       func(string) []string
+		env        func(*testing.T, string)
 	}{
 		{
-			name: "data-dir environment",
+			name: "switch key, data-dir environment",
 			args: func(string) []string { return []string{"-y", "task"} },
 			env:  func(t *testing.T, dir string) { t.Setenv("CLINE_DATA_DIR", dir) },
 		},
 		{
-			name: "data-dir argument",
-			args: func(dir string) []string { return []string{"--data-dir", dir, "-y", "task"} },
-			env:  func(t *testing.T, _ string) { t.Setenv("CLINE_DATA_DIR", "") },
+			name:       "device login, data-dir environment",
+			deviceMode: true,
+			args:       func(string) []string { return []string{"-y", "task"} },
+			env:        func(t *testing.T, dir string) { t.Setenv("CLINE_DATA_DIR", dir) },
+		},
+		{
+			name:       "device login, data-dir argument",
+			deviceMode: true,
+			args:       func(dir string) []string { return []string{"--data-dir", dir, "-y", "task"} },
+			env:        func(t *testing.T, _ string) { t.Setenv("CLINE_DATA_DIR", "") },
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -50,8 +58,10 @@ func TestClineDeviceLaunchUsesRelayAndRestoresDirectURL(t *testing.T) {
 			t.Cleanup(func() { installClinePlugin = previousInstall })
 
 			envconfig.SetBaseURL("https://switch.example.test")
-			envconfig.SetDeviceMode(true)
-			envconfig.SetDeviceToken("pz-s-dt-current")
+			if tc.deviceMode {
+				envconfig.SetDeviceMode(true)
+				envconfig.SetDeviceToken("pz-s-dt-current")
+			}
 			r, err := relay.New(envconfig.UnversionedBaseURL(), func(context.Context) (string, error) {
 				return "pz-s-dt-current", nil
 			})

@@ -116,7 +116,8 @@ func TestShouldUseRelay(t *testing.T) {
 		{name: "flag any harness", flag: true, integration: "claude", want: true},
 		{name: "Cline device login without flag", deviceMode: true, integration: "cline", want: true},
 		{name: "other harness device login without flag", deviceMode: true, integration: "codex", want: false},
-		{name: "Cline switch key without flag", integration: "cline", want: false},
+		{name: "Cline switch key without flag", integration: "cline", want: true},
+		{name: "other harness switch key without flag", integration: "codex", want: false},
 		{name: "nothing selected", integration: "pi", want: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

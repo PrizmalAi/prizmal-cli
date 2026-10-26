@@ -27,6 +27,7 @@ import (
 
 	launcher "github.com/PrizmalAi/prizmal-cli/internal/launcher"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher/registry"
+	"github.com/PrizmalAi/prizmal-cli/internal/relay"
 	"github.com/PrizmalAi/prizmal-cli/internal/tiers"
 )
 
@@ -80,8 +81,8 @@ be read as a prizmal flag.
 
 --relay starts a loopback relay for the launch. The harness receives a random
 placeholder credential, and the relay sends the launch's real credential to the
-Switch. It stops when the harness exits. Cline uses it automatically for a
-device login.
+Switch. It stops when the harness exits. Cline always runs through it, so its
+/model picker can list the tenant's names.
 
 --list answers a different question: it prints the models this switch key's
 tenant serves, one per line, and exits without launching. It holds exactly the
@@ -841,7 +842,13 @@ func launch(name string, extraArgs []string, cfg *config.Config, ask launcher.As
 	}
 
 	if shouldUseRelay(spec.Name) {
-		r, err := newLaunchRelay(envconfig.DeviceMode(), envconfig.APIKey())
+		var relayOpts []relay.Option
+		if spec.Name == "cline" {
+			// Cline's /model picker fetches the list with no Authorization
+			// header, so the relay answers that one request itself.
+			relayOpts = append(relayOpts, relay.WithUnauthenticatedModelList())
+		}
+		r, err := newLaunchRelay(envconfig.DeviceMode(), envconfig.APIKey(), relayOpts...)
 		if err != nil {
 			return err
 		}
@@ -865,5 +872,5 @@ func launch(name string, extraArgs []string, cfg *config.Config, ask launcher.As
 }
 
 func shouldUseRelay(integration string) bool {
-	return relayFlag || (envconfig.DeviceMode() && integration == "cline")
+	return relayFlag || integration == "cline"
 }

@@ -11,13 +11,13 @@ import (
 	"github.com/PrizmalAi/prizmal-cli/internal/relay"
 )
 
-func newLaunchRelay(deviceMode bool, switchKey string) (*relay.Relay, error) {
+func newLaunchRelay(deviceMode bool, switchKey string, opts ...relay.Option) (*relay.Relay, error) {
 	upstream := envconfig.UnversionedBaseURL()
 	token, err := launchTokenSource(deviceMode, switchKey)
 	if err != nil {
 		return nil, err
 	}
-	r, err := relay.New(upstream, token)
+	r, err := relay.New(upstream, token, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("start loopback relay: %w", err)
 	}
