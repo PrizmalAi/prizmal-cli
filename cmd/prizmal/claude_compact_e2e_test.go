@@ -343,26 +343,32 @@ func buildPrizmal(t *testing.T) string {
 const shimRealEnv = "PRIZMAL_COMPACT_SHIM_REAL"
 
 // windowVarShimSource is a `claude` stand-in for the control arms. It removes
-// CLAUDE_CODE_AUTO_COMPACT_WINDOW from the environment, then replaces itself
-// with the real Claude Code, which sees the launch exactly as prizmal made it
-// less the one variable.
+// CLAUDE_CODE_AUTO_COMPACT_WINDOW from the environment, then runs the real
+// Claude Code, which sees the launch exactly as prizmal made it less the one
+// variable. It runs the child rather than replacing itself, because Windows
+// has no exec.
 const windowVarShimSource = `package main
 
 import (
 	"os"
+	"os/exec"
 	"strings"
-	"syscall"
 )
 
 func main() {
-	real := os.Getenv("` + shimRealEnv + `")
 	var env []string
 	for _, kv := range os.Environ() {
 		if !strings.HasPrefix(kv, "` + windowEnvName + `=") {
 			env = append(env, kv)
 		}
 	}
-	if err := syscall.Exec(real, append([]string{real}, os.Args[1:]...), env); err != nil {
+	cmd := exec.Command(os.Getenv("` + shimRealEnv + `"), os.Args[1:]...)
+	cmd.Env = env
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		if exit, ok := err.(*exec.ExitError); ok {
+			os.Exit(exit.ExitCode())
+		}
 		os.Stderr.WriteString("shim: " + err.Error() + "\n")
 		os.Exit(1)
 	}

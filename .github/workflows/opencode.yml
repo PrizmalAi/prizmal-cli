@@ -119,13 +119,10 @@ jobs:
 
   # compaction needs the pinned release but no terminal, so it runs on every OS.
   compaction:
-    # Windows is excluded: the filler prompt is 112 KB passed as one argument, and
-    # Windows caps a command line at 32 KB (8 KB through an npm .cmd shim), so the
-    # harness never sees the turns. Passing it on stdin differs per harness.
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     defaults:
       run:

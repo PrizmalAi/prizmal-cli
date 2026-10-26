@@ -41,12 +41,10 @@ const compactionWindow = 1_000_000
 
 // compactionFiller is a prompt big enough to leave older turns for a harness to
 // summarise: every harness keeps its most recent 20,000 tokens or so verbatim,
-// so two turns of this size put the first one past that. It travels as one
-// argument, and Linux refuses an argument over 128 KiB, so it stays under that.
+// so two turns of this size put the first one past that. It travels on stdin:
+// Linux refuses an argument over 128 KiB and Windows one over 32 KiB, or 8 KiB
+// through an npm .cmd shim.
 var compactionFiller = "Summarize this filler in one word: " + strings.Repeat("filler ", 16000)
-
-// maxSingleArg is the longest single argument Linux passes to a new process.
-const maxSingleArg = 128 * 1024
 
 // compactionCase is one harness's proof.
 type compactionCase struct {
@@ -200,6 +198,15 @@ func TestHarnessCompactsAtTheDeclaredWindow(t *testing.T) {
 	}
 }
 
+// withPrompt appends prompt to args, or leaves it out when the prompt arrives on
+// stdin instead.
+func withPrompt(args []string, prompt string) []string {
+	if prompt == "" {
+		return args
+	}
+	return append(args, prompt)
+}
+
 // threeTurns drives a harness that continues its last session: two turns of
 // filler, so the first one falls outside the recent turns the harness keeps
 // verbatim, then a short turn, whose threshold check reads the count the
@@ -207,11 +214,8 @@ func TestHarnessCompactsAtTheDeclaredWindow(t *testing.T) {
 func threeTurns(first, resume func(prompt string) []string) func(t *testing.T, s *compactionSession) {
 	return func(t *testing.T, s *compactionSession) {
 		t.Helper()
-		if len(compactionFiller) >= maxSingleArg {
-			t.Fatalf("filler is %d bytes, over the %d a single argument may carry", len(compactionFiller), maxSingleArg)
-		}
-		s.run(t, "", first(compactionFiller)...)
-		s.run(t, "", resume(compactionFiller)...)
+		s.run(t, compactionFiller, first("")...)
+		s.run(t, compactionFiller, resume("")...)
 		s.run(t, "", resume("Reply again.")...)
 	}
 }
@@ -229,8 +233,8 @@ var compactionCases = []compactionCase{
 		markers:   []string{"You are a context summarization assistant"},
 		replies:   func(prompt int) []int { return []int{1, prompt, 1} },
 		drive: threeTurns(
-			func(p string) []string { return []string{"--print", p} },
-			func(p string) []string { return []string{"--print", "--continue", p} },
+			func(p string) []string { return withPrompt([]string{"--print"}, p) },
+			func(p string) []string { return withPrompt([]string{"--print", "--continue"}, p) },
 		),
 	},
 	{
@@ -243,9 +247,11 @@ var compactionCases = []compactionCase{
 		markers:   []string{"CONTEXT CHECKPOINT COMPACTION"},
 		replies:   func(prompt int) []int { return []int{1, prompt, 1} },
 		drive: threeTurns(
-			func(p string) []string { return []string{"exec", "--skip-git-repo-check", "-s", "read-only", p} },
 			func(p string) []string {
-				return []string{"exec", "--skip-git-repo-check", "-s", "read-only", "resume", "--last", p}
+				return withPrompt([]string{"exec", "--skip-git-repo-check", "-s", "read-only"}, p)
+			},
+			func(p string) []string {
+				return withPrompt([]string{"exec", "--skip-git-repo-check", "-s", "read-only", "resume", "--last"}, p)
 			},
 		),
 	},
@@ -261,8 +267,8 @@ var compactionCases = []compactionCase{
 		// request can be served first, so both slots carry the count.
 		replies: func(prompt int) []int { return []int{prompt, prompt, 1} },
 		drive: threeTurns(
-			func(p string) []string { return []string{"run", p} },
-			func(p string) []string { return []string{"run", "--continue", p} },
+			func(p string) []string { return withPrompt([]string{"run"}, p) },
+			func(p string) []string { return withPrompt([]string{"run", "--continue"}, p) },
 		),
 	},
 	{
@@ -341,6 +347,10 @@ type clineCompaction struct {
 func clineCompactions(t *testing.T, home string) []clineCompaction {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join(home, ".cline", "data", "logs", "cline.log"))
+	if os.IsNotExist(err) {
+		// Cline never logged, which the caller reports with its output.
+		return nil
+	}
 	if err != nil {
 		t.Fatalf("read Cline's log: %v", err)
 	}
