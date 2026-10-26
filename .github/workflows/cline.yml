@@ -48,7 +48,10 @@ jobs:
           node-version: 22
       - name: Install the pinned cline
         run: npm install -g "cline@$(cat cmd/prizmal/testdata/terminal/cline/cline-version)"
+      # Skipped on Windows: Cline's run_commands step times out there, so the tool
+      # loop the proof relies on never grows the conversation.
       - name: Check Cline compacts at the declared window
+        if: runner.os != 'Windows'
         env:
           PRIZMAL_HARNESS_LAUNCH: require
         run: go test -count=1 -v -run 'TestHarnessCompactsAtTheDeclaredWindow/cline$' ./cmd/prizmal

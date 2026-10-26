@@ -112,10 +112,12 @@ jobs:
         run: go test -count=1 -v -run 'TestTerminalBaselinesClaude|TestTerminalBaselinesPrizmal|TestClaudeTiersStartInAutoMode' ./cmd/prizmal
 
   compaction:
+    # Windows is excluded: the test's claude shim exits "not supported by
+    # windows", so no turn reaches the stub.
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -128,17 +130,9 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Install the pinned Claude Code
-        if: runner.os != 'Windows'
         run: |
           curl -fsSL https://claude.ai/install.sh | bash -s "$(cat cmd/prizmal/testdata/terminal/claude/claude-code-version)"
           echo "$HOME/.local/bin" >>"$GITHUB_PATH"
-      - name: Install the pinned Claude Code
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $v = (Get-Content cmd/prizmal/testdata/terminal/claude/claude-code-version).Trim()
-          & ([scriptblock]::Create((irm https://claude.ai/install.ps1))) $v
-          Add-Content -Path $env:GITHUB_PATH -Value "$env:USERPROFILE\.local\bin"
       - name: Check Claude Code compacts at the declared window
         env:
           PRIZMAL_HARNESS_LAUNCH: require
