@@ -30,10 +30,12 @@ import (
 //
 // The launch states a 1M window in CLAUDE_CODE_AUTO_COMPACT_WINDOW. Claude
 // Code's threshold for it is 967000 counted tokens: the window less the 20000
-// output budget, less a 13000 margin. Four arms:
+// output budget, less a 13000 margin. Five arms:
 //
 //   - proactive: the launch as it is. The count Claude Code reads at turn 3
 //     is about 984000, past 967000, and it compacts before any error.
+//   - proactive-below: the same launch at a count of about 924000, under the
+//     threshold. Nothing compacts, so Claude Code does not act early.
 //   - proactive-control: the same launch through a `claude` shim that removes
 //     the variable before it starts Claude Code. The window's source stays
 //     "auto", the threshold check returns early, and no compaction request
@@ -153,6 +155,15 @@ func TestClaudeCompactsOnTheStatedWindowAndOnARecognizedRefusal(t *testing.T) {
 					r.fail(t, "Claude Code compacted before the count crossed %d (marker request %d of %d)", compactProactiveTokens, r.markerIndex, r.requests)
 				case r.preTokens < compactProactiveTokens:
 					r.fail(t, "the compaction ran at %d counted tokens, below the threshold %d", r.preTokens, compactProactiveTokens)
+				}
+			},
+		},
+		{
+			name: "proactive-below",
+			plan: []int{1, 840000},
+			check: func(t *testing.T, r compactResult) {
+				if r.markerIndex != -1 {
+					r.fail(t, "Claude Code compacted at about 924000 counted tokens, under the threshold %d: marker at request %d of %d, preTokens %d", compactProactiveTokens, r.markerIndex, r.requests, r.preTokens)
 				}
 			},
 		},
