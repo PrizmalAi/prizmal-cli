@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strings"
 	"testing"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/stubserver"
@@ -15,8 +14,6 @@ import (
 
 // The Claude Code screens live under testdata/terminal/claude. The claude-code
 // workflow installs the Claude Code version recorded in claude-code-version.
-
-const claudeBaselineDir = "testdata/terminal/claude"
 
 // tierCatalog is a tenant with a router config whose name carries a Claude
 // Code tier word, hidden inside a longer id as tenant-named models do. Like
@@ -269,45 +266,6 @@ var claudeBaselineHarness = baselineHarness{
 	name:      "claude",
 	pinnedDir: pinnedClaudeDir,
 	runs:      func(tc baselineCase) bool { return tc.claude },
-}
-
-// pinnedClaudeDir returns the directory of the claude binary on PATH when its
-// version is the one the baselines were recorded with. Otherwise it returns ""
-// and the reason.
-func pinnedClaudeDir(t *testing.T) (string, string) {
-	t.Helper()
-	return pinnedHarnessDir(t, "claude", "Claude Code", filepath.Join(claudeBaselineDir, "claude-code-version"), 0)
-}
-
-// seedClaudeState writes the Claude Code state a returning user has, so the
-// launch opens at the prompt: onboarding done, release notes read, a theme
-// chosen, and the project folder trusted. Without it the first screen is the
-// theme picker.
-func seedClaudeState(t *testing.T, home, project string) {
-	t.Helper()
-	pinned, err := os.ReadFile(filepath.Join(claudeBaselineDir, "claude-code-version"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	version := strings.TrimSpace(string(pinned))
-	writeJSONFile(t, filepath.Join(home, ".claude.json"), map[string]any{
-		"hasCompletedOnboarding": true,
-		"lastOnboardingVersion":  version,
-		"lastReleaseNotesSeen":   version,
-		"theme":                  "dark",
-		"numStartups":            1,
-		"autoUpdates":            false,
-		"projects": map[string]any{
-			project: map[string]any{"hasTrustDialogAccepted": true},
-		},
-	})
-	// The logo animates, and a capture could land on any frame.
-	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeJSONFile(t, filepath.Join(home, ".claude", "settings.json"), map[string]any{
-		"prefersReducedMotion": true,
-	})
 }
 
 // Claude Code animates its logo: the eyes blink and glance, and the logo

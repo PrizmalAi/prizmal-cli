@@ -1,5 +1,3 @@
-//go:build !windows
-
 package main
 
 import (
@@ -492,15 +490,14 @@ func exeSuffix() string {
 
 // harnessBinary returns the file in dir that starts the named harness. A
 // harness installed with npm leaves a .cmd shim on Windows, and the native
-// installers leave a .exe, so the name alone does not find it there.
-func harnessBinary(t *testing.T, dir, name string) string {
-	t.Helper()
+// installers leave a .exe, so the name alone does not find it there. A harness the file does not
+// exist for gets the bare path, as before.
+func harnessBinary(dir, name string) string {
 	for _, ext := range []string{"", ".exe", ".cmd"} {
 		path := filepath.Join(dir, name+ext)
 		if info, err := os.Stat(path); err == nil && !info.IsDir() {
 			return path
 		}
 	}
-	t.Fatalf("no %s executable in %s", name, dir)
-	return ""
+	return filepath.Join(dir, name)
 }

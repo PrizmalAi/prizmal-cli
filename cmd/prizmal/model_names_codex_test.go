@@ -86,26 +86,6 @@ func codexOnPath(t *testing.T) string {
 	return filepath.Dir(harnessLaunchOnPath(t, "codex"))
 }
 
-// modelsOf lists the model of every request the recorder kept, in order.
-func modelsOf(rec *stubserver.Recorder) []string {
-	var models []string
-	for _, call := range rec.ModelCalls() {
-		models = append(models, call.Model)
-	}
-	return models
-}
-
-// assertServed fails when the stub refused any name, or saw none.
-func assertServed(t *testing.T, rec *stubserver.Recorder) {
-	t.Helper()
-	if len(rec.ModelCalls()) == 0 {
-		t.Fatal("the harness sent the stub no inference request")
-	}
-	if refused := rec.RefusedModels(); len(refused) > 0 {
-		t.Errorf("the harness sent model names the Switch would refuse: %q (all names sent: %q)", refused, modelsOf(rec))
-	}
-}
-
 // subagentCall returns the first request the spawned subagent made: the one
 // that holds the task the stub handed it and not the prompt that made the
 // parent spawn it.

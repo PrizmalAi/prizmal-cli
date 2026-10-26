@@ -15,10 +15,6 @@ import (
 // The Codex screens live under testdata/terminal/codex. The codex workflow
 // installs the Codex version recorded in codex-version.
 
-// codexBaselineDir holds the screens of the real Codex, which the codex
-// workflow records with the version in codex-version beside them.
-const codexBaselineDir = "testdata/terminal/codex"
-
 var (
 	stepCodexPrompt      = baselineStep{waitFor: "default · ~/project"}
 	stepCodexOpenModel   = baselineStep{literal: "/model", waitFor: "/model"}

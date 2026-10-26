@@ -1,5 +1,3 @@
-//go:build !windows
-
 package main
 
 import (
@@ -154,7 +152,7 @@ func (c compactionCase) newSession(t *testing.T, harnessDir string, plan *stubse
 	return &compactionSession{
 		harness:     c.harness,
 		prizmalBin:  prizmalBin,
-		harnessPath: harnessBinary(t, harnessDir, c.harness),
+		harnessPath: harnessBinary(harnessDir, c.harness),
 		home:        home,
 		project:     project,
 		plan:        plan,
