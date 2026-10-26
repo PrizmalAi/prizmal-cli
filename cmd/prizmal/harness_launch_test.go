@@ -355,15 +355,14 @@ func runPrizmalInSandbox(t *testing.T, prizmalBin, home, project, harnessPath st
 	cmd.Dir = project
 	// The harness's own directory leads PATH, so an npm-installed harness
 	// finds the node it was installed with.
-	cmd.Env = []string{
-		"HOME=" + home,
-		"PATH=" + filepath.Dir(harnessPath) + string(filepath.ListSeparator) + os.Getenv("PATH"),
-		"TMPDIR=" + os.TempDir(),
+	cmd.Env = append(homeEnv(home),
+		"PATH="+filepath.Dir(harnessPath)+string(filepath.ListSeparator)+os.Getenv("PATH"),
+		"TMPDIR="+os.TempDir(),
 		"LANG=C.UTF-8",
 		"TERM=dumb",
 		"NO_COLOR=1",
 		"DISABLE_AUTOUPDATER=1",
-	}
+	)
 	cmd.Env = append(cmd.Env, device.TestingEnv()...)
 	var outBuf, errBuf strings.Builder
 	cmd.Stdout = &outBuf
@@ -500,4 +499,25 @@ func harnessBinary(dir, name string) string {
 		}
 	}
 	return filepath.Join(dir, name)
+}
+
+// homeEnv is the environment that points a child at a sandbox home. Windows
+// reads USERPROFILE and the AppData directories where unix reads HOME, and
+// keeps a few system variables its programs cannot start without.
+func homeEnv(home string) []string {
+	env := []string{"HOME=" + home}
+	if runtime.GOOS != "windows" {
+		return env
+	}
+	env = append(env,
+		"USERPROFILE="+home,
+		"APPDATA="+filepath.Join(home, "AppData", "Roaming"),
+		"LOCALAPPDATA="+filepath.Join(home, "AppData", "Local"),
+	)
+	for _, name := range []string{"SystemRoot", "SystemDrive", "ComSpec", "PATHEXT", "TEMP", "TMP"} {
+		if v := os.Getenv(name); v != "" {
+			env = append(env, name+"="+v)
+		}
+	}
+	return env
 }

@@ -264,16 +264,15 @@ func TestClaudeCompactsOnTheStatedWindowAndOnARecognizedRefusal(t *testing.T) {
 				args := append([]string{"--yes", "-m", "stub-model", "claude", "--", "--print"}, promptArgs...)
 				cmd := exec.CommandContext(ctx, prizmalBin, args...)
 				cmd.Dir = project
-				cmd.Env = []string{
-					"HOME=" + home,
-					"PATH=" + pathDirs + string(filepath.ListSeparator) + os.Getenv("PATH"),
-					shimRealEnv + "=" + claudePath,
-					"TMPDIR=" + os.TempDir(),
+				cmd.Env = append(homeEnv(home),
+					"PATH="+pathDirs+string(filepath.ListSeparator)+os.Getenv("PATH"),
+					shimRealEnv+"="+claudePath,
+					"TMPDIR="+os.TempDir(),
 					"LANG=C.UTF-8",
 					"TERM=dumb",
 					"NO_COLOR=1",
 					"DISABLE_AUTOUPDATER=1",
-				}
+				)
 				var stdout, stderr strings.Builder
 				cmd.Stdout = &stdout
 				cmd.Stderr = &stderr

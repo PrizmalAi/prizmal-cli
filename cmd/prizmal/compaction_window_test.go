@@ -92,15 +92,14 @@ func (s *compactionSession) run(t *testing.T, stdin string, args ...string) (str
 	defer cancel()
 	cmd := exec.CommandContext(ctx, s.prizmalBin, append([]string{"-y", "-m", harnessLaunchModel, s.harness, "--"}, args...)...)
 	cmd.Dir = s.project
-	cmd.Env = []string{
-		"HOME=" + s.home,
-		"PATH=" + filepath.Dir(s.harnessPath) + string(filepath.ListSeparator) + os.Getenv("PATH"),
-		"TMPDIR=" + os.TempDir(),
+	cmd.Env = append(homeEnv(s.home),
+		"PATH="+filepath.Dir(s.harnessPath)+string(filepath.ListSeparator)+os.Getenv("PATH"),
+		"TMPDIR="+os.TempDir(),
 		"LANG=C.UTF-8",
 		"TERM=dumb",
 		"NO_COLOR=1",
 		"DISABLE_AUTOUPDATER=1",
-	}
+	)
 	cmd.Env = append(cmd.Env, device.TestingEnv()...)
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
