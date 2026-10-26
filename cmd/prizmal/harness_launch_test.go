@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -311,7 +312,7 @@ func harnessLaunchSandbox(t *testing.T, switchURL string, enrollDevice bool) (pr
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(root) })
-	prizmalBin = filepath.Join(root, "prizmal")
+	prizmalBin = filepath.Join(root, "prizmal"+exeSuffix())
 	if out, err := exec.Command("go", "build", "-o", prizmalBin, ".").CombinedOutput(); err != nil {
 		t.Fatalf("build prizmal: %v\n%s", err, out)
 	}
@@ -478,4 +479,28 @@ func responsesToolNames(body map[string]any) []string {
 		}
 	}
 	return names
+}
+
+// exeSuffix is the extension a built executable carries: go build -o writes
+// exactly the name it is given, and Windows will not start a file without it.
+func exeSuffix() string {
+	if runtime.GOOS == "windows" {
+		return ".exe"
+	}
+	return ""
+}
+
+// harnessBinary returns the file in dir that starts the named harness. A
+// harness installed with npm leaves a .cmd shim on Windows, and the native
+// installers leave a .exe, so the name alone does not find it there.
+func harnessBinary(t *testing.T, dir, name string) string {
+	t.Helper()
+	for _, ext := range []string{"", ".exe", ".cmd"} {
+		path := filepath.Join(dir, name+ext)
+		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+			return path
+		}
+	}
+	t.Fatalf("no %s executable in %s", name, dir)
+	return ""
 }

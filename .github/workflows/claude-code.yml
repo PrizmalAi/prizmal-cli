@@ -23,7 +23,8 @@ name: Claude Code
 # or a different Claude Code version into a failure, so this job cannot pass
 # by skipping every case.
 #
-# The same job runs TestClaudeCompactsOnTheStatedWindowAndOnARecognizedRefusal:
+# The compaction job runs TestClaudeCompactsOnTheStatedWindowAndOnARecognizedRefusal
+# on every OS, since it needs the pinned Claude Code but no terminal:
 # three print-mode queries through prizmal and the pinned Claude Code against
 # the stub switch. It asserts that the compaction summary request goes out once
 # the count crosses the threshold the launch's window sets, that a refusal in
@@ -47,7 +48,14 @@ jobs:
   # not declare it in the step env below: the launcher's own value is what
   # this job checks.
   launch:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -56,9 +64,16 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Install claude
+        if: runner.os != 'Windows'
         run: |
           curl -fsSL https://claude.ai/install.sh | bash
           echo "$HOME/.local/bin" >>"$GITHUB_PATH"
+      - name: Install claude
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          irm https://claude.ai/install.ps1 | iex
+          Add-Content -Path $env:GITHUB_PATH -Value "$env:USERPROFILE\.local\bin"
       - name: Launch claude through prizmal
         env:
           PRIZMAL_HARNESS_LAUNCH: require
@@ -67,7 +82,16 @@ jobs:
           go test -count=1 -v -run '^TestHarnessLaunchClaudeRelay$' ./cmd/prizmal
 
   terminal-baselines:
-    runs-on: ubuntu-latest
+    # tmux has no native Windows build, and running it under WSL would test
+    # Linux again, so the screen baselines run on Linux and macOS only.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -76,7 +100,8 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Install tmux
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq tmux
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then brew install tmux; else sudo apt-get update -qq && sudo apt-get install -y -qq tmux; fi
       - name: Install the pinned Claude Code
         run: |
           curl -fsSL https://claude.ai/install.sh | bash -s "$(cat cmd/prizmal/testdata/terminal/claude/claude-code-version)"
@@ -84,4 +109,37 @@ jobs:
       - name: Compare terminal baselines
         env:
           PRIZMAL_TERMINAL_BASELINES: require
-        run: go test -count=1 -v -run 'TestTerminalBaselinesClaude|TestTerminalBaselinesPrizmal|TestClaudeTiersStartInAutoMode|TestClaudeCompactsOnTheStatedWindowAndOnARecognizedRefusal' ./cmd/prizmal
+        run: go test -count=1 -v -run 'TestTerminalBaselinesClaude|TestTerminalBaselinesPrizmal|TestClaudeTiersStartInAutoMode' ./cmd/prizmal
+
+  compaction:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install the pinned Claude Code
+        if: runner.os != 'Windows'
+        run: |
+          curl -fsSL https://claude.ai/install.sh | bash -s "$(cat cmd/prizmal/testdata/terminal/claude/claude-code-version)"
+          echo "$HOME/.local/bin" >>"$GITHUB_PATH"
+      - name: Install the pinned Claude Code
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $v = (Get-Content cmd/prizmal/testdata/terminal/claude/claude-code-version).Trim()
+          & ([scriptblock]::Create((irm https://claude.ai/install.ps1))) $v
+          Add-Content -Path $env:GITHUB_PATH -Value "$env:USERPROFILE\.local\bin"
+      - name: Check Claude Code compacts at the declared window
+        env:
+          PRIZMAL_HARNESS_LAUNCH: require
+        run: go test -count=1 -v -run 'TestClaudeCompactsOnTheStatedWindowAndOnARecognizedRefusal' ./cmd/prizmal

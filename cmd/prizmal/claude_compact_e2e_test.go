@@ -334,7 +334,7 @@ func TestClaudeCompactsOnTheStatedWindowAndOnARecognizedRefusal(t *testing.T) {
 // buildPrizmal builds the working tree's prizmal binary.
 func buildPrizmal(t *testing.T) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "prizmal")
+	bin := filepath.Join(t.TempDir(), "prizmal"+exeSuffix())
 	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
 		t.Fatalf("build prizmal: %v\n%s", err, out)
 	}
@@ -389,7 +389,7 @@ func buildWindowVarShim(t *testing.T) string {
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	build := exec.Command("go", "build", "-o", filepath.Join(binDir, "claude"), src)
+	build := exec.Command("go", "build", "-o", filepath.Join(binDir, "claude"+exeSuffix()), src)
 	build.Dir = dir
 	build.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=")
 	if out, err := build.CombinedOutput(); err != nil {
