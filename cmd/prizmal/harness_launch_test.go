@@ -1,5 +1,3 @@
-//go:build !windows
-
 package main
 
 import (
@@ -9,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -311,7 +310,7 @@ func harnessLaunchSandbox(t *testing.T, switchURL string, enrollDevice bool) (pr
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(root) })
-	prizmalBin = filepath.Join(root, "prizmal")
+	prizmalBin = filepath.Join(root, "prizmal"+exeSuffix())
 	if out, err := exec.Command("go", "build", "-o", prizmalBin, ".").CombinedOutput(); err != nil {
 		t.Fatalf("build prizmal: %v\n%s", err, out)
 	}
@@ -356,15 +355,14 @@ func runPrizmalInSandbox(t *testing.T, prizmalBin, home, project, harnessPath st
 	cmd.Dir = project
 	// The harness's own directory leads PATH, so an npm-installed harness
 	// finds the node it was installed with.
-	cmd.Env = []string{
-		"HOME=" + home,
-		"PATH=" + filepath.Dir(harnessPath) + string(filepath.ListSeparator) + os.Getenv("PATH"),
-		"TMPDIR=" + os.TempDir(),
+	cmd.Env = append(homeEnv(home),
+		"PATH="+filepath.Dir(harnessPath)+string(filepath.ListSeparator)+os.Getenv("PATH"),
 		"LANG=C.UTF-8",
 		"TERM=dumb",
 		"NO_COLOR=1",
 		"DISABLE_AUTOUPDATER=1",
-	}
+		"CLINE_NO_AUTO_UPDATE=1",
+	)
 	cmd.Env = append(cmd.Env, device.TestingEnv()...)
 	var outBuf, errBuf strings.Builder
 	cmd.Stdout = &outBuf
@@ -478,4 +476,53 @@ func responsesToolNames(body map[string]any) []string {
 		}
 	}
 	return names
+}
+
+// exeSuffix is the extension a built executable carries: go build -o writes
+// exactly the name it is given, and Windows will not start a file without it.
+func exeSuffix() string {
+	if runtime.GOOS == "windows" {
+		return ".exe"
+	}
+	return ""
+}
+
+// harnessBinary returns the file in dir that starts the named harness. A
+// harness installed with npm leaves a .cmd shim on Windows, and the native
+// installers leave a .exe, so the name alone does not find it there. A harness the file does not
+// exist for gets the bare path, as before.
+func harnessBinary(dir, name string) string {
+	for _, ext := range []string{"", ".exe", ".cmd"} {
+		path := filepath.Join(dir, name+ext)
+		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+			return path
+		}
+	}
+	return filepath.Join(dir, name)
+}
+
+// homeEnv is the environment that points a child at a sandbox home, with its
+// temporary files under the home too. Windows reads USERPROFILE and the AppData
+// directories where unix reads HOME, TEMP and TMP where unix reads TMPDIR, and
+// keeps a few system variables its programs cannot start without.
+func homeEnv(home string) []string {
+	tmp := filepath.Join(home, "tmp")
+	_ = os.MkdirAll(tmp, 0o700)
+	env := []string{"HOME=" + home}
+	if runtime.GOOS != "windows" {
+		return append(env, "TMPDIR="+tmp)
+	}
+	env = append(env,
+		"USERPROFILE="+home,
+		"APPDATA="+filepath.Join(home, "AppData", "Roaming"),
+		"LOCALAPPDATA="+filepath.Join(home, "AppData", "Local"),
+		"TEMP="+tmp,
+		"TMP="+tmp,
+	)
+	for _, name := range []string{"SystemRoot", "SystemDrive", "ComSpec", "PATHEXT"} {
+		if v := os.Getenv(name); v != "" {
+			env = append(env, name+"="+v)
+		}
+	}
+	return env
 }

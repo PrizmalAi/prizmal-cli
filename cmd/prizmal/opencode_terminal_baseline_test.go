@@ -8,10 +8,6 @@ import (
 	"testing"
 )
 
-// The OpenCode screens live under testdata/terminal/opencode. The opencode
-// workflow installs the OpenCode version recorded in opencode-version.
-const opencodeBaselineDir = "testdata/terminal/opencode"
-
 var (
 	stepOpencodePrompt     = baselineStep{waitFor: "Build · smart"}
 	stepOpencodeOpenModels = baselineStep{literal: "/models"}

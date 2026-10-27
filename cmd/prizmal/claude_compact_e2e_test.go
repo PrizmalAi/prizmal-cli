@@ -1,5 +1,3 @@
-//go:build !windows
-
 package main
 
 import (
@@ -266,16 +264,14 @@ func TestClaudeCompactsOnTheStatedWindowAndOnARecognizedRefusal(t *testing.T) {
 				args := append([]string{"--yes", "-m", "stub-model", "claude", "--", "--print"}, promptArgs...)
 				cmd := exec.CommandContext(ctx, prizmalBin, args...)
 				cmd.Dir = project
-				cmd.Env = []string{
-					"HOME=" + home,
-					"PATH=" + pathDirs + string(filepath.ListSeparator) + os.Getenv("PATH"),
-					shimRealEnv + "=" + claudePath,
-					"TMPDIR=" + os.TempDir(),
+				cmd.Env = append(homeEnv(home),
+					"PATH="+pathDirs+string(filepath.ListSeparator)+os.Getenv("PATH"),
+					shimRealEnv+"="+claudePath,
 					"LANG=C.UTF-8",
 					"TERM=dumb",
 					"NO_COLOR=1",
 					"DISABLE_AUTOUPDATER=1",
-				}
+				)
 				var stdout, stderr strings.Builder
 				cmd.Stdout = &stdout
 				cmd.Stderr = &stderr
@@ -334,7 +330,7 @@ func TestClaudeCompactsOnTheStatedWindowAndOnARecognizedRefusal(t *testing.T) {
 // buildPrizmal builds the working tree's prizmal binary.
 func buildPrizmal(t *testing.T) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "prizmal")
+	bin := filepath.Join(t.TempDir(), "prizmal"+exeSuffix())
 	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
 		t.Fatalf("build prizmal: %v\n%s", err, out)
 	}
@@ -346,26 +342,32 @@ func buildPrizmal(t *testing.T) string {
 const shimRealEnv = "PRIZMAL_COMPACT_SHIM_REAL"
 
 // windowVarShimSource is a `claude` stand-in for the control arms. It removes
-// CLAUDE_CODE_AUTO_COMPACT_WINDOW from the environment, then replaces itself
-// with the real Claude Code, which sees the launch exactly as prizmal made it
-// less the one variable.
+// CLAUDE_CODE_AUTO_COMPACT_WINDOW from the environment, then runs the real
+// Claude Code, which sees the launch exactly as prizmal made it less the one
+// variable. It runs the child rather than replacing itself, because Windows
+// has no exec.
 const windowVarShimSource = `package main
 
 import (
 	"os"
+	"os/exec"
 	"strings"
-	"syscall"
 )
 
 func main() {
-	real := os.Getenv("` + shimRealEnv + `")
 	var env []string
 	for _, kv := range os.Environ() {
 		if !strings.HasPrefix(kv, "` + windowEnvName + `=") {
 			env = append(env, kv)
 		}
 	}
-	if err := syscall.Exec(real, append([]string{real}, os.Args[1:]...), env); err != nil {
+	cmd := exec.Command(os.Getenv("` + shimRealEnv + `"), os.Args[1:]...)
+	cmd.Env = env
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		if exit, ok := err.(*exec.ExitError); ok {
+			os.Exit(exit.ExitCode())
+		}
 		os.Stderr.WriteString("shim: " + err.Error() + "\n")
 		os.Exit(1)
 	}
@@ -389,7 +391,7 @@ func buildWindowVarShim(t *testing.T) string {
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	build := exec.Command("go", "build", "-o", filepath.Join(binDir, "claude"), src)
+	build := exec.Command("go", "build", "-o", filepath.Join(binDir, "claude"+exeSuffix()), src)
 	build.Dir = dir
 	build.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=")
 	if out, err := build.CombinedOutput(); err != nil {

@@ -3,7 +3,6 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"net/http"
@@ -54,11 +53,6 @@ var realUserCacheDir, realUserCacheDirErr = os.UserCacheDir()
 var updateBaselines = flag.Bool("update-baselines", false, "rewrite testdata/terminal from the current render")
 
 const (
-	// baselineRequireEnv set to "require" turns a missing tmux or harness
-	// into a failure. CI sets it, so a runner without them cannot pass by
-	// skipping every case.
-	baselineRequireEnv = "PRIZMAL_TERMINAL_BASELINES"
-
 	// baselineShotsEnv, when set to a directory, also saves each screen with
 	// its colour codes as <name>.ansi, ready for termframe to draw as an image.
 	baselineShotsEnv = "PRIZMAL_TERMINAL_SHOTS"
@@ -324,36 +318,6 @@ func runBaselineCases(t *testing.T, cases []baselineCase, dir string, harnesses 
 	}
 }
 
-// pinnedHarnessDir returns the directory of the binary on PATH when the
-// version it prints is the one recorded in versionFile. Otherwise it returns
-// "" and the reason. field is the index of the version in the output of
-// `<binary> --version`, and a negative index counts from the end.
-func pinnedHarnessDir(t *testing.T, binary, label, versionFile string, field int) (string, string) {
-	t.Helper()
-	pinned, err := os.ReadFile(versionFile)
-	if err != nil {
-		t.Fatalf("read pinned %s version: %v", label, err)
-	}
-	want := strings.TrimSpace(string(pinned))
-
-	path, err := exec.LookPath(binary)
-	if err != nil {
-		return "", label + " is not on PATH"
-	}
-	out, err := exec.Command(path, "--version").Output()
-	if err != nil {
-		return "", fmt.Sprintf("%s --version: %v", binary, err)
-	}
-	fields := strings.Fields(string(out))
-	if field < 0 {
-		field += len(fields)
-	}
-	if field < 0 || field >= len(fields) || fields[field] != want {
-		return "", fmt.Sprintf("%s %s is installed, and the baselines were recorded with %s", label, strings.TrimSpace(string(out)), want)
-	}
-	return filepath.Dir(path), ""
-}
-
 // renderBaseline runs one case in its own tmux server and returns the final
 // screen as plain text and with its colour codes.
 func renderBaseline(t *testing.T, tmuxPath, prizmalBin, claudeDir string, tc baselineCase) (string, string) {
@@ -588,17 +552,6 @@ func waitForSettledScreen(capture func() string, want string, timeout time.Durat
 	return false
 }
 
-func writeJSONFile(t *testing.T, path string, v any) {
-	t.Helper()
-	data, err := json.Marshal(v)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-}
-
 // normalizeScreen drops the padding tmux adds: trailing spaces on each row and
 // the blank rows below the last line of text. The rows above keep their
 // position, so a layout change still shows in the diff.
@@ -632,10 +585,6 @@ func lineDiff(want, got string) string {
 		}
 	}
 	return b.String()
-}
-
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 func shellJoin(args []string) string {

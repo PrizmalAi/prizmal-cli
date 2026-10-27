@@ -28,7 +28,14 @@ concurrency:
 
 jobs:
   launch:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -46,13 +53,25 @@ jobs:
         env:
           PRIZMAL_HARNESS_LAUNCH: require
         run: go test -count=1 -v -run 'TestHarnessLaunchCodex$|TestHarnessLaunchCodexWithoutAModel$' ./cmd/prizmal
+      # Skipped on Windows: the launcher hands Codex a token.sh script as its auth
+      # command, and Windows cannot start it ("not a valid Win32 application").
       - name: Codex device-key auth
+        if: runner.os != 'Windows'
         env:
           PRIZMAL_HARNESS_LAUNCH: require
         run: go test -count=1 -v -run 'TestCodexRerunsTheAuthCommandAfterA401$|TestCodexDiscoveryShapes$|TestCodexDeviceLaunchRunsOnTheDeviceToken$' ./cmd/prizmal
 
   terminal-baselines:
-    runs-on: ubuntu-latest
+    # tmux has no native Windows build, and running it under WSL would test
+    # Linux again, so the screen baselines run on Linux and macOS only.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -68,16 +87,43 @@ jobs:
       # Ubuntu runners restrict unprivileged user namespaces, so the job lifts
       # the restriction.
       - name: Install tmux and bubblewrap
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq tmux bubblewrap
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Install tmux
+        if: runner.os == 'macOS'
+        run: brew install tmux
       - name: Install the pinned Codex
         run: npm install -g "@openai/codex@$(cat cmd/prizmal/testdata/terminal/codex/codex-version)"
       - name: Compare terminal baselines
         env:
           PRIZMAL_TERMINAL_BASELINES: require
         run: go test -count=1 -v -run 'TestTerminalBaselinesCodex$' ./cmd/prizmal
+
+  # compaction needs the pinned release but no terminal, so it runs on every OS.
+  compaction:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - name: Install the pinned Codex
+        run: npm install -g "@openai/codex@$(cat cmd/prizmal/testdata/terminal/codex/codex-version)"
       - name: Check Codex compacts at the declared window
         env:
-          PRIZMAL_TERMINAL_BASELINES: require
+          PRIZMAL_HARNESS_LAUNCH: require
         run: go test -count=1 -v -run 'TestHarnessCompactsAtTheDeclaredWindow/codex$' ./cmd/prizmal
