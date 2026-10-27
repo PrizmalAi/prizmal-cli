@@ -361,6 +361,7 @@ func runPrizmalInSandbox(t *testing.T, prizmalBin, home, project, harnessPath st
 		"TERM=dumb",
 		"NO_COLOR=1",
 		"DISABLE_AUTOUPDATER=1",
+		"CLINE_NO_AUTO_UPDATE=1",
 	)
 	cmd.Env = append(cmd.Env, device.TestingEnv()...)
 	var outBuf, errBuf strings.Builder

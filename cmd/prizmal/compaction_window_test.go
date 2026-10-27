@@ -96,6 +96,7 @@ func (s *compactionSession) run(t *testing.T, stdin string, args ...string) (str
 		"TERM=dumb",
 		"NO_COLOR=1",
 		"DISABLE_AUTOUPDATER=1",
+		"CLINE_NO_AUTO_UPDATE=1",
 	)
 	cmd.Env = append(cmd.Env, device.TestingEnv()...)
 	var stdout, stderr strings.Builder

@@ -37,6 +37,11 @@ jobs:
       run:
         shell: bash
     timeout-minutes: 15
+    # Cline updates itself in the background, and an update that renames its
+    # install directory while a test starts it makes the binary vanish from PATH
+    # for a moment. The pinned release is the one under test.
+    env:
+      CLINE_NO_AUTO_UPDATE: "1"
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
