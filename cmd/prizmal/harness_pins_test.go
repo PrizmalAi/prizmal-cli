@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -130,4 +131,30 @@ func writeJSONFile(t *testing.T, path string, v any) {
 
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// A sandboxed child must keep its temporary files under the sandbox home, so a
+// run cannot read what an earlier run left in the host's temp directory.
+func TestHomeEnvKeepsTempFilesInsideTheHome(t *testing.T) {
+	home := t.TempDir()
+	names := []string{"TMPDIR"}
+	if runtime.GOOS == "windows" {
+		names = []string{"TEMP", "TMP"}
+	}
+	env := homeEnv(home)
+	for _, name := range names {
+		var got string
+		for _, kv := range env {
+			if v, ok := strings.CutPrefix(kv, name+"="); ok {
+				got = v
+			}
+		}
+		if rel, err := filepath.Rel(home, got); got == "" || err != nil || strings.HasPrefix(rel, "..") {
+			t.Errorf("%s = %q, want a directory under the sandbox home %q", name, got, home)
+			continue
+		}
+		if info, err := os.Stat(got); err != nil || !info.IsDir() {
+			t.Errorf("%s = %q does not exist as a directory", name, got)
+		}
+	}
 }

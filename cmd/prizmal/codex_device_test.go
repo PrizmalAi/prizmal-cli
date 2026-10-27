@@ -98,14 +98,12 @@ func newCodexSandbox(t *testing.T) codexSandbox {
 
 // env is the minimal environment for a Codex process in the sandbox.
 func (sb codexSandbox) env(codexPath string) []string {
-	env := []string{
-		"HOME=" + sb.home,
-		"PATH=" + filepath.Dir(codexPath) + string(filepath.ListSeparator) + os.Getenv("PATH"),
-		"TMPDIR=" + os.TempDir(),
+	env := append(homeEnv(sb.home),
+		"PATH="+filepath.Dir(codexPath)+string(filepath.ListSeparator)+os.Getenv("PATH"),
 		"LANG=C.UTF-8",
 		"TERM=dumb",
 		"NO_COLOR=1",
-	}
+	)
 	return append(env, device.TestingEnv()...)
 }
 

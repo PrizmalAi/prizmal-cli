@@ -267,7 +267,6 @@ func TestClaudeCompactsOnTheStatedWindowAndOnARecognizedRefusal(t *testing.T) {
 				cmd.Env = append(homeEnv(home),
 					"PATH="+pathDirs+string(filepath.ListSeparator)+os.Getenv("PATH"),
 					shimRealEnv+"="+claudePath,
-					"TMPDIR="+os.TempDir(),
 					"LANG=C.UTF-8",
 					"TERM=dumb",
 					"NO_COLOR=1",

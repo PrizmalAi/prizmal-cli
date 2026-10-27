@@ -92,7 +92,6 @@ func (s *compactionSession) run(t *testing.T, stdin string, args ...string) (str
 	cmd.Dir = s.project
 	cmd.Env = append(homeEnv(s.home),
 		"PATH="+filepath.Dir(s.harnessPath)+string(filepath.ListSeparator)+os.Getenv("PATH"),
-		"TMPDIR="+os.TempDir(),
 		"LANG=C.UTF-8",
 		"TERM=dumb",
 		"NO_COLOR=1",
