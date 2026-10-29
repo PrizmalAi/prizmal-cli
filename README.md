@@ -1,6 +1,6 @@
 # Prizmal CLI
 
-One command to launch a supported coding-agent harness — Claude Code, Codex, OpenCode, Pi, Cline — configured to talk to the **Prizmal Switch**.
+One command to launch a supported coding-agent harness — Claude Code, Codex, OpenCode, Pi, Cline, Kilo Code — configured to talk to the **Prizmal Switch**.
 
 ```
 prizmal claude
@@ -87,13 +87,13 @@ Once your tenant approves a device, a launch uses it automatically. `prizmal cla
 
 A device token is a bearer credential that expires 10 minutes after issue, and the Switch binds it to one tenant. The private key never leaves the machine. The next refresh stops once a tenant manager revokes the device or disables the tenant, or sets the member inactive.
 
-Claude Code, Pi, Codex, OpenCode and Cline can refresh a device token during a session, so all five run in device mode. Each does it through a mechanism its own docs describe, under [Supported integrations](#supported-integrations). Cline always starts the loopback relay, without `--relay`, because its provider configuration takes a fixed key.
+Claude Code, Pi, Codex, OpenCode, Cline and Kilo Code can refresh a device token during a session, so all six run in device mode. Each does it through a mechanism its own docs describe, under [Supported integrations](#supported-integrations). Cline and Kilo Code always start the loopback relay, without `--relay`: Cline because its provider configuration takes a fixed key, Kilo Code so its inline config never holds a token that expires.
 
 ### Switch key
 
 `prizmal` stores a Prizmal Switch API key in a single config file at `~/.prizmal/config.json`, created on first run and written with `0600` permissions (`0700` on the directory). On first launch it prompts for the key. Type a key and `prizmal` writes it to the file. Leave it empty and the next run prompts again. To run without the prompt, set the key with `--api-key` or `$PRIZMAL_SWITCH_KEY`, or write the file yourself.
 
-The key is stored as **plain text by default**. This matches how the downstream coding harnesses store their own credentials, and a direct switch-key launch uses no local proxy or OS keyring. Passing `--relay`, or starting Cline, adds a process-local loopback relay for that session. If you prefer not to keep a secret on disk, the `api_key` field is extensible to two other forms. It is one of:
+The key is stored as **plain text by default**. This matches how the downstream coding harnesses store their own credentials, and a direct switch-key launch uses no local proxy or OS keyring. Passing `--relay`, or starting Cline or Kilo Code, adds a process-local loopback relay for that session. If you prefer not to keep a secret on disk, the `api_key` field is extensible to two other forms. It is one of:
 
 **Plain string** (default)
 ```json
@@ -122,7 +122,7 @@ using api key from: config file (~/.prizmal/config.json)
 
 The announcement prints the source only, never the key's value, a prefix of it, its length, or a hash.
 
-An enrolled device key takes precedence over both the config file and `$PRIZMAL_SWITCH_KEY` on the launches device login serves — `claude`, `pi`, `codex`, `opencode`, `cline`, `--list`, and a model pick — since it is the credential your tenant approved for this machine. `--api-key` and `--url` still win for one launch, so you can use a switch key on a device-signed machine.
+An enrolled device key takes precedence over both the config file and `$PRIZMAL_SWITCH_KEY` on the launches device login serves — `claude`, `pi`, `codex`, `opencode`, `cline`, `kilo`, `--list`, and a model pick — since it is the credential your tenant approved for this machine. `--api-key` and `--url` still win for one launch, so you can use a switch key on a device-signed machine.
 
 `prizmal login` prints nothing on stdout. It signs in and exits. `prizmal auth token` is the internal helper command Claude Code, Pi and Codex run for a device token: it prints one token on stdout and nothing else, and you don't run it by hand.
 
@@ -145,6 +145,7 @@ A launch that already has its model continues after the warning, without the ext
 | `claude` | Claude Code | `ANTHROPIC_AUTH_TOKEN` (`ANTHROPIC_API_KEY` is emptied) | [docs/claude-code.md](docs/claude-code.md) |
 | `codex` | OpenAI Codex CLI | `OPENAI_API_KEY` + `model_providers.<profile>` TOML. In device mode, `model_providers.<profile>.auth` runs `prizmal auth token` instead, and no key is set | [docs/codex.md](docs/codex.md) |
 | `opencode` | OpenCode | `provider.prizmal.options.apiKey` in the inline config; a device login instead loads a plugin that runs `prizmal auth token` before each request | [docs/opencode.md](docs/opencode.md) |
+| `kilo` | Kilo Code | `provider.prizmal.options.apiKey` in the inline config `KILO_CONFIG_CONTENT`, which holds a per-launch placeholder; the launch always starts a loopback relay that holds the credential, so a device login refreshes per request | [docs/kilo.md](docs/kilo.md) |
 | `cline` | Cline | `OPENAI_API_KEY`, which Cline reads when `providers.openai-compatible.settings` has no `apiKey`; the launch points its provider at a per-session loopback relay that holds the credential, so the `/model` picker lists your names and a device login refreshes per request. The launch also installs a local `prizmal_search` plugin that adds `prizmal_search__search`. Provider state goes under the data directory that `--data-dir` or `CLINE_DATA_DIR` sets | [docs/cline.md](docs/cline.md) |
 | `pi` | Pi coding agent | `PRIZMAL_SWITCH_KEY`, which `"apiKey": "$PRIZMAL_SWITCH_KEY"` in `~/.pi/agent/models.json` refers to (pi 0.77.0 or later); a device login instead loads an extension whose provider runs `prizmal auth token` | [docs/pi.md](docs/pi.md) |
 
@@ -223,7 +224,7 @@ prizmal --list
 `--relay` starts a loopback HTTP relay for one launch. The harness receives a
 random placeholder credential, and the relay replaces it with the launch's real
 device token or switch key on every request. It works with Claude Code, Codex,
-OpenCode, Pi and Cline. The relay listens on an ephemeral loopback port, accepts
+OpenCode, Pi, Cline and Kilo Code. The relay listens on an ephemeral loopback port, accepts
 only that placeholder (Cline's model list request is the one exception), streams responses as they arrive, and refreshes and
 replays once after a 401 when the credential source can refresh. It stops when
 the harness exits. `--relay` is a launch flag: `--list`, `--restore` and

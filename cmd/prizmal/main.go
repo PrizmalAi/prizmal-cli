@@ -81,8 +81,9 @@ be read as a prizmal flag.
 
 --relay starts a loopback relay for the launch. The harness receives a random
 placeholder credential, and the relay sends the launch's real credential to the
-Switch. It stops when the harness exits. Cline always runs through it, so its
-/model picker can list the tenant's names.
+Switch. It stops when the harness exits. Cline and Kilo Code always run through it: Cline so its
+/model picker can list the tenant's names, Kilo Code so a device login
+refreshes per request.
 
 --list answers a different question: it prints the models this switch key's
 tenant serves, one per line, and exits without launching. It holds exactly the
@@ -872,5 +873,5 @@ func launch(name string, extraArgs []string, cfg *config.Config, ask launcher.As
 }
 
 func shouldUseRelay(integration string) bool {
-	return relayFlag || integration == "cline"
+	return relayFlag || integration == "cline" || integration == "kilo"
 }

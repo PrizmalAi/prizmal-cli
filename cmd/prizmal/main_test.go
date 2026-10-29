@@ -18,7 +18,7 @@ func TestListIntegrationsIncludesCoreHarnesses(t *testing.T) {
 	specs := registry.ListVisibleIntegrationSpecs()
 	want := map[string]bool{
 		"claude": false, "codex": false, "opencode": false, "pi": false,
-		"cline": false,
+		"cline": false, "kilo": false,
 	}
 	for _, spec := range specs {
 		if _, ok := want[spec.Name]; ok {

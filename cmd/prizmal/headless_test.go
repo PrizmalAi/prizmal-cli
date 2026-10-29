@@ -43,6 +43,10 @@ func TestEveryHarnessReportsItsHeadlessRun(t *testing.T) {
 		{"pi", []string{"hi"}, false},
 		{"pi", nil, false},
 
+		{"kilo", []string{"run", "hi"}, true},
+		{"kilo", []string{"--model", "run"}, false},
+		{"kilo", nil, false},
+
 		// Cline runs a prompt to the end unless --tui opens the interface.
 		{"cline", []string{"hi"}, true},
 		{"cline", []string{"-y", "--cwd", "/tmp", "hi"}, true},
