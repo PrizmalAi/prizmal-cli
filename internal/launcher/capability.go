@@ -157,9 +157,9 @@ func CapabilitiesFromModalities(modalities []string) []model.Capability {
 	return capabilities
 }
 
-// knowsInputs says whether the model carries any input capability. Thinking is
+// KnowsInputs says whether the model carries any input capability. Thinking is
 // a separate boolean, so it does not make a model's inputs known.
-func (m LaunchModel) knowsInputs() bool {
+func (m LaunchModel) KnowsInputs() bool {
 	for _, c := range m.Capabilities {
 		if c != model.CapabilityThinking {
 			return true
@@ -180,7 +180,7 @@ func (m LaunchModel) knowsInputs() bool {
 // The result is a fresh slice, so a caller that appends to it cannot edit the
 // unknown list every later launch would read.
 func DeclaredInputs(m LaunchModel, harness string) []string {
-	if !m.knowsInputs() {
+	if !m.KnowsInputs() {
 		return slices.Clone(unknownInputs[harness])
 	}
 	var declared []string
@@ -197,5 +197,5 @@ func DeclaredInputs(m LaunchModel, harness string) []string {
 // CapabilityThinking is not an input modality and has no row above. The Switch
 // reports reasoning as its own per-entry boolean, and ParseSwitchCatalog turns
 // a true value into CapabilityThinking, which opencode and pi gate their
-// reasoning fields on. knowsInputs ignores it, so a model that reports
+// reasoning fields on. KnowsInputs ignores it, so a model that reports
 // reasoning and no modalities still gets the unknown list.

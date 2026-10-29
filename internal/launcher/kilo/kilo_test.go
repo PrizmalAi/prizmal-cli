@@ -190,11 +190,16 @@ func TestInlineConfigInputsFollowTheModelsModalities(t *testing.T) {
 		{"image and file", launch.LaunchModel{Name: "m", Capabilities: []model.Capability{model.CapabilityCompletion, model.CapabilityVision, model.CapabilityDocument}}, "text,image,pdf"},
 		{"text only", launch.LaunchModel{Name: "m", Capabilities: []model.Capability{model.CapabilityCompletion}}, "text"},
 		{"no list", launch.LaunchModel{Name: "m"}, "text,image"},
+		// The reasoning flag is not an input modality, so a reasoning model
+		// that reports no list is still a model with no list.
+		{"reasoning and no list", launch.LaunchModel{Name: "thinker", Capabilities: []model.Capability{model.CapabilityThinking}}, "text,image"},
+		{"reasoning and file", launch.LaunchModel{Name: "thinker", Capabilities: []model.Capability{model.CapabilityThinking, model.CapabilityDocument}}, "text,pdf"},
+		{"reasoning and image", launch.LaunchModel{Name: "thinker", Capabilities: []model.Capability{model.CapabilityThinking, model.CapabilityVision}}, "text,image"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			config := inlineConfig(t, "m", []launch.LaunchModel{tc.model})
+			config := inlineConfig(t, tc.model.Name, []launch.LaunchModel{tc.model})
 			models := config["provider"].(map[string]any)["prizmal"].(map[string]any)["models"].(map[string]any)
-			input := models["m"].(map[string]any)["modalities"].(map[string]any)["input"]
+			input := models[tc.model.Name].(map[string]any)["modalities"].(map[string]any)["input"]
 			if got := strings.Join(toStrings(input), ","); got != tc.want {
 				t.Fatalf("modalities.input = %s, want %s", got, tc.want)
 			}
