@@ -15,7 +15,7 @@ import (
 )
 
 // switchCatalogJSON mirrors the shape the Switch serves on GET /v1/models,
-// as observed live on staging: a top-level "data" array whose entries carry
+// as observed live: a top-level "data" array whose entries carry
 // "id" and, on some entries only, "input_modalities".
 const switchCatalogJSON = `{
   "data": [
@@ -137,7 +137,7 @@ func TestParseSwitchCatalogDropsUnknownModalities(t *testing.T) {
 
 // The Switch spells its document modality "file", and its catalogue hands it
 // out independently of "image": a row can carry both, either, or neither.
-// "file" is the only signal that a router config can take a PDF.
+// "file" is the only signal that a model can take a PDF.
 func TestParseSwitchCatalogMapsFileToDocument(t *testing.T) {
 	models, err := ParseSwitchCatalog([]byte(`{"data":[
 		{"id":"file-model","input_modalities":["file","text"]},
@@ -503,7 +503,7 @@ func TestBestEffortCatalogNamesKeySourceAndStatusOnFailure(t *testing.T) {
 	}
 }
 
-// The Switch can tag a router config with the Claude tier it serves, and give
+// The Switch can tag a model with the Claude tier it serves, and give
 // it a description. An unknown tier is dropped rather than guessed at.
 func TestParseSwitchCatalogReadsTierAndDescription(t *testing.T) {
 	models, err := ParseSwitchCatalog([]byte(`{"data":[
@@ -659,7 +659,7 @@ func TestFetchCatalogReportsNoModelsForAnEmptyListing(t *testing.T) {
 	}
 }
 
-// A router config the Switch tags with a tier holds that tier's alias, so the
+// A model the Switch tags with a tier holds that tier's alias, so the
 // tier row stands for it. The tier row takes its description and
 // capabilities, and the config itself is folded out of the rows.
 func TestClaudeTiersFoldTheConfigThatHoldsEachTier(t *testing.T) {

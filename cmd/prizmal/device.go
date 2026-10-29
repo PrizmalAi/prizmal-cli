@@ -17,14 +17,10 @@ import (
 )
 
 // appBaseURL is the admin app that serves the /cli/authorize consent page. An
-// explicit $PRIZMAL_APP_URL wins; otherwise it is derived from the Switch host,
-// so a staging login stays on the staging app.
+// $PRIZMAL_APP_URL selects another app; without it the production app serves.
 func appBaseURL() string {
 	if v := strings.TrimSpace(os.Getenv("PRIZMAL_APP_URL")); v != "" {
 		return strings.TrimRight(v, "/")
-	}
-	if host := envconfig.Host().Hostname(); host == "api.staging.prizmal.ai" {
-		return "https://app.staging.prizmal.ai"
 	}
 	return "https://app.prizmal.ai"
 }

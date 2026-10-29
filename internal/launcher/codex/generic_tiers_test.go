@@ -9,20 +9,20 @@ import (
 )
 
 // A tenant whose Switch reports generic tiers gets Codex rows whose slug is the
-// alias the Switch routes. The display name is the router config the row stands
+// alias the Switch routes. The display name is the model the row stands
 // for, so no row passes itself off as an OpenAI model, and the description
 // carries the Codex word. A config that serves every tier gives four rows.
 func TestCodexCatalogSlugsAreAliasesAndNamesAreConfigs(t *testing.T) {
 	catalog := launch.WithTierRows([]launch.LaunchModel{
 		{Name: "glm", Tiers: tiers.All, Description: "One model"},
-		{Name: "advisor-router"},
+		{Name: "sample-model-a"},
 	})
 	models := launch.LaunchModels("frontier", catalog, true)
 	slugs, names, descriptions := codexCatalogEntries(t, "frontier", models)
-	if want := []string{"frontier", "core", "flash", "premier", "advisor-router"}; !slices.Equal(slugs, want) {
+	if want := []string{"frontier", "core", "flash", "premier", "sample-model-a"}; !slices.Equal(slugs, want) {
 		t.Errorf("slugs = %v, want %v", slugs, want)
 	}
-	if want := []string{"glm (Sol-like)", "glm (Terra-like)", "glm (Luna-like)", "glm (Astra-like)", "advisor-router"}; !slices.Equal(names, want) {
+	if want := []string{"glm (Sol-like)", "glm (Terra-like)", "glm (Luna-like)", "glm (Astra-like)", "sample-model-a"}; !slices.Equal(names, want) {
 		t.Errorf("display names = %v, want %v", names, want)
 	}
 	// The tier word is in each name, so the description drops it.
@@ -38,10 +38,10 @@ func TestCodexCatalogNamesSharedConfigRowsWithTheTierWord(t *testing.T) {
 	catalog := launch.WithTierRows([]launch.LaunchModel{
 		{Name: "smart", Tiers: []tiers.Tier{tiers.Frontier, tiers.Core}},
 		{Name: "quick", Tiers: []tiers.Tier{tiers.Flash}},
-		{Name: "advisor-router"},
+		{Name: "sample-model-a"},
 	})
 	_, names, descriptions := codexCatalogEntries(t, "frontier", launch.LaunchModels("frontier", catalog, true))
-	if want := []string{"smart (Sol-like)", "smart (Terra-like)", "quick", "advisor-router"}; !slices.Equal(names, want) {
+	if want := []string{"smart (Sol-like)", "smart (Terra-like)", "quick", "sample-model-a"}; !slices.Equal(names, want) {
 		t.Errorf("display names = %v, want %v", names, want)
 	}
 	// The word moves into a shared name, and a plain name keeps it in the
@@ -61,7 +61,7 @@ func TestCodexCatalogNamesAnUnheldAliasRowByTheAlias(t *testing.T) {
 	}
 }
 
-// A Switch that reports no tier gives Codex the router configs by name.
+// A Switch that reports no tier gives Codex the models by name.
 func TestCodexCatalogShowsConfigNamesWithoutTiers(t *testing.T) {
 	catalog := launch.WithTierRows([]launch.LaunchModel{{Name: "smart"}, {Name: "flash"}})
 	slugs, names, _ := codexCatalogEntries(t, "smart", launch.LaunchModels("smart", catalog, true))

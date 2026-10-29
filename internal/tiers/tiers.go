@@ -1,7 +1,7 @@
 // Package tiers holds the generic model tiers the Switch reports and the word
 // each harness shows for them.
 //
-// A tenant's router config answers to a tier alias: frontier, core, flash or
+// A tenant's model answers to a tier alias: frontier, core, flash or
 // premier. The alias is the name the Switch routes, so a launch sends it as it
 // is. The harness words (Opus, Sol and the rest) are labels only. The Switch
 // routes none of the Codex words, and Claude Code resolves its own words to its
@@ -34,7 +34,7 @@ const (
 	ClaudeCode Vocabulary = "claude-code"
 	// Codex labels the rows with the Codex tier words.
 	Codex Vocabulary = "codex"
-	// ConfigNames shows no tier rows, only the router configs by name. pi,
+	// ConfigNames shows no tier rows, only the models by name. pi,
 	// OpenCode and Cline use it.
 	ConfigNames Vocabulary = "config-names"
 )
@@ -61,7 +61,7 @@ func (v Vocabulary) Word(tier Tier) string {
 	return ""
 }
 
-// LabelsByConfig reports whether a tier row is labelled with the router config
+// LabelsByConfig reports whether a tier row is labelled with the model
 // that holds the tier, with the word in its description. Codex does: a Codex
 // word as a row's name would read as an OpenAI model.
 func (v Vocabulary) LabelsByConfig() bool { return v == Codex }

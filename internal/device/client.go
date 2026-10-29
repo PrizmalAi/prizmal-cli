@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 )
@@ -64,22 +65,26 @@ func NewClient(baseURL string) *Client {
 	}
 }
 
+// EnvVar is the environment variable that sets the environment tag for a host
+// other than the production API.
+const EnvVar = "PRIZMAL_DEVICE_ENV"
+
 // EnvTag names the environment a host belongs to, the tag the refresh
-// signature binds and the device token carries: p for the production API, s
-// for staging, d otherwise (local development included).
+// signature binds and the device token carries: p for the production API, d
+// otherwise (local development included). $PRIZMAL_DEVICE_ENV overrides the tag
+// for a host other than production.
 func EnvTag(baseURL string) string {
 	u, err := url.Parse(baseURL)
 	if err != nil {
 		return "d"
 	}
-	switch strings.ToLower(u.Hostname()) {
-	case "api.prizmal.ai":
+	if strings.ToLower(u.Hostname()) == "api.prizmal.ai" {
 		return "p"
-	case "api.staging.prizmal.ai":
-		return "s"
-	default:
-		return "d"
 	}
+	if v := strings.TrimSpace(os.Getenv(EnvVar)); v != "" {
+		return v
+	}
+	return "d"
 }
 
 // Token is a successful refresh: the device token, and the deadline the

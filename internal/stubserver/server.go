@@ -73,7 +73,7 @@ type Entry struct {
 	ID          string
 	Tier        string
 	Description string
-	// Tiers is the `tiers` array: every generic tier the config holds.
+	// Tiers is the `tiers` array: every generic tier the Switch lists.
 	Tiers []string
 }
 
@@ -87,7 +87,7 @@ type Recorder struct {
 
 // ModelCall is the model name one inference request carried and whether the
 // stub served it. A refused call is the Switch's refusal of a name that is not
-// a router config or an alias.
+// a model or an alias.
 type ModelCall struct {
 	Path   string
 	Model  string
@@ -1414,14 +1414,13 @@ var inferencePaths = map[string]bool{
 	"/v1/messages/count_tokens": true,
 }
 
-// tierFamilies are the Claude tiers a router config can hold, the set the
+// tierFamilies are the Claude tiers a model can hold, the set the
 // Switch maps a Claude vendor id onto.
 var tierFamilies = []string{"opus", "sonnet", "haiku", "fable", "mythos"}
 
 // serveModel checks the model name of an inference request the way the Switch
-// will once it stops falling back to the key's bound config: the name must be
-// a router config the catalog lists, or an alias. `default` is not a name: the
-// Switch drops it with the binding. It records the
+// will: the name must be a model the catalog lists, or an alias. `default` is
+// not a name. It records the
 // verdict, answers a refusal with HTTP 400 and a model_not_found error, and
 // reports whether the request may go on.
 //
@@ -1449,7 +1448,7 @@ func serveModel(w http.ResponseWriter, r *http.Request, c *serverConfig) bool {
 	if ok {
 		return true
 	}
-	message := fmt.Sprintf("model_not_found: the model %q is not a router config or an alias", body.Model)
+	message := fmt.Sprintf("model_not_found: the model %q is not a listed model or an alias", body.Model)
 	if body.Model == "" {
 		message = "model_not_found: the request names no model"
 	}
@@ -1466,7 +1465,7 @@ func serveModel(w http.ResponseWriter, r *http.Request, c *serverConfig) bool {
 	return false
 }
 
-// routable reports whether name resolves to a router config: with at most one
+// routable reports whether name resolves to a model: with at most one
 // trailing [1m], it is a listed id or an alias of a held tier.
 func (c *serverConfig) routable(name string) bool {
 	if len(name) > len("[1m]") && strings.EqualFold(name[len(name)-len("[1m]"):], "[1m]") {
@@ -1501,7 +1500,7 @@ func (c *serverConfig) routable(name string) bool {
 		}
 	}
 	for _, tier := range tierFamilies {
-		// The legacy alias routes for a config that holds the legacy tier.
+		// The legacy alias routes for a model that serves the legacy tier.
 		if held[tier] && name == "claude-tier-"+tier {
 			return true
 		}
@@ -1518,5 +1517,5 @@ func (c *serverConfig) routable(name string) bool {
 var genericTiers = []string{"frontier", "core", "flash", "premier"}
 
 // genericOfFamily is the Switch's vendor map retargeted to the generic tiers:
-// a claude-<family>... id routes to the config holding the family's tier.
+// a claude-<family>... id routes to the model serving the family's tier.
 var genericOfFamily = map[string]string{"opus": "frontier", "sonnet": "core", "haiku": "flash", "fable": "premier"}

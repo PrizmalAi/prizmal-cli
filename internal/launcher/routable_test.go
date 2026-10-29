@@ -16,7 +16,7 @@ func routableTenant() []LaunchModel {
 	})
 }
 
-// CheckRoutable accepts every name the Switch's router-config selection
+// CheckRoutable accepts every name the Switch's model-name selection
 // resolves, and the tier words a harness that resolves them sends as a Claude
 // id. It refuses the rest.
 func TestCheckRoutableAcceptsWhatTheSwitchResolves(t *testing.T) {
@@ -26,10 +26,10 @@ func TestCheckRoutableAcceptsWhatTheSwitchResolves(t *testing.T) {
 		tierWords bool
 		wantErr   string
 	}{
-		// `default` names the bound-config fallback, which the CLI never sends.
-		{name: "default", model: "default", wantErr: "names the router config the key is bound to"},
-		{name: "default decorated", model: "default[1m]", wantErr: "names the router config the key is bound to"},
-		{name: "the legacy default spelling", model: "prizmal/default", wantErr: "names the router config the key is bound to"},
+		// `default` is a placeholder, not a model name, and the CLI never sends it.
+		{name: "default", model: "default", wantErr: "is not a name the Switch accepts"},
+		{name: "default decorated", model: "default[1m]", wantErr: "is not a name the Switch accepts"},
+		{name: "the legacy default spelling", model: "prizmal/default", wantErr: "is not a name the Switch accepts"},
 
 		// A name the tenant holds, with or without one [1m].
 		{name: "a listed config", model: "frontier"},
@@ -74,8 +74,8 @@ func TestCheckRoutableAcceptsWhatTheSwitchResolves(t *testing.T) {
 	}
 }
 
-// A catalog that lists `default` does not make it launchable: the name selects
-// the key's bound config, and the Switch is dropping that binding.
+// A catalog that lists `default` does not make it launchable: it is a
+// placeholder, not a model name.
 func TestCheckRoutableRefusesDefaultEvenWhenTheCatalogListsIt(t *testing.T) {
 	catalog := withClaudeTiers([]LaunchModel{{Name: "default"}, {Name: "frontier"}})
 	if err := CheckRoutable("default", catalog, false); err == nil {
@@ -84,15 +84,15 @@ func TestCheckRoutableRefusesDefaultEvenWhenTheCatalogListsIt(t *testing.T) {
 }
 
 // The names a listing prints are the names a launch can send, so the
-// bound-config placeholder is not one of them.
-func TestLaunchableNamesDropTheBoundConfigPlaceholder(t *testing.T) {
+// `default` placeholder is not one of them.
+func TestLaunchableNamesDropTheDefaultPlaceholder(t *testing.T) {
 	catalog := withClaudeTiers([]LaunchModel{{Name: "default"}, {Name: "prizmal/default"}, {Name: "frontier"}, {Name: ""}})
 	if got, want := LaunchableNames(catalog), []string{"frontier"}; !slices.Equal(got, want) {
 		t.Fatalf("LaunchableNames = %v, want %v", got, want)
 	}
 }
 
-// An unread catalog is no evidence about a name, except for the bound-config
+// An unread catalog is no evidence about a name, except for the `default`
 // placeholder, which no catalogue makes launchable.
 func TestCheckRoutablePassesEverythingWithoutACatalog(t *testing.T) {
 	if err := CheckRoutable("gpt-5.6-luna", nil, false); err != nil {

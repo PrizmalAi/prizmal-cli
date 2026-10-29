@@ -43,7 +43,7 @@ func TestStrictPostEscapesTheModelName(t *testing.T) {
 	}
 	errObj, _ := body["error"].(map[string]any)
 	message, _ := errObj["message"].(string)
-	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(message, "not a router config") {
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(message, "not a listed model") {
 		t.Fatalf("got %d %v, want 400 naming the model", resp.StatusCode, body)
 	}
 }
