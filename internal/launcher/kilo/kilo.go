@@ -23,20 +23,25 @@ type Kilo struct {
 // completions is the default. Responses and Anthropic Messages are opt-in:
 // each package appends its own path (/responses, /messages) to the /v1 base.
 var apiPackages = map[string]string{
-	"chat":      "@ai-sdk/openai-compatible",
-	"responses": "@ai-sdk/openai",
-	"anthropic": "@ai-sdk/anthropic",
+	launch.APIChat:      "@ai-sdk/openai-compatible",
+	launch.APIResponses: "@ai-sdk/openai",
+	launch.APIAnthropic: "@ai-sdk/anthropic",
 }
 
 // SetAPI chooses the wire API for the launch. An empty name keeps the default.
 func (k *Kilo) SetAPI(name string) error {
 	if name != "" {
 		if _, ok := apiPackages[name]; !ok {
-			return fmt.Errorf("unknown Kilo API %q: use one of chat, responses, anthropic", name)
+			return fmt.Errorf("Kilo does not support API %q: it supports chat, responses, anthropic", name)
 		}
 	}
 	k.api = name
 	return nil
+}
+
+// SupportedAPIs lists the wire APIs Kilo speaks to the Switch, chat first.
+func (k *Kilo) SupportedAPIs() []string {
+	return []string{launch.APIChat, launch.APIResponses, launch.APIAnthropic}
 }
 
 func (k *Kilo) String() string { return "Kilo Code" }

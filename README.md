@@ -145,7 +145,7 @@ A launch that already has its model continues after the warning, without the ext
 | `claude` | Claude Code | `ANTHROPIC_AUTH_TOKEN` (`ANTHROPIC_API_KEY` is emptied) | [docs/claude-code.md](docs/claude-code.md) |
 | `codex` | OpenAI Codex CLI | `OPENAI_API_KEY` + `model_providers.<profile>` TOML. In device mode, `model_providers.<profile>.auth` runs `prizmal auth token` instead, and no key is set | [docs/codex.md](docs/codex.md) |
 | `opencode` | OpenCode | `provider.prizmal.options.apiKey` in the inline config; a device login instead loads a plugin that runs `prizmal auth token` before each request | [docs/opencode.md](docs/opencode.md) |
-| `kilo` | Kilo Code | `provider.prizmal.options.apiKey` in the inline config `KILO_CONFIG_CONTENT`, which holds a per-launch placeholder; the launch always starts a loopback relay that holds the credential, so a device login refreshes per request; `--kilo-api responses` or `anthropic` picks another wire API | [docs/kilo.md](docs/kilo.md) |
+| `kilo` | Kilo Code | `provider.prizmal.options.apiKey` in the inline config `KILO_CONFIG_CONTENT`, which holds a per-launch placeholder; the launch always starts a loopback relay that holds the credential, so a device login refreshes per request; `--api responses` or `--api anthropic` picks another wire API | [docs/kilo.md](docs/kilo.md) |
 | `cline` | Cline | `OPENAI_API_KEY`, which Cline reads when `providers.openai-compatible.settings` has no `apiKey`; the launch points its provider at a per-session loopback relay that holds the credential, so the `/model` picker lists your names and a device login refreshes per request. The launch also installs a local `prizmal_search` plugin that adds `prizmal_search__search`. Provider state goes under the data directory that `--data-dir` or `CLINE_DATA_DIR` sets | [docs/cline.md](docs/cline.md) |
 | `pi` | Pi coding agent | `PRIZMAL_SWITCH_KEY`, which `"apiKey": "$PRIZMAL_SWITCH_KEY"` in `~/.pi/agent/models.json` refers to (pi 0.77.0 or later); a device login instead loads an extension whose provider runs `prizmal auth token` | [docs/pi.md](docs/pi.md) |
 
@@ -170,8 +170,8 @@ prizmal [flags] [INTEGRATION] [-- EXTRA_ARGS...]
 
 Flags:
       --allow-unauthenticated  allow an unauthenticated launch against a remote Switch (debugging only)
+      --api string             wire API the harness speaks to the Switch: chat, responses or anthropic (default: the harness's own)
   -k, --api-key string         provider API key (or $PRIZMAL_SWITCH_KEY)
-      --kilo-api string        wire API Kilo Code uses: chat (default), responses or anthropic
   -l, --list                   print the models this switch key's tenant serves, and exit
   -m, --model string           model to launch with (defaults to the saved default_model)
       --pick                   choose a model from this switch key's tenant, and save it as the default

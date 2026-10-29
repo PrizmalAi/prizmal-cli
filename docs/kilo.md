@@ -27,14 +27,14 @@ The relay is local to the process and stops when Kilo exits.
 
 ## API mode
 
-Kilo talks chat completions to the Switch by default. `--kilo-api` picks another wire API for one launch:
+Kilo talks chat completions to the Switch by default. `--api` picks another wire API for one launch:
 
 ```bash
-prizmal --kilo-api responses -m your-model kilo
-prizmal --kilo-api anthropic -m your-model kilo
+prizmal --api responses -m your-model kilo
+prizmal --api anthropic -m your-model kilo
 ```
 
-`responses` uses `@ai-sdk/openai` and `/v1/responses`. `anthropic` uses `@ai-sdk/anthropic` and `/v1/messages`, with the key in `x-api-key`, which the relay swaps as well as `Authorization`. The flag applies only to `kilo`. To get the same by hand, change `npm` in the provider block of the manual setup below to the package for that mode.
+`responses` uses `@ai-sdk/openai` and `/v1/responses`. `anthropic` uses `@ai-sdk/anthropic` and `/v1/messages`, with the key in `x-api-key`, which the relay swaps as well as `Authorization`. `--api` also works with `opencode`, for chat and responses. A harness that doesn't speak the API you name refuses it and lists the ones it does. To get the same by hand, change `npm` in the provider block of the manual setup below to the package for that mode.
 
 ## Restore
 

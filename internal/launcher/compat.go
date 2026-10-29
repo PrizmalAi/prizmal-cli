@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/model"
@@ -206,11 +207,48 @@ type OwningModelFlag interface {
 	OwnsModelFlag() bool
 }
 
-// APIModeRunner is a runner that can speak more than one wire API to the Switch.
-// The CLI hands it the --kilo-api choice before the launch and refuses a name
-// the runner does not know.
+// The wire APIs a harness can speak to the Switch, as --api names them.
+const (
+	APIChat      = "chat"
+	APIResponses = "responses"
+	APIAnthropic = "anthropic"
+)
+
+// APIRunner is a runner that says which wire APIs its harness speaks. A harness
+// that speaks one lists that one, so --api can refuse a name it cannot honour.
+type APIRunner interface {
+	SupportedAPIs() []string
+}
+
+// APIModeRunner is an APIRunner whose harness can speak more than one API. The
+// CLI hands it the --api choice before the launch.
 type APIModeRunner interface {
+	APIRunner
 	SetAPI(name string) error
+}
+
+// SelectAPI applies --api to a runner. An empty name keeps the harness default.
+// A name the harness does not speak is refused with the harness name and the
+// APIs it does speak.
+func SelectAPI(harness string, runner Runner, api string) error {
+	if api == "" {
+		return nil
+	}
+	if api != APIChat && api != APIResponses && api != APIAnthropic {
+		return fmt.Errorf("unknown API %q: use one of chat, responses, anthropic", api)
+	}
+	reader, ok := runner.(APIRunner)
+	if !ok {
+		return fmt.Errorf("%s does not support --api %s", harness, api)
+	}
+	supported := reader.SupportedAPIs()
+	if !slices.Contains(supported, api) {
+		return fmt.Errorf("%s does not support --api %s: it supports %s", harness, api, strings.Join(supported, ", "))
+	}
+	if setter, ok := runner.(APIModeRunner); ok {
+		return setter.SetAPI(api)
+	}
+	return nil
 }
 
 // SubagentModelRunner is a runner that gives subagents the model --subagent-model

@@ -138,9 +138,11 @@ func TestNoHypotheticalSeams(t *testing.T) {
 		// label the tier rows in the harness's own words and to map a typed
 		// word back to the tier's alias.
 		reflect.TypeOf((*launch.TierVocabularyRunner)(nil)).Elem(),
-		// APIModeRunner is part of the protocol: the CLI reads it to hand a
-		// runner the wire API --kilo-api names, and to refuse an unknown one.
+		// APIRunner and APIModeRunner are part of the protocol: the CLI reads
+		// them to refuse a --api the harness does not speak, and to hand the
+		// choice to a harness that speaks several.
 		reflect.TypeOf((*launch.APIModeRunner)(nil)).Elem(),
+		reflect.TypeOf((*launch.APIRunner)(nil)).Elem(),
 	} {
 		for i := range iface.NumMethod() {
 			protocol[iface.Method(i).Name] = true
