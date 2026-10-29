@@ -9,6 +9,7 @@ import (
 
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	launch "github.com/PrizmalAi/prizmal-cli/internal/launcher"
+	"github.com/PrizmalAi/prizmal-cli/internal/model"
 )
 
 func inlineConfig(t *testing.T, model string, catalog []launch.LaunchModel) map[string]any {
@@ -173,6 +174,32 @@ func toStrings(v any) []string {
 		out = append(out, x.(string))
 	}
 	return out
+}
+
+// TestInlineConfigInputsFollowTheModelsModalities pins the input modalities of
+// Kilo's entry to what the model's input_modalities list says: text always,
+// image for the image capability, pdf for the document capability. A model that
+// reports no list keeps text and image, and never gets pdf.
+func TestInlineConfigInputsFollowTheModelsModalities(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		model launch.LaunchModel
+		want  string
+	}{
+		{"image only", launch.LaunchModel{Name: "m", Capabilities: []model.Capability{model.CapabilityCompletion, model.CapabilityVision}}, "text,image"},
+		{"image and file", launch.LaunchModel{Name: "m", Capabilities: []model.Capability{model.CapabilityCompletion, model.CapabilityVision, model.CapabilityDocument}}, "text,image,pdf"},
+		{"text only", launch.LaunchModel{Name: "m", Capabilities: []model.Capability{model.CapabilityCompletion}}, "text"},
+		{"no list", launch.LaunchModel{Name: "m"}, "text,image"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config := inlineConfig(t, "m", []launch.LaunchModel{tc.model})
+			models := config["provider"].(map[string]any)["prizmal"].(map[string]any)["models"].(map[string]any)
+			input := models["m"].(map[string]any)["modalities"].(map[string]any)["input"]
+			if got := strings.Join(toStrings(input), ","); got != tc.want {
+				t.Fatalf("modalities.input = %s, want %s", got, tc.want)
+			}
+		})
+	}
 }
 
 // TestInlineConfigPerAPI pins the provider package and endpoint each of Kilo's

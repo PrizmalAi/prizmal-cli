@@ -207,13 +207,18 @@ func buildInlineConfigFor(api, model string, catalog []launch.LaunchModel) (stri
 	return string(data), nil
 }
 
-// modelEntries builds OpenCode's provider entries, then declares text and image
-// as every model's input, the modalities Kilo sends. Kilo withholds an
-// attachment whose type the entry does not list.
+// modelEntries builds OpenCode's provider entries and adjusts the input
+// modalities for Kilo. Kilo withholds an attachment whose type the entry does
+// not list, so each entry follows the model's own input_modalities: text,
+// image for the image capability, pdf for the document capability. A model
+// that reports no list keeps text and image, and gets no pdf.
 func modelEntries(models []launch.LaunchModel) map[string]any {
 	entries := opencode.ModelEntries(models)
-	for _, raw := range entries {
-		entry, _ := raw.(map[string]any)
+	for _, m := range models {
+		if len(m.Capabilities) != 0 {
+			continue
+		}
+		entry, _ := entries[m.Name].(map[string]any)
 		entry["modalities"] = map[string]any{
 			"input":  []string{"text", "image"},
 			"output": []string{"text"},
