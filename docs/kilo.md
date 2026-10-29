@@ -13,6 +13,8 @@ The inline config declares the `prizmal` provider (`@ai-sdk/openai-compatible`),
 
 Each model's input modalities follow the `input_modalities` list that `GET /v1/models` returns: every model gets text. A model that lists `image` also gets image, and one that lists `file` also gets pdf. A model with no list gets text and image. Each model also sets `limit.context` to 1,000,000 and `limit.output` to 32,000. Without `limit.context`, Kilo doesn't know the window and compacts a session only after the provider refuses it.
 
+For each model the Switch reports as reasoning, the launch adds `"reasoning": true`, so Kilo offers `--variant low`, `medium` and `high`. In a manual setup, add the key to those models yourself.
+
 Prizmal doesn't write Kilo state. The model picker's Recent list, the prompt history, your sessions and your settings stay in Kilo's own directories.
 
 ## Loopback relay

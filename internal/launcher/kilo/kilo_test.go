@@ -250,3 +250,28 @@ func TestSetAPIRejectsAnUnknownMode(t *testing.T) {
 		}
 	}
 }
+
+// TestInlineConfigDeclaresReasoningOnlyForReasoningModels pins that a model the
+// Switch reports as reasoning gets "reasoning": true, which is what makes Kilo
+// offer --variant low, medium and high, and that any other model gets no key.
+// Kilo supplies the variants itself, so the entry carries none of OpenCode's.
+func TestInlineConfigDeclaresReasoningOnlyForReasoningModels(t *testing.T) {
+	config := inlineConfig(t, "thinker", []launch.LaunchModel{
+		{Name: "thinker", Capabilities: []model.Capability{model.CapabilityThinking}},
+		{Name: "plain"},
+	})
+	models := config["provider"].(map[string]any)["prizmal"].(map[string]any)["models"].(map[string]any)
+
+	thinker := models["thinker"].(map[string]any)
+	if thinker["reasoning"] != true {
+		t.Fatalf("thinker entry = %v, want reasoning true", thinker)
+	}
+	for _, key := range []string{"variants", "options"} {
+		if _, ok := thinker[key]; ok {
+			t.Errorf("thinker entry carries %q, want Kilo's own variants", key)
+		}
+	}
+	if _, ok := models["plain"].(map[string]any)["reasoning"]; ok {
+		t.Errorf("plain entry = %v, want no reasoning key", models["plain"])
+	}
+}

@@ -215,10 +215,14 @@ func buildInlineConfigFor(api, model string, catalog []launch.LaunchModel) (stri
 func modelEntries(models []launch.LaunchModel) map[string]any {
 	entries := opencode.ModelEntries(models)
 	for _, m := range models {
+		entry, _ := entries[m.Name].(map[string]any)
+		// Kilo builds its --variant levels itself from "reasoning": true, so the
+		// variants and options OpenCode's entry adds are dropped.
+		delete(entry, "variants")
+		delete(entry, "options")
 		if len(m.Capabilities) != 0 {
 			continue
 		}
-		entry, _ := entries[m.Name].(map[string]any)
 		entry["modalities"] = map[string]any{
 			"input":  []string{"text", "image"},
 			"output": []string{"text"},
