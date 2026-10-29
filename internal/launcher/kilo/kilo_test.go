@@ -201,3 +201,52 @@ func TestInlineConfigInputsFollowTheModelsModalities(t *testing.T) {
 		})
 	}
 }
+
+// TestInlineConfigPerAPI pins the provider package and endpoint each of Kilo's
+// three API modes needs. The default is chat completions; the other two are
+// opt-in. Each package appends its own path to the base, so all three bases are
+// the Switch's /v1.
+func TestInlineConfigPerAPI(t *testing.T) {
+	for _, tc := range []struct {
+		api string
+		npm string
+	}{
+		{"chat", "@ai-sdk/openai-compatible"},
+		{"responses", "@ai-sdk/openai"},
+		{"anthropic", "@ai-sdk/anthropic"},
+	} {
+		t.Run(tc.api, func(t *testing.T) {
+			raw, err := buildInlineConfigFor(tc.api, "smart", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var config map[string]any
+			if err := json.Unmarshal([]byte(raw), &config); err != nil {
+				t.Fatal(err)
+			}
+			provider := config["provider"].(map[string]any)["prizmal"].(map[string]any)
+			if provider["npm"] != tc.npm {
+				t.Errorf("npm = %v, want %s", provider["npm"], tc.npm)
+			}
+			options := provider["options"].(map[string]any)
+			if options["baseURL"] != envconfig.OpenAIBaseURL(false) {
+				t.Errorf("baseURL = %v, want the Switch /v1", options["baseURL"])
+			}
+			if _, ok := provider["models"].(map[string]any)["smart"]; !ok {
+				t.Errorf("models = %v, want an entry for smart", provider["models"])
+			}
+		})
+	}
+}
+
+func TestSetAPIRejectsAnUnknownMode(t *testing.T) {
+	k := &Kilo{}
+	if err := k.SetAPI("bogus"); err == nil || !strings.Contains(err.Error(), "chat, responses, anthropic") {
+		t.Fatalf("SetAPI(bogus) = %v, want an error naming the modes", err)
+	}
+	for _, ok := range []string{"", "chat", "responses", "anthropic"} {
+		if err := k.SetAPI(ok); err != nil {
+			t.Errorf("SetAPI(%q) = %v", ok, err)
+		}
+	}
+}
