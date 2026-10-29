@@ -33,7 +33,7 @@ func IsRefresh(ctx context.Context) bool {
 	return refresh
 }
 
-// Relay accepts only its placeholder bearer, apart from an opted-in model list, and forwards requests to the
+// Relay accepts only its placeholder, as a bearer or an x-api-key, apart from an opted-in model list, and forwards requests to the
 // upstream Switch with the launch's real credential.
 type Relay struct {
 	server      *http.Server
@@ -119,10 +119,8 @@ func (r *Relay) Close() {
 }
 
 func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	want := "Bearer " + r.placeholder
-	got := req.Header.Get("Authorization")
 	openModelList := r.openModels && req.Method == http.MethodGet && req.URL.Path == "/v1/models"
-	if !openModelList && subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1 {
+	if !openModelList && !r.hasPlaceholder(req.Header) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -173,6 +171,28 @@ func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	copyRelayResponse(w, replayed)
 }
 
+// hasPlaceholder reports whether the request carries the placeholder in
+// Authorization: Bearer (OpenAI-shaped clients) or x-api-key (Anthropic-shaped
+// clients). A request needs at least one of them, and every one it sends must
+// match, so a wrong credential in either header is refused.
+func (r *Relay) hasPlaceholder(headers http.Header) bool {
+	matches := func(got, want string) bool {
+		return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
+	}
+	_, hasAuth := headers["Authorization"]
+	_, hasKey := headers["X-Api-Key"]
+	if !hasAuth && !hasKey {
+		return false
+	}
+	if hasAuth && !matches(headers.Get("Authorization"), "Bearer "+r.placeholder) {
+		return false
+	}
+	if hasKey && !matches(headers.Get("X-Api-Key"), r.placeholder) {
+		return false
+	}
+	return true
+}
+
 func (r *Relay) forward(req *http.Request, body []byte, token string) (*http.Response, error) {
 	target := *r.upstream
 	target.Path = joinPath(r.upstream.Path, req.URL.Path)
@@ -186,6 +206,7 @@ func (r *Relay) forward(req *http.Request, body []byte, token string) (*http.Res
 	out.Header = req.Header.Clone()
 	removeHopHeaders(out.Header)
 	out.Header.Set("Authorization", "Bearer "+token)
+	out.Header.Del("X-Api-Key")
 	out.ContentLength = int64(len(body))
 	if len(body) == 0 {
 		out.Body = http.NoBody

@@ -21,10 +21,33 @@ var openCodeGOOS = runtime.GOOS
 // Config is passed via OPENCODE_CONFIG_CONTENT env var at launch time
 // instead of writing to opencode's config files.
 type OpenCode struct {
+	api           string // empty means chat completions
 	configContent string // JSON config built by Edit, passed to Run via env var
 }
 
 func (o *OpenCode) String() string { return "OpenCode" }
+
+// openCodePackages maps an API to the AI SDK package that speaks it. The
+// Anthropic package is left out: it authenticates with x-api-key, and a device
+// login here sets only the Authorization header.
+var openCodePackages = map[string]string{
+	launch.APIChat:      "@ai-sdk/openai-compatible",
+	launch.APIResponses: "@ai-sdk/openai",
+}
+
+// SupportedAPIs lists the wire APIs OpenCode speaks to the Switch, chat first.
+func (o *OpenCode) SupportedAPIs() []string { return []string{launch.APIChat, launch.APIResponses} }
+
+// SetAPI chooses the wire API for the launch. An empty name keeps chat.
+func (o *OpenCode) SetAPI(name string) error {
+	if name != "" {
+		if _, ok := openCodePackages[name]; !ok {
+			return fmt.Errorf("OpenCode does not support API %q: it supports chat, responses", name)
+		}
+	}
+	o.api = name
+	return nil
+}
 
 // SupportsDeviceMode reports that OpenCode can run from an enrolled device: a
 // device-mode launch loads a plugin whose chat.headers hook runs `prizmal auth
@@ -222,7 +245,7 @@ func (o *OpenCode) resolveContent(model string, models []launch.LaunchModel) str
 	if len(resolvedModels) == 0 {
 		return ""
 	}
-	content, err := buildInlineConfig(resolvedModels[0], resolvedModels)
+	content, err := buildInlineConfigFor(o.api, resolvedModels[0], resolvedModels)
 	if err != nil {
 		return ""
 	}
@@ -272,7 +295,7 @@ func (o *OpenCode) Edit(models []launch.LaunchModel) error {
 		return nil
 	}
 
-	content, err := buildInlineConfig(models[0], models)
+	content, err := buildInlineConfigFor(o.api, models[0], models)
 	if err != nil {
 		return err
 	}
@@ -287,6 +310,14 @@ func (o *OpenCode) Models() []string {
 // buildInlineConfig produces the JSON string for OPENCODE_CONFIG_CONTENT.
 // primary is the model to launch with, models is the full list of available models.
 func buildInlineConfig(primary launch.LaunchModel, models []launch.LaunchModel) (string, error) {
+	return buildInlineConfigFor("", primary, models)
+}
+
+// buildInlineConfigFor builds the config for one API; "" is chat completions.
+func buildInlineConfigFor(api string, primary launch.LaunchModel, models []launch.LaunchModel) (string, error) {
+	if api == "" {
+		api = launch.APIChat
+	}
 	if primary.Name == "" || len(models) == 0 {
 		return "", fmt.Errorf("buildInlineConfig: primary and models are required")
 	}
@@ -302,7 +333,7 @@ func buildInlineConfig(primary launch.LaunchModel, models []launch.LaunchModel) 
 		"$schema": "https://opencode.ai/config.json",
 		"provider": map[string]any{
 			"prizmal": map[string]any{
-				"npm":     "@ai-sdk/openai-compatible",
+				"npm":     openCodePackages[api],
 				"name":    "Prizmal",
 				"options": options,
 				"models":  buildModelEntries(models),

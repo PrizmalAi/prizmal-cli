@@ -20,6 +20,9 @@ import (
 // Claude implements launch.Runner for Claude Code integration.
 type Claude struct{}
 
+// SupportedAPIs reports that Claude Code speaks the Anthropic Messages API.
+func (c *Claude) SupportedAPIs() []string { return []string{launch.APIAnthropic} }
+
 func (c *Claude) String() string { return "Claude Code" }
 
 // ShowsModelList reports that a launch hands Claude Code the whole catalog
