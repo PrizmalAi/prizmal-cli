@@ -206,6 +206,13 @@ type OwningModelFlag interface {
 	OwnsModelFlag() bool
 }
 
+// APIModeRunner is a runner that can speak more than one wire API to the Switch.
+// The CLI hands it the --kilo-api choice before the launch and refuses a name
+// the runner does not know.
+type APIModeRunner interface {
+	SetAPI(name string) error
+}
+
 // SubagentModelRunner is a runner that gives subagents the model --subagent-model
 // names. Claude Code and Codex do. The other harnesses have no such setting, so
 // the CLI refuses the flag for them rather than ignoring it.

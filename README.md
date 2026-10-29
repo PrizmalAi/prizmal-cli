@@ -171,6 +171,7 @@ prizmal [flags] [INTEGRATION] [-- EXTRA_ARGS...]
 Flags:
       --allow-unauthenticated  allow an unauthenticated launch against a remote Switch (debugging only)
   -k, --api-key string         provider API key (or $PRIZMAL_SWITCH_KEY)
+      --kilo-api string        wire API Kilo Code uses: chat (default), responses or anthropic
   -l, --list                   print the models this switch key's tenant serves, and exit
   -m, --model string           model to launch with (defaults to the saved default_model)
       --pick                   choose a model from this switch key's tenant, and save it as the default

@@ -700,7 +700,7 @@ func launch(name string, extraArgs []string, cfg *config.Config, ask launcher.As
 	}
 
 	runner := spec.Runner
-	if apiSetter, ok := runner.(interface{ SetAPI(string) error }); ok {
+	if apiSetter, ok := runner.(launcher.APIModeRunner); ok {
 		if err := apiSetter.SetAPI(kiloAPI); err != nil {
 			return err
 		}
