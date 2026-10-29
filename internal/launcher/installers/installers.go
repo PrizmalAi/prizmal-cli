@@ -4,6 +4,7 @@ import (
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher/claude"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher/cline"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher/codex"
+	"github.com/PrizmalAi/prizmal-cli/internal/launcher/kilo"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher/opencode"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher/pi"
 )
@@ -15,6 +16,7 @@ var (
 	ClaudeInstaller   = claude.ClaudeInstaller
 	ClineInstaller    = cline.ClineInstaller
 	CodexInstaller    = codex.CodexInstaller
+	KiloInstaller     = kilo.KiloInstaller
 	OpenCodeInstaller = opencode.OpenCodeInstaller
 	PiInstaller       = pi.PiInstaller
 )

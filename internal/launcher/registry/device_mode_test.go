@@ -10,11 +10,11 @@ import (
 // loads whose provider runs `prizmal auth token` per request, Codex through
 // its command-backed provider auth, OpenCode through the plugin its launch
 // loads whose chat.headers hook runs the same helper before each request, and
-// Cline through the loopback relay its launch starts.
+// Cline and Kilo through the loopback relay their launches start.
 func TestDeviceModeSupport(t *testing.T) {
 	for _, spec := range ListAllIntegrationSpecs() {
 		want := spec.Name == "claude" || spec.Name == "pi" || spec.Name == "codex" ||
-			spec.Name == "opencode" || spec.Name == "cline"
+			spec.Name == "opencode" || spec.Name == "cline" || spec.Name == "kilo"
 		if got := launch.SupportsDeviceMode(spec.Runner); got != want {
 			t.Errorf("%s SupportsDeviceMode = %v, want %v", spec.Name, got, want)
 		}

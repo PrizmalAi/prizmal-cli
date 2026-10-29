@@ -43,6 +43,10 @@ var runnerPostures = map[string]runnerPosture{
 	// OPENAI_API_KEY when the settings hold no apiKey, so the key can stay on
 	// the environment — but the entry itself is on disk and needs the undo.
 	"cline": {restorable: true, editor: true, keyOnEnvironment: true},
+	// kilo: KILO_CONFIG_CONTENT carries the config at launch and holds only the
+	// relay's placeholder. The launch writes no Kilo file, so there is nothing
+	// to restore and no standalone Edit.
+	"kilo": {restorable: false, editor: false, keyOnEnvironment: true},
 	// opencode: OPENCODE_CONFIG_CONTENT carries the config at launch. Edit
 	// writes nothing, and the launch only generates the search tool under
 	// ~/.cache/prizmal/, which --restore does not reach, so this harness has no
