@@ -175,10 +175,16 @@ func buildInlineConfig(model string, catalog []launch.LaunchModel) (string, erro
 // modelEntries builds OpenCode's provider entries, then declares text and image
 // as every model's input, the modalities Kilo sends. Kilo withholds an
 // attachment whose type the entry does not list.
+//
+// A model the Switch reports as reasoning keeps "reasoning": true, which is what
+// makes Kilo offer --variant low, medium and high. Kilo builds those variants
+// itself, so the entry drops the variants and options OpenCode's scale adds.
 func modelEntries(models []launch.LaunchModel) map[string]any {
 	entries := opencode.ModelEntries(models)
 	for _, raw := range entries {
 		entry, _ := raw.(map[string]any)
+		delete(entry, "variants")
+		delete(entry, "options")
 		entry["modalities"] = map[string]any{
 			"input":  []string{"text", "image"},
 			"output": []string{"text"},

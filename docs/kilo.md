@@ -13,6 +13,8 @@ The inline config declares the `prizmal` provider (`@ai-sdk/openai-compatible`),
 
 Each model declares text and image input, which Kilo needs before it sends an image, and sets `limit.context` to 1,000,000, the window the Switch rules for every router config, and `limit.output` to 32,000. Without `limit.context`, Kilo doesn't know the window and compacts a session only after the provider refuses it.
 
+A model the Switch reports as reasoning also gets `"reasoning": true`, which makes Kilo offer `--variant low`, `medium` and `high`. A manual setup adds that key to the same models.
+
 Prizmal doesn't write Kilo state. The model picker's Recent list, the prompt history, your sessions and your settings stay in Kilo's own directories.
 
 ## Loopback relay
