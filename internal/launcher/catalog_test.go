@@ -709,3 +709,24 @@ func TestClaudeTiersFoldOnlyTheFirstHolderOfATier(t *testing.T) {
 		t.Errorf("second holder folded into %q, want its own row", folded["second"])
 	}
 }
+
+// The Switch's per-entry reasoning boolean is the only producer of
+// CapabilityThinking. A model that reports it true carries the capability; one
+// that reports false, or says nothing, does not.
+func TestParseSwitchCatalogMapsReasoningToThinking(t *testing.T) {
+	models, err := ParseSwitchCatalog([]byte(`{"data": [
+		{"id": "thinker", "input_modalities": ["text"], "reasoning": true},
+		{"id": "plain", "input_modalities": ["text"], "reasoning": false},
+		{"id": "silent", "input_modalities": ["text"]},
+		{"id": "bare-thinker", "reasoning": true}
+	]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"thinker": true, "plain": false, "silent": false, "bare-thinker": true}
+	for _, m := range models {
+		if got := m.HasCapability(model.CapabilityThinking); got != want[m.Name] {
+			t.Errorf("%s: HasCapability(thinking) = %v, want %v", m.Name, got, want[m.Name])
+		}
+	}
+}

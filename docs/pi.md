@@ -87,6 +87,7 @@ With a device login instead, there is no key to export. Pi reads a provider's `a
 `prizmal pi` adds a few things these files leave out:
 
 - It declares each model's window and output budget, as the examples above do.
+- It sets `"reasoning": true` on a model the Switch's `GET /v1/models` reports with `reasoning: true`, so `--thinking` takes effect. Add the same field to a manual entry for such a model.
 - The extension's provider is the only prizmal provider a device launch loads. A switch-key launch uses your `models.json` entry instead.
 - It updates an older Pi that reads a provider's key only once, rather than for each request.
 - It installs Pi when the `pi` binary is missing.
