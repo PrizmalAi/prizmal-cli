@@ -211,7 +211,9 @@ func buildInlineConfigFor(api, model string, catalog []launch.LaunchModel) (stri
 // modalities for Kilo. Kilo withholds an attachment whose type the entry does
 // not list, so each entry follows the model's own input_modalities: text,
 // image for the image capability, pdf for the document capability. A model
-// that reports no list keeps text and image, and gets no pdf.
+// that reports no list keeps text and image, and gets no pdf. The reasoning
+// flag is not an input modality, so a reasoning model with no list is still a
+// model with no list.
 func modelEntries(models []launch.LaunchModel) map[string]any {
 	entries := opencode.ModelEntries(models)
 	for _, m := range models {
@@ -220,7 +222,7 @@ func modelEntries(models []launch.LaunchModel) map[string]any {
 		// variants and options OpenCode's entry adds are dropped.
 		delete(entry, "variants")
 		delete(entry, "options")
-		if len(m.Capabilities) != 0 {
+		if m.KnowsInputs() {
 			continue
 		}
 		entry["modalities"] = map[string]any{
