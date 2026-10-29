@@ -41,6 +41,7 @@ var (
 	persistOnly          bool
 	allowUnauthenticated bool
 	relayFlag            bool
+	apiFlag              string
 	listFlag             bool
 	pickFlag             bool
 	subagentModel        string
@@ -111,8 +112,22 @@ Examples:
 			if relayFlag && (restore || persistOnly) {
 				return fmt.Errorf("--relay only applies to a launch and cannot be used with --restore or --persist")
 			}
+			if apiFlag != "" && len(args) == 0 {
+				return fmt.Errorf("--api needs an integration to launch")
+			}
 			if relayFlag && len(args) == 0 {
 				return fmt.Errorf("--relay needs an integration to launch")
+			}
+			// --api is checked before anything that prompts or installs, so a
+			// name the harness does not speak is refused on a machine that has
+			// not installed the harness too. A name prizmal does not know falls
+			// through to launch(), which reports it.
+			if apiFlag != "" {
+				if spec, err := registry.LookupIntegrationSpec(args[0]); err == nil {
+					if err := launcher.SelectAPI(spec.Name, spec.Runner, apiFlag); err != nil {
+						return err
+					}
+				}
 			}
 
 			// A launch checks for a newer release first. --list, --pick alone,
@@ -260,6 +275,7 @@ func registerFlags(flags *pflag.FlagSet) {
 	flags.StringVarP(&url, "url", "u", "", "provider base URL (or $"+envconfig.EnvVar+")")
 	flags.StringVarP(&apiKey, "api-key", "k", "", "provider API key (or $"+envconfig.KeyEnvVar+")")
 	flags.BoolVar(&relayFlag, "relay", false, "route the launched harness through a per-session loopback relay")
+	flags.StringVar(&apiFlag, "api", "", "wire API the harness speaks to the Switch: chat, responses or anthropic (default: the harness's own)")
 	flags.BoolVarP(&yes, "yes", "y", false, "auto-approve confirmation prompts")
 	flags.BoolVar(&restore, "restore", false, "restore the integration's original configuration and exit")
 	flags.BoolVar(&persistOnly, "persist", false, "write the integration configuration without launching (persistent until --restore)")
@@ -695,6 +711,9 @@ func launch(name string, extraArgs []string, cfg *config.Config, ask launcher.As
 	}
 
 	runner := spec.Runner
+	if err := launcher.SelectAPI(spec.Name, runner, apiFlag); err != nil {
+		return err
+	}
 
 	// A first-run browser sign-in can leave device mode on before any harness
 	// was named. A runner without a refresh contract must use its ordinary key

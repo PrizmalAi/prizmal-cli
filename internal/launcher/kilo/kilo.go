@@ -15,7 +15,34 @@ import (
 // Kilo implements launch.Runner for the Kilo Code CLI. Kilo is a fork of
 // OpenCode, so the launch passes its whole config in KILO_CONFIG_CONTENT, the
 // way the OpenCode launch does, and writes no Kilo file.
-type Kilo struct{}
+type Kilo struct {
+	api string // one of the apiPackages keys; empty means chat completions
+}
+
+// apiPackages maps a Kilo API mode to the AI SDK package that speaks it. Chat
+// completions is the default. Responses and Anthropic Messages are opt-in:
+// each package appends its own path (/responses, /messages) to the /v1 base.
+var apiPackages = map[string]string{
+	launch.APIChat:      "@ai-sdk/openai-compatible",
+	launch.APIResponses: "@ai-sdk/openai",
+	launch.APIAnthropic: "@ai-sdk/anthropic",
+}
+
+// SetAPI chooses the wire API for the launch. An empty name keeps the default.
+func (k *Kilo) SetAPI(name string) error {
+	if name != "" {
+		if _, ok := apiPackages[name]; !ok {
+			return fmt.Errorf("Kilo does not support API %q: it supports chat, responses, anthropic", name)
+		}
+	}
+	k.api = name
+	return nil
+}
+
+// SupportedAPIs lists the wire APIs Kilo speaks to the Switch, chat first.
+func (k *Kilo) SupportedAPIs() []string {
+	return []string{launch.APIChat, launch.APIResponses, launch.APIAnthropic}
+}
 
 func (k *Kilo) String() string { return "Kilo Code" }
 
@@ -78,7 +105,7 @@ func (k *Kilo) Run(model string, models []launch.LaunchModel, args []string) err
 	if err != nil {
 		return err
 	}
-	content, err := buildInlineConfig(model, models)
+	content, err := buildInlineConfigFor(k.api, model, models)
 	if err != nil {
 		return err
 	}
@@ -131,6 +158,14 @@ func launchArgs(model string, args []string) []string {
 // buildInlineConfig is the JSON for KILO_CONFIG_CONTENT. The launch's model
 // comes first in the list, then the rest of the catalog.
 func buildInlineConfig(model string, catalog []launch.LaunchModel) (string, error) {
+	return buildInlineConfigFor("", model, catalog)
+}
+
+// buildInlineConfigFor builds the config for one API mode; "" is chat.
+func buildInlineConfigFor(api, model string, catalog []launch.LaunchModel) (string, error) {
+	if api == "" {
+		api = "chat"
+	}
 	if model == "" {
 		return "", fmt.Errorf("kilo: a model is required")
 	}
@@ -147,7 +182,7 @@ func buildInlineConfig(model string, catalog []launch.LaunchModel) (string, erro
 	config := map[string]any{
 		"provider": map[string]any{
 			"prizmal": map[string]any{
-				"npm":  "@ai-sdk/openai-compatible",
+				"npm":  apiPackages[api],
 				"name": "Prizmal",
 				"options": map[string]any{
 					"baseURL": envconfig.OpenAIBaseURL(false),
