@@ -94,12 +94,8 @@ func TestEveryWriterGateHasAVocabularyRow(t *testing.T) {
 	}
 }
 
-// CapabilityThinking has no row, on purpose: opencode and pi both gate a
-// reasoning field on it, and no modality the Switch is known to send produces
-// it. The Switch reports reasoning as its own per-entry field, which
-// switchCatalogEntry's comment names and deliberately does not read, so there is
-// no evidence for mapping one. This test states that absence, so the day
-// someone maps a reasoning modality it has to be deleted here deliberately.
+// CapabilityThinking has no row: it comes from the entry's reasoning boolean,
+// not from an input modality, so no modality name may produce it.
 func TestThinkingIsNotAnInputModality(t *testing.T) {
 	for _, entry := range inputVocabulary {
 		if entry.capability == model.CapabilityThinking {
@@ -121,5 +117,15 @@ func TestDeclaredInputsDoNotAliasTheUnknownList(t *testing.T) {
 	first[0] = "mutated"
 	if second := DeclaredInputs(LaunchModel{Name: "unknown-model"}, HarnessOpenCode); !slices.Equal(second, unknownInputs[HarnessOpenCode]) {
 		t.Fatalf("declared inputs = %v, want the untouched %v", second, unknownInputs[HarnessOpenCode])
+	}
+}
+
+// Reasoning is a boolean beside the modalities, not a modality, so a model
+// that reports only reasoning still has unknown inputs.
+func TestReasoningAloneKeepsInputsUnknown(t *testing.T) {
+	m := LaunchModel{Name: "bare", Capabilities: []model.Capability{model.CapabilityThinking}}
+	got := DeclaredInputs(m, HarnessOpenCode)
+	if !slices.Equal(got, unknownInputs[HarnessOpenCode]) {
+		t.Fatalf("DeclaredInputs = %v, want the unknown list %v", got, unknownInputs[HarnessOpenCode])
 	}
 }

@@ -42,6 +42,7 @@ import (
 
 	"github.com/PrizmalAi/prizmal-cli/internal/claudecode"
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
+	"github.com/PrizmalAi/prizmal-cli/internal/model"
 	"github.com/PrizmalAi/prizmal-cli/internal/tiers"
 )
 
@@ -91,7 +92,7 @@ func ModelNamesSame(candidate, name string) bool {
 
 // SwitchCatalogEntry is the subset of a GET /v1/models entry the launcher
 // reads. The Switch serves more per entry (name, display_name, owned_by,
-// reasoning, output_modalities); only the parts an entry builder or a listing
+// output_modalities); only the parts an entry builder or a listing
 // needs are kept, and the label fields are not among them.
 type SwitchCatalogEntry struct {
 	ID              string   `json:"id"`
@@ -99,6 +100,7 @@ type SwitchCatalogEntry struct {
 	Tier            string   `json:"tier"`
 	Tiers           []string `json:"tiers"`
 	Description     string   `json:"description"`
+	Reasoning       bool     `json:"reasoning"`
 }
 
 // genericTiers reads the generic tiers an entry holds: every valid value of
@@ -168,9 +170,13 @@ func ParseSwitchCatalog(data []byte) ([]LaunchModel, error) {
 		if name == "" {
 			continue
 		}
+		capabilities := CapabilitiesFromModalities(entry.InputModalities)
+		if entry.Reasoning {
+			capabilities = append(capabilities, model.CapabilityThinking)
+		}
 		m := LaunchModel{
 			Name:         name,
-			Capabilities: CapabilitiesFromModalities(entry.InputModalities),
+			Capabilities: capabilities,
 			Tiers:        entry.genericTiers(),
 			Description:  cleanDescription(entry.Description),
 		}
