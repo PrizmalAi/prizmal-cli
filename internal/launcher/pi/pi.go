@@ -78,6 +78,9 @@ func piModelContextWindow(model launch.LaunchModel) int {
 // substitutes a name of its own. The reserved prizmal/default placeholder it
 // used to fall back on is sunset.
 
+// SupportedAPIs reports that the launch configures Pi for chat completions.
+func (p *Pi) SupportedAPIs() []string { return []string{launch.APIChat} }
+
 func (p *Pi) String() string { return "Pi" }
 
 // RunsHeadless reports that Pi's print mode runs one prompt and exits.

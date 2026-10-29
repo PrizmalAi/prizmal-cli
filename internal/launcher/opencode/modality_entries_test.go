@@ -2,6 +2,7 @@ package opencode
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	launch "github.com/PrizmalAi/prizmal-cli/internal/launcher"
@@ -68,5 +69,22 @@ func TestOpenCodeDeclaresTheVocabularyRowForACatalogEntry(t *testing.T) {
 				t.Fatalf("opencode declared inputs = %v, want %v", got, row.OpenCode)
 			}
 		})
+	}
+}
+
+// TestInlineConfigPackageFollowsTheAPI pins the provider package each API
+// selects, and that an unsupported API is refused.
+func TestInlineConfigPackageFollowsTheAPI(t *testing.T) {
+	for api, want := range map[string]string{"": "@ai-sdk/openai-compatible", "chat": "@ai-sdk/openai-compatible", "responses": "@ai-sdk/openai"} {
+		raw, err := buildInlineConfigFor(api, launch.LaunchModel{Name: "m"}, []launch.LaunchModel{{Name: "m"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(raw, `"npm":"`+want+`"`) {
+			t.Errorf("api %q: config %s lacks npm %s", api, raw, want)
+		}
+	}
+	if err := (&OpenCode{}).SetAPI("anthropic"); err == nil {
+		t.Error("SetAPI(anthropic) = nil, want a refusal")
 	}
 }

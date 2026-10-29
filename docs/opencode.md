@@ -17,6 +17,10 @@ Prizmal writes no OpenCode state. The model picker's Recent list, the prompt his
 
 On a switch-key launch the key is a field in the inline config, which lives only in the variable for the life of the process and is never written to a file. The search tool also reads the key from `PRIZMAL_OPENCODE_SEARCH_KEY` on the child environment, so the key is on that environment too. A device-mode launch has no key to place in either; see Device login.
 
+## API mode
+
+OpenCode talks chat completions to the Switch by default. `prizmal --api responses opencode` uses the Responses API instead, through `@ai-sdk/openai`. OpenCode doesn't offer `--api anthropic`: the launch refuses it and names the APIs OpenCode supports.
+
 ## Model
 
 `prizmal opencode` takes the model from `--model`, from the default an earlier `--pick` or the picker's `ctrl+s` saved, or from the picker. `prizmal opencode run` runs one message and exits, and a launch on a pipe has no terminal, so neither opens the picker: with no model named they stop with an error that lists the names `prizmal --list` prints.

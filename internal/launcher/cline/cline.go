@@ -41,6 +41,10 @@ const clineContextWindow = 1_000_000
 // Cline implements launch.Runner and Editor for the Cline CLI integration
 type Cline struct{}
 
+// SupportedAPIs reports that Cline's OpenAI-compatible provider speaks chat
+// completions.
+func (c *Cline) SupportedAPIs() []string { return []string{launch.APIChat} }
+
 func (c *Cline) String() string { return "Cline" }
 
 // SupportsDeviceMode reports that Cline can run from an enrolled device: the
