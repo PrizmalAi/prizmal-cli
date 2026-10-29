@@ -478,8 +478,7 @@ func saveDefaultModel(cfg *config.Config, model string) error {
 }
 
 // noModelSelectedError names the ways to give a launch a model, and the models
-// this key routes. The CLI never sends `default`, the bound-config
-// placeholder, so a launch with nothing to run stops here instead. When the
+// this key routes. The CLI never sends `default` placeholder, so a launch with nothing to run stops here instead. When the
 // list cannot be read, the error says where to read it.
 func noModelSelectedError(ctx context.Context) error {
 	msg := "no model selected: pass --model MODEL, run --pick to choose one, or set default_model in the config file"

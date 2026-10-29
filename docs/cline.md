@@ -19,7 +19,7 @@ prizmal --model your-model cline --data-dir "$PWD/.cline-data" "Reply with OK"
 
 The provider entry uses Cline's openai-compatible provider and leaves out `apiKey`, so Cline reads the key from `OPENAI_API_KEY` in its environment. The launch replaces the `settings` map rather than mutating it, which drops any `apiKey` an older prizmal wrote there.
 
-The entry also sets `contextWindow` to 1,000,000, the window the Switch rules for every router config. Without it Cline assumes 128,000 tokens for an `openai-compatible` model and compacts at 90 percent of that, long before the route's window is used. A manual setup adds `"contextWindow": 1000000` to `settings` for the same effect.
+The entry also sets `contextWindow` to 1,000,000, the window the Switch rules for every model. Without it Cline assumes 128,000 tokens for an `openai-compatible` model and compacts at 90 percent of that, long before the route's window is used. A manual setup adds `"contextWindow": 1000000` to `settings` for the same effect.
 
 When you pass `--data-dir` or `--config` to Cline, the launch leaves the flag in place and writes the same two files into the directory Cline reads.
 

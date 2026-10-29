@@ -33,10 +33,10 @@ func TestLaunchStopsOnANameTheSwitchDoesNotRoute(t *testing.T) {
 		{name: "a held tier alias", args: []string{"-m", "claude-tier-haiku"}, wantRuns: true},
 		{name: "an unknown name", args: []string{"-m", "gpt-5.6-luna"}, wantErr: `"gpt-5.6-luna" is not a name this Switch routes`},
 		{name: "a tier the tenant does not hold", args: []string{"-m", "claude-tier-opus"}, wantErr: `"claude-tier-opus" is not a name this Switch routes`},
-		// `default` names the key's bound config, which a launch never sends.
-		{name: "default", args: []string{"-m", "default"}, wantErr: "names the router config the key is bound to"},
-		{name: "the legacy default spelling", args: []string{"-m", "prizmal/default"}, wantErr: "names the router config the key is bound to"},
-		{name: "a default subagent model", args: []string{"-m", "prizmal-core", "--subagent-model", "default"}, wantErr: "--subagent-model: model \"default\" names the router config the key is bound to"},
+		// `default` is a placeholder, not a model name, and a launch never sends it.
+		{name: "default", args: []string{"-m", "default"}, wantErr: "is not a name the Switch accepts"},
+		{name: "the legacy default spelling", args: []string{"-m", "prizmal/default"}, wantErr: "is not a name the Switch accepts"},
+		{name: "a default subagent model", args: []string{"-m", "prizmal-core", "--subagent-model", "default"}, wantErr: "--subagent-model: model \"default\" is not a name the Switch accepts"},
 		// Claude Code resolves a tier word itself, to the id the tenant's
 		// alias maps: held here for haiku, not for sonnet.
 		{name: "a held tier word", args: []string{"-m", "haiku"}, wantRuns: true},

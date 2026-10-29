@@ -100,7 +100,7 @@ func dirExists(path string) bool {
 // list them, then the Switch's own entries in its order. The alias lines are
 // the point of the expectation — a --list that dropped them would under-report
 // what `prizmal --model claude-tier-opus claude` launches. The `default` entry
-// the Switch sends is left out: it names the key's bound config, which a launch
+// the Switch sends is left out: it is a placeholder, not a model name, which a launch
 // never sends.
 const deployedListing = "claude-tier-opus\nclaude-tier-haiku\ncheap\nopus\n"
 
@@ -241,7 +241,7 @@ func TestListFlagRefusesRemoteWithoutKey(t *testing.T) {
 	}
 }
 
-// A switch key bound to no router config lists nothing. That is a valid empty
+// A switch key bound to no model lists nothing. That is a valid empty
 // answer, not a failure, so the exit status is 0 — but it must not read as a
 // successful listing that silently lost its rows.
 func TestListFlagEmptyTenantSaysSo(t *testing.T) {

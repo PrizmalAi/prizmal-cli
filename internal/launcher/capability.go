@@ -61,7 +61,7 @@ type inputCapability struct {
 // carries no behavior of its own — and because text is also the unconditional
 // row, no harness has to declare a text modality it was not told about.
 //
-// "file" is the Switch's document modality, the one that says a router config
+// "file" is the Switch's document modality, the one that says a model
 // can take a PDF. It is handed out independently of "image": the catalogue has
 // rows with both, and rows with image and no file. OpenCode declares it as
 // "pdf"; codex and pi have no document modality at all and are absent from

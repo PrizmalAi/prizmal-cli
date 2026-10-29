@@ -81,7 +81,7 @@ A `prizmal` launch can use one of two credentials. You paste a **switch key** in
 prizmal login
 ```
 
-`prizmal login` generates an ed25519 key pair at `~/.prizmal/device.key` (mode `0600`, in the `0700` directory), prints a URL and a fingerprint, opens your browser, and waits. On the consent page you confirm the fingerprint and pick a router config. Then choose Allow. The CLI then polls until your tenant approves the device and stores the first device token in `~/.prizmal/token.json` (mode `0600`). There is no localhost listener, so this works over SSH: open the printed URL on any machine with a browser.
+`prizmal login` generates an ed25519 key pair at `~/.prizmal/device.key` (mode `0600`, in the `0700` directory), prints a URL and a fingerprint, opens your browser, and waits. On the consent page you confirm the fingerprint and pick a model. Then choose Allow. The CLI then polls until your tenant approves the device and stores the first device token in `~/.prizmal/token.json` (mode `0600`). There is no localhost listener, so this works over SSH: open the printed URL on any machine with a browser.
 
 Once your tenant approves a device, a launch uses it automatically. `prizmal claude` runs with an `apiKeyHelper` that refreshes the device token every few minutes, so a session keeps working across a laptop sleep and doesn't need a restart. `prizmal codex` does the same through a command-backed provider `auth`, and runs the helper again after a 401. A sign-in that a tenant's identity provider manages does not expire. Otherwise the device has a deadline, and `prizmal claude` and `prizmal codex` warn you under 24 hours before it, and `prizmal login` again re-approves the same device key.
 
@@ -216,8 +216,8 @@ prizmal --restore codex
 # The tier aliases your tenant holds (frontier, core, flash, premier) lead,
 # because they route too even though the Switch does not list them; the same
 # aliases head the --pick menu.
-# `default` is left out: it names the key's bound config, and a launch never
-# sends it.
+# `default` is left out: it is a placeholder, not a model name, and a launch
+# never sends it.
 prizmal --list
 ```
 
@@ -233,7 +233,7 @@ that has no credential.
 
 The picker shows every name `--list` prints with one exception and one fold. `default` is the placeholder the Switch is retiring, so it is not a row to choose. A model whose `GET /v1/models` entry carries a tier sits under that tier's alias row, and the row names the folded model beside the tier's description. A model that holds several tiers gives a row for each.
 
-Each harness labels the tier rows in its own words, and every row sends the tier's alias. Codex names each tier row after the config that holds it and puts the word in the row's description, as in "Sol-like":
+Each harness labels the tier rows in its own words, and every row sends the tier's alias. Codex names each tier row after the model behind it and puts the word in the row's description, as in "Sol-like":
 
 | Alias | Claude Code | Codex |
 |---|---|---|
@@ -242,7 +242,7 @@ Each harness labels the tier rows in its own words, and every row sends the tier
 | `flash` | Haiku | Luna |
 | `premier` | Fable | Astra |
 
-pi, OpenCode and Cline show your router configs by name, with no tier rows. A tenant whose Switch reports no tier gets its router configs by name in every harness.
+pi, OpenCode and Cline show your models by name, with no tier rows. A tenant whose Switch reports no tier gets its models by name in every harness.
 
 `prizmal` never writes your key to disk for any of the five harnesses. It sets the key on the launched process's environment, and the config files it writes refer to that variable. Each harness's doc lists the variable. When the harness exits, the key goes with its process, and a plain launch also removes a key that an older `prizmal` wrote into one of those files.
 
@@ -262,7 +262,7 @@ has none, such as one that signed in with `prizmal login`, and the file holds
 the default alone. The device key stays the credential. A saved default skips
 the picker on a bare launch. When a launch has no model and no terminal to choose on, it stops,
 and the error lists the names `--list` prints. The launch never sends the
-Switch's `default` placeholder, which selects the config the key is bound to.
+Switch's `default` placeholder, which is not a model name.
 
 A launch that cannot ask stops. When stdin is not a terminal, or the harness
 runs one prompt and exits (`claude -p`, `codex exec`, `opencode run`, `pi
@@ -272,7 +272,7 @@ of them with `--model`, or run `--pick` on a terminal.
 
 `--model` takes a name your switch key routes, or the label `--list` and the
 pickers print for it. A label drops the `claude-` prefix from the model's name, so
-`tier-opus` and `claude-tier-opus` name the same router config. Claude Code
+`tier-opus` and `claude-tier-opus` name the same model. Claude Code
 launches also take its tier words (`sonnet`, `opus`, `haiku`, `fable`, `best`,
 `opusplan`, in any case) for a tier your tenant holds, and Codex launches take
 Sol, Terra, Luna and Astra, which the launch sends as the tier's alias. The

@@ -38,7 +38,7 @@ func TestPiNonVisionModelsDeclareTextOnly(t *testing.T) {
 func TestPiDeclaresTheVocabularyRowForACatalogEntry(t *testing.T) {
 	for _, row := range launchtest.VocabularyRows {
 		t.Run(row.Name, func(t *testing.T) {
-			m := launch.LaunchModel{Name: "router-config", Capabilities: row.Capabilities}
+			m := launch.LaunchModel{Name: "model-name", Capabilities: row.Capabilities}
 			if got := piInput(t, m); !slices.Equal(got, row.Pi) {
 				t.Fatalf("pi declared inputs = %v, want %v", got, row.Pi)
 			}

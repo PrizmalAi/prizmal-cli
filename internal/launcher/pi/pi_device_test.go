@@ -228,12 +228,12 @@ func TestPiDeviceConfigPathUnderTempDir(t *testing.T) {
 // own Switch rejects.
 func TestPiDeviceEnvPinsTheSwitchHost(t *testing.T) {
 	launchtest.WithDeviceMode(t)
-	envconfig.SetBaseURL("https://api.staging.prizmal.ai")
+	envconfig.SetBaseURL("https://api.example.invalid")
 	t.Cleanup(func() { envconfig.SetBaseURL("") })
 
 	extension := &piDeviceLaunch{configPath: "/tmp/prizmal-device.json"}
 	env := (&Pi{}).envVars(extension)
-	if got := launchtest.EnvValue(env, envconfig.EnvVar+"="); got != "https://api.staging.prizmal.ai" {
+	if got := launchtest.EnvValue(env, envconfig.EnvVar+"="); got != "https://api.example.invalid" {
 		t.Fatalf("%s = %q, want the launch's own Switch host", envconfig.EnvVar, got)
 	}
 }

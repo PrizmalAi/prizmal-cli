@@ -102,7 +102,7 @@ type ModelRow struct {
 	// tier is the row's Claude tier, empty for a model with none.
 	Tier claudecode.Tier
 	// Generic is the generic tier a tier alias's row stands for, empty for a
-	// row that names a router config.
+	// row that names a model.
 	Generic tiers.Tier
 	// keepLabel exempts the row from disambiguation. A Codex tier row is
 	// named after its config, and its like word tells it from the config's
@@ -122,16 +122,14 @@ type ModelRow struct {
 // Both are listed because a tenant could carry either spelling during the
 // transition.
 //
-// A picker row exists to name a model that routes. This one routes to whatever
-// the switch key is already bound to, which is what a launch does with no model
-// at all, so offering it asks the operator to choose the thing they get by not
-// choosing.
+// A picker row exists to name a model that routes. This one is a placeholder,
+// not a model name, so offering it would offer a name every launch refuses.
 const (
 	reservedModelName       = "default"
 	reservedModelNameLegacy = "prizmal/default"
 )
 
-// IsReservedModelName reports whether a name is the bound-config placeholder.
+// IsReservedModelName reports whether a name is the `default` placeholder.
 // A launch never sends it, and no menu offers it.
 func IsReservedModelName(name string) bool {
 	return name == reservedModelName || name == reservedModelNameLegacy
@@ -151,9 +149,8 @@ func ModelRows(models []LaunchModel) []ModelRow {
 // fall back to their full names, because two identical labels leave an
 // operator no way to tell the rows apart.
 //
-// The reserved placeholder is skipped: it selects the config the key is
-// already bound to rather than naming a model, so offering it asks the
-// operator to choose the thing they get by not choosing.
+// The reserved placeholder is skipped: it is not a model name, so
+// offering it would offer a name every launch refuses.
 //
 // A generic tier row's model is the tier's alias, the name the Switch routes,
 // and its label is the harness's word for the tier: Opus in Claude Code, Sol in
@@ -180,7 +177,7 @@ func ModelRowsFor(models []LaunchModel, vocab tiers.Vocabulary) []ModelRow {
 		if name == "" || seen[name] || IsReservedModelName(name) {
 			continue
 		}
-		// A harness without tier words shows the tenant's router configs and
+		// A harness without tier words shows the tenant's models and
 		// none of the aliases the CLI adds, so a config a tier row would stand
 		// for keeps its own row.
 		if !showsTiers && m.AddedTier {
@@ -224,7 +221,7 @@ func ModelRowsFor(models []LaunchModel, vocab tiers.Vocabulary) []ModelRow {
 }
 
 // nameSharedConfigRows adds the tier word to every tier row whose config name
-// another tier row shows too, so a config that holds two tiers reads
+// another tier row shows too, so a model that serves two tiers reads
 // "smart (Sol-like)" and "smart (Terra-like)", and the word leaves the
 // description it would repeat. A name only one tier row shows stays plain.
 func nameSharedConfigRows(rows []ModelRow) {
@@ -243,7 +240,7 @@ func nameSharedConfigRows(rows []ModelRow) {
 }
 
 // configLabel is a tier row's label and description in a vocabulary that
-// names the row after its config: the config that holds the tier, or the alias
+// names the row after its config: the model behind the tier, or the alias
 // when none does, and "Sol-like" ahead of the config's own description.
 func configLabel(m LaunchModel, vocab tiers.Vocabulary, tier tiers.Tier) (string, string) {
 	label, desc := ModelNameWithoutSuffix(m.Name), m.Description
@@ -255,7 +252,7 @@ func configLabel(m LaunchModel, vocab tiers.Vocabulary, tier tiers.Tier) (string
 }
 
 // genericRowTier returns the generic tier an entry's row stands for: the tier
-// whose alias is the entry's own name. A config that holds tiers under other
+// whose alias is the entry's own name. A model that serves tiers under other
 // names is a config, and its row names it.
 func genericRowTier(m LaunchModel) tiers.Tier {
 	for _, tier := range m.Tiers {

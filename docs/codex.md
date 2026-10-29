@@ -22,7 +22,7 @@ The launch passes `--no-daemon` and the provider settings as `-c` overrides. Not
 
 Codex's `/model` lists the same rows as the prizmal picker, with the same labels and descriptions, and the model you launched comes first: a tier alias is a row, and the model folded into it is not a second one. Each catalog entry sets `display_name` to the row's label and `description` to its text.
 
-When your tenant holds the generic tiers, Codex shows one row per tier it holds. A row's `slug` is the tier's alias, the name the Switch routes. Its `display_name` is the router config that holds the tier, so no row reads as an OpenAI model, and its `description` starts with the tier's Codex word:
+When your tenant holds the generic tiers, Codex shows one row per tier it holds. A row's `slug` is the tier's alias, the name the Switch routes. Its `display_name` is the model behind the tier, so no row reads as an OpenAI model, and its `description` starts with the tier's Codex word:
 
 | `slug` | `description` starts with |
 |---|---|
@@ -31,7 +31,7 @@ When your tenant holds the generic tiers, Codex shows one row per tier it holds.
 | `flash` | Luna-like |
 | `premier` | Astra-like |
 
-For example, `{"slug": "frontier", "display_name": "smart", "description": "Sol-like · Everyday coding"}`. A config that holds several tiers gives a row for each, and each of those rows moves the tier word from its description to its name: `smart (Sol-like)` and `smart (Terra-like)`. A config name that only one row shows stays plain. When your Switch reports no tier, the rows are your router configs by name. `prizmal -m sol codex` launches `frontier`. The word is only a label, though: the Switch does not route `sol`, so a plain `codex -m sol`, or a tool call that names `sol`, reaches the Switch as an unknown name and runs on the config your key is bound to. Use the alias wherever you type a model name yourself. A model you launch with `-m` that no row shows still gets an entry, because Codex reads it for the model's window and prompt.
+For example, `{"slug": "frontier", "display_name": "smart", "description": "Sol-like · Everyday coding"}`. A model that serves several tiers gives a row for each, and each of those rows moves the tier word from its description to its name: `smart (Sol-like)` and `smart (Terra-like)`. A name that only one row shows stays plain. When your Switch reports no tier, the rows are your models by name. `prizmal -m sol codex` launches `frontier`. The word is only a label, though: the Switch does not route `sol`, so a plain `codex -m sol`, or a tool call that names `sol`, reaches the Switch as a name it does not route. Use the alias wherever you type a model name yourself. A model you launch with `-m` that no row shows still gets an entry, because Codex reads it for the model's window and prompt.
 
 Each catalog entry sets `supports_search_tool`, which makes Codex defer its less-used tools behind a `tool_search` tool, as `ENABLE_TOOL_SEARCH=true` does for Claude Code. A manual setup that writes its own catalog sets the same field on each entry. It needs a Switch that supports Codex's tool search.
 
@@ -55,7 +55,7 @@ Subagents run the session model by default. `--subagent-model` gives them a diff
 
 ## Model names
 
-Every request should carry a router config name or a tier alias, because today the Switch sends a name it does not know to the config your switch key is bound to, and it returns no error. Codex fills most model settings from the session model, and the launch sets the rest, so every request carries a name your tenant routes. `/review`, compaction, the auto reviewer and spawned subagents run the session model unless `--subagent-model` says otherwise. The memory pipeline defaults to two OpenAI model ids that Codex sends whether or not the catalog lists them, so the launch sets `memories.extract_model` and `memories.consolidation_model` to the launch model. The launch also refuses a `-m` or `--subagent-model` that your tenant does not route. A `/model` row shows the router config that holds the tier, such as `smart (Sol-like)`, and sends its slug, the generic alias (`frontier`). `prizmal -m sol codex` launches `frontier` too. A literal `sol` that reaches the Switch some other way, from a plain `codex -m sol` or a tool call, is not a name the Switch routes, so it falls back to the bound config.
+Every request should carry a model name or a tier alias, because the Switch routes only names your tenant lists. Codex fills most model settings from the session model, and the launch sets the rest, so every request carries a name your tenant routes. `/review`, compaction, the auto reviewer and spawned subagents run the session model unless `--subagent-model` says otherwise. The memory pipeline defaults to two OpenAI model ids that Codex sends whether or not the catalog lists them, so the launch sets `memories.extract_model` and `memories.consolidation_model` to the launch model. The launch also refuses a `-m` or `--subagent-model` that your tenant does not route. A `/model` row shows the model behind the tier, such as `smart (Sol-like)`, and sends its slug, the generic alias (`frontier`). `prizmal -m sol codex` launches `frontier` too. A literal `sol` that reaches the Switch some other way, from a plain `codex -m sol` or a tool call, is not a name the Switch routes.
 
 ## Edit tool
 

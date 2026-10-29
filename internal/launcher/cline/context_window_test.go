@@ -25,7 +25,7 @@ func clineSettingsOf(t *testing.T, dataDir string) map[string]any {
 
 // Cline sizes its compaction budget from the provider's contextWindow setting
 // and falls back to 128,000 tokens when it is absent, so every launch declares
-// the window the Switch rules for a router config.
+// the window the Switch rules for a model.
 func TestClineLaunchDeclaresTheContextWindow(t *testing.T) {
 	internaltest.SandboxedHome(t)
 	dir := t.TempDir()
