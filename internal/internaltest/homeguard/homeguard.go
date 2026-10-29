@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -95,17 +96,34 @@ func Diff(before, after Snapshot) []string {
 }
 
 // Run runs the package's tests with HOME and USERPROFILE pointing at a fresh
-// temp directory, then compares the real ~/.prizmal with how it was before. It
-// returns the exit code for os.Exit: m.Run's, or 1 when the real directory
-// changed or the sandbox could not be set up.
+// temp directory, then checks that nothing leaked into the real ~/.prizmal. It
+// returns the exit code for os.Exit: m.Run's, or 1 when a leak was found or the
+// sandbox could not be set up.
 //
-// Another process that writes ~/.prizmal while the tests run, such as the
-// operator using the CLI, trips the same check. The failure names each path so
-// the cause is visible.
+// A leak is either of these:
+//   - HOME or USERPROFILE no longer names the sandbox when the tests end.
+//   - A file in the real ~/.prizmal was created or changed during the run and
+//     now holds the same bytes as the file at the same path in the sandbox's
+//     ~/.prizmal.
+//
+// Other processes write the real directory while the tests run: the operator
+// using the CLI refreshes token.json and writes update-check.json. Their bytes
+// differ from what the tests wrote in the sandbox, so they do not fail the
+// package.
+//
+// Known limit: a leak whose bytes differ from the sandbox copy, or that
+// touches a path the tests never wrote in the sandbox, is not attributed. The
+// HOME check is the primary defence. The file check catches a test that
+// computed the real home some other way, such as an absolute path.
 func Run(m *testing.M) int {
-	realHome, err := os.UserHomeDir()
+	realHome, _ := os.UserHomeDir()
+	return runIn(realHome, m.Run)
+}
+
+// runIn is Run with the real home and the test body as parameters.
+func runIn(realHome string, body func() int) int {
 	watched := ""
-	if err == nil && realHome != "" {
+	if realHome != "" {
 		watched = filepath.Join(realHome, stateDir)
 	}
 	var before Snapshot
@@ -122,20 +140,59 @@ func Run(m *testing.M) int {
 	defer setEnv("USERPROFILE", sandbox)()
 	defer setEnv("HOME", sandbox)()
 
-	code := m.Run()
+	code := body()
 
+	leaks := envLeaks(sandbox)
 	if watched != "" {
-		if changes := Diff(before, Take(watched)); len(changes) > 0 {
-			fmt.Fprintf(os.Stderr, "homeguard: the tests changed the real %s:\n", watched)
-			for _, c := range changes {
-				fmt.Fprintf(os.Stderr, "  %s\n", c)
-			}
-			if code == 0 {
-				code = 1
-			}
+		leaks = append(leaks, fileLeaks(watched, filepath.Join(sandbox, stateDir), before)...)
+	}
+	if len(leaks) > 0 {
+		fmt.Fprintf(os.Stderr, "homeguard: the tests leaked out of the temp home %s:\n", sandbox)
+		for _, l := range leaks {
+			fmt.Fprintf(os.Stderr, "  %s\n", l)
+		}
+		if code == 0 {
+			code = 1
 		}
 	}
 	return code
+}
+
+// envLeaks reports a home variable that no longer names the sandbox.
+func envLeaks(sandbox string) []string {
+	var out []string
+	for _, name := range []string{"HOME", "USERPROFILE"} {
+		if got := os.Getenv(name); got != sandbox {
+			out = append(out, fmt.Sprintf("%s is %q, want the temp home", name, got))
+		}
+	}
+	return out
+}
+
+// fileLeaks lists the files in the watched real directory that changed since
+// before and now match, byte for byte, the file at the same path in the
+// sandbox's directory.
+func fileLeaks(watched, sandboxDir string, before Snapshot) []string {
+	var out []string
+	for _, c := range Diff(before, Take(watched)) {
+		kind, rel, ok := splitChange(c)
+		if !ok || kind == "removed:" {
+			continue
+		}
+		mine := hashFile(filepath.Join(sandboxDir, rel))
+		if mine == "unreadable" {
+			continue
+		}
+		if hashFile(filepath.Join(watched, rel)) == mine {
+			out = append(out, fmt.Sprintf("%s %s in the real %s", kind, rel, watched))
+		}
+	}
+	return out
+}
+
+func splitChange(line string) (kind, rel string, ok bool) {
+	kind, rel, ok = strings.Cut(line, " ")
+	return kind, strings.TrimLeft(rel, " "), ok
 }
 
 // setEnv sets name and returns the function that puts the previous state back,
