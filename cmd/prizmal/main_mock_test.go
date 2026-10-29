@@ -81,6 +81,12 @@ func allHarnessExpectations() []harnessExpectation {
 			requiredEnv: []string{"OPENAI_API_KEY"},
 		},
 		{
+			name:         "kilo",
+			binaryNames:  []string{"kilo"},
+			requiredEnv:  []string{"KILO_CONFIG_CONTENT", "KILO_CONFIG_DIR"},
+			requiredArgs: []string{"--model", "prizmal/" + mockLaunchModel},
+		},
+		{
 			name:         "opencode",
 			binaryNames:  []string{"opencode"},
 			requiredEnv:  []string{"OPENCODE_CONFIG_CONTENT"},

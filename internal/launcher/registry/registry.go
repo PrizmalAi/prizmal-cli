@@ -9,6 +9,7 @@ import (
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher/claude"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher/cline"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher/codex"
+	"github.com/PrizmalAi/prizmal-cli/internal/launcher/kilo"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher/opencode"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher/pi"
 )
@@ -38,7 +39,7 @@ type IntegrationSpec struct {
 	Install     IntegrationInstallSpec
 }
 
-var launcherIntegrationOrder = []string{"claude", "codex", "cline", "opencode", "pi"}
+var launcherIntegrationOrder = []string{"claude", "codex", "cline", "kilo", "opencode", "pi"}
 
 var integrationSpecs = []*IntegrationSpec{
 	{
@@ -75,6 +76,18 @@ var integrationSpecs = []*IntegrationSpec{
 			CheckUsable:     codex.CheckUsable,
 			URL:             "https://developers.openai.com/codex/cli/",
 			Command:         []string{"npm", "install", "-g", "@openai/codex"},
+		},
+	},
+	{
+		Name:        "kilo",
+		Runner:      &kilo.Kilo{},
+		Description: "Kilo's open-source coding agent",
+		Install: IntegrationInstallSpec{
+			EnsureInstalled: func() error {
+				_, err := kilo.KiloInstaller.EnsureInstalled()
+				return err
+			},
+			Command: []string{"npm", "install", "-g", "@kilocode/cli@latest"},
 		},
 	},
 	{

@@ -64,7 +64,7 @@ func TestEveryHarnessUsesRelayOnlyWhenRequestedExceptCline(t *testing.T) {
 				}
 
 				envDump, args := readMockInvocation(t, expDir, expectation.name)
-				if mode.flag || expectation.name == "cline" {
+				if mode.flag || expectation.name == "cline" || expectation.name == "kilo" {
 					sourceAt := strings.Index(stderr, "using api key from:")
 					relayAt := strings.Index(stderr, "relaying through ")
 					if sourceAt < 0 || relayAt < 0 || sourceAt > relayAt {
@@ -231,6 +231,23 @@ func assertHarnessRelayWiring(
 		} else if options.APIKey != wantKey {
 			t.Errorf("OpenCode apiKey = %q, want the switch key", options.APIKey)
 		}
+	case "kilo":
+		var config struct {
+			Provider map[string]struct {
+				Options struct {
+					BaseURL string `json:"baseURL"`
+					APIKey  string `json:"apiKey"`
+				} `json:"options"`
+			} `json:"provider"`
+		}
+		if err := json.Unmarshal([]byte(envDumpValue(envDump, "KILO_CONFIG_CONTENT")), &config); err != nil {
+			t.Fatalf("parse Kilo inline config: %v", err)
+		}
+		options := config.Provider["prizmal"].Options
+		if got := options.BaseURL; got != strings.TrimSuffix(wantOpenAIBase, "/") {
+			t.Errorf("Kilo baseURL = %q, want %q", got, strings.TrimSuffix(wantOpenAIBase, "/"))
+		}
+		assertPlaceholder(t, options.APIKey)
 	case "cline":
 		keyEnv = "OPENAI_API_KEY"
 		var providers map[string]any

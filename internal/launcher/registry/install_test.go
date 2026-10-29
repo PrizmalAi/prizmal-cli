@@ -11,7 +11,7 @@ import "testing"
 // registry's question any more: the runner answers it through Installed, and
 // TestEveryRunnerAnswersInstalled pins that every adapter can.
 func TestAdapterInstallersAreWiredToTheRegistry(t *testing.T) {
-	for _, name := range []string{"claude", "cline", "codex", "opencode", "pi"} {
+	for _, name := range []string{"claude", "cline", "codex", "kilo", "opencode", "pi"} {
 		spec, err := LookupIntegrationSpec(name)
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)

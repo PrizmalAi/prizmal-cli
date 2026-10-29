@@ -67,6 +67,12 @@ var harnessLaunchCases = map[string]harnessLaunchCase{
 		test: "TestHarnessLaunchCline", workflow: "cline.yml",
 		args: []string{harnessLaunchPrompt},
 	},
+	// The caller includes kilo's `run` subcommand, which the launcher does not
+	// insert.
+	"kilo": {
+		test: "TestHarnessLaunchKilo", workflow: "kilo.yml",
+		args: []string{"run", harnessLaunchPrompt},
+	},
 	// The caller includes opencode's `run` subcommand, which the launcher
 	// does not insert.
 	"opencode": {
@@ -240,11 +246,13 @@ func runHarnessLaunchWith(t *testing.T, harness string, mode harnessLaunchKeyMod
 		return
 	}
 
+	// Cline and Kilo always run through the loopback relay.
+	alwaysRelays := harness == "cline" || harness == "kilo"
 	switch mode {
 	case harnessLaunchConfigKey:
 		// Nothing to assert about the source: no device key was enrolled, so
 		// the launch resolves the config file's key and nothing else.
-		if harness != "cline" && !relayMode && strings.Contains(stderr, "relaying through ") {
+		if !alwaysRelays && !relayMode && strings.Contains(stderr, "relaying through ") {
 			t.Errorf("a launch without --relay started the loopback relay")
 		}
 	case harnessLaunchDeviceLogin:
@@ -254,14 +262,14 @@ func runHarnessLaunchWith(t *testing.T, harness string, mode harnessLaunchKeyMod
 		if !strings.Contains(stderr, "using api key from: device login") {
 			t.Errorf("launch did not announce device login:\n--- stderr ---\n%s", tail(stderr, 50))
 		}
-		if harness == "cline" && !strings.Contains(stderr, "relaying through ") {
-			t.Errorf("Cline device login did not start its automatic relay:\n--- stderr ---\n%s", tail(stderr, 50))
+		if alwaysRelays && !strings.Contains(stderr, "relaying through ") {
+			t.Errorf("%s device login did not start its automatic relay:\n--- stderr ---\n%s", harness, tail(stderr, 50))
 		}
-		if harness != "cline" && !relayMode && strings.Contains(stderr, "relaying through ") {
+		if !alwaysRelays && !relayMode && strings.Contains(stderr, "relaying through ") {
 			t.Errorf("a device launch without --relay started the loopback relay")
 		}
 	}
-	wantRelay := relayMode || harness == "cline"
+	wantRelay := relayMode || alwaysRelays
 	if wantRelay != strings.Contains(stderr, "relaying through ") {
 		t.Errorf("relay announcement presence = %v, want %v", strings.Contains(stderr, "relaying through "), wantRelay)
 	}

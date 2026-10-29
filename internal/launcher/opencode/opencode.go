@@ -390,3 +390,10 @@ func normalizeOpenCodeModelFamily(s string) string {
 	s = strings.ReplaceAll(s, "_", "")
 	return s
 }
+
+// ModelEntries is the models map of an OpenCode provider block. Kilo is a fork
+// of OpenCode that reads the same provider schema, so its launch builds the
+// entries here rather than keeping a second copy.
+func ModelEntries(modelList []launch.LaunchModel) map[string]any {
+	return buildModelEntries(modelList)
+}
