@@ -118,6 +118,17 @@ Examples:
 			if relayFlag && len(args) == 0 {
 				return fmt.Errorf("--relay needs an integration to launch")
 			}
+			// --api is checked before anything that prompts or installs, so a
+			// name the harness does not speak is refused on a machine that has
+			// not installed the harness too. A name prizmal does not know falls
+			// through to launch(), which reports it.
+			if apiFlag != "" {
+				if spec, err := registry.LookupIntegrationSpec(args[0]); err == nil {
+					if err := launcher.SelectAPI(spec.Name, spec.Runner, apiFlag); err != nil {
+						return err
+					}
+				}
+			}
 
 			// A launch checks for a newer release first. --list, --pick alone,
 			// --restore and --persist answer a question, and the device
