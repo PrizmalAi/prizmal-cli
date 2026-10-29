@@ -25,6 +25,17 @@ The relay is local to the process and stops when Kilo exits.
 
 `prizmal kilo` takes the model from `--model`, from the default an earlier `--pick` or the picker's `ctrl+s` saved, or from the picker. `prizmal kilo run` runs one message and exits, and a launch on a pipe has no terminal, so neither opens the picker: with no model named they stop with an error that lists the names `prizmal --list` prints.
 
+## API mode
+
+Kilo talks chat completions to the Switch by default. `--kilo-api` picks another wire API for one launch:
+
+```bash
+prizmal --kilo-api responses -m your-model kilo
+prizmal --kilo-api anthropic -m your-model kilo
+```
+
+`responses` uses `@ai-sdk/openai` and `/v1/responses`. `anthropic` uses `@ai-sdk/anthropic` and `/v1/messages`, with the key in `x-api-key`, which the relay swaps as well as `Authorization`. The flag applies only to `kilo`. To get the same by hand, change `npm` in the provider block of the manual setup below to the package for that mode.
+
 ## Restore
 
 Kilo has nothing to restore: the launch doesn't write provider config or Kilo state.

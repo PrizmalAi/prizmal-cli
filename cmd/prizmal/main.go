@@ -41,6 +41,7 @@ var (
 	persistOnly          bool
 	allowUnauthenticated bool
 	relayFlag            bool
+	kiloAPI              string
 	listFlag             bool
 	pickFlag             bool
 	subagentModel        string
@@ -110,6 +111,9 @@ Examples:
 			}
 			if relayFlag && (restore || persistOnly) {
 				return fmt.Errorf("--relay only applies to a launch and cannot be used with --restore or --persist")
+			}
+			if kiloAPI != "" && (len(args) == 0 || args[0] != "kilo") {
+				return fmt.Errorf("--kilo-api only applies to the kilo integration")
 			}
 			if relayFlag && len(args) == 0 {
 				return fmt.Errorf("--relay needs an integration to launch")
@@ -260,6 +264,7 @@ func registerFlags(flags *pflag.FlagSet) {
 	flags.StringVarP(&url, "url", "u", "", "provider base URL (or $"+envconfig.EnvVar+")")
 	flags.StringVarP(&apiKey, "api-key", "k", "", "provider API key (or $"+envconfig.KeyEnvVar+")")
 	flags.BoolVar(&relayFlag, "relay", false, "route the launched harness through a per-session loopback relay")
+	flags.StringVar(&kiloAPI, "kilo-api", "", "wire API Kilo Code uses: chat (default), responses or anthropic")
 	flags.BoolVarP(&yes, "yes", "y", false, "auto-approve confirmation prompts")
 	flags.BoolVar(&restore, "restore", false, "restore the integration's original configuration and exit")
 	flags.BoolVar(&persistOnly, "persist", false, "write the integration configuration without launching (persistent until --restore)")
@@ -695,6 +700,11 @@ func launch(name string, extraArgs []string, cfg *config.Config, ask launcher.As
 	}
 
 	runner := spec.Runner
+	if apiSetter, ok := runner.(interface{ SetAPI(string) error }); ok {
+		if err := apiSetter.SetAPI(kiloAPI); err != nil {
+			return err
+		}
+	}
 
 	// A first-run browser sign-in can leave device mode on before any harness
 	// was named. A runner without a refresh contract must use its ordinary key
