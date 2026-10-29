@@ -11,7 +11,7 @@
 
 The inline config declares the `prizmal` provider (`@ai-sdk/openai-compatible`), its endpoint, an `apiKey`, the model list, `"enabled_providers": ["prizmal"]` so Kilo doesn't list gateway models fetched over the network, and `"model": "prizmal/<your-model>"`. It also turns off Kilo's built-in websearch tool, which posts to hosted backends rather than the Switch.
 
-Each model declares text and image input, which Kilo needs before it sends an image, and sets `limit.context` to 1,000,000, the window the Switch rules for every router config, and `limit.output` to 32,000. Without `limit.context`, Kilo doesn't know the window and compacts a session only after the provider refuses it.
+Each model's input modalities follow the `input_modalities` list that `GET /v1/models` returns: text always, image for `image`, and pdf for `file`. A model with no list gets text and image. Each model also sets `limit.context` to 1,000,000 and `limit.output` to 32,000. Without `limit.context`, Kilo doesn't know the window and compacts a session only after the provider refuses it.
 
 Prizmal doesn't write Kilo state. The model picker's Recent list, the prompt history, your sessions and your settings stay in Kilo's own directories.
 
@@ -47,7 +47,7 @@ Kilo reads its config from `~/.config/kilo/kilo.json`, or from `KILO_CONFIG_CONT
         "your-model": {
           "name": "your-model",
           "limit": { "context": 1000000, "output": 32000 },
-          "modalities": { "input": ["text", "image"], "output": ["text"] }
+          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] }
         }
       }
     }
