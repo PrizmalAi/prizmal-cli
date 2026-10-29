@@ -20,41 +20,31 @@ func TestOpenCodeEntryDeclaresTheContextWindow(t *testing.T) {
 	}
 }
 
-// TestOpenCodeThinkingLevelsComeFromTheName pins the reasoning-levels check
-// that survives the removal of the serving-family fields. No catalog entry
-// reported a family, so the family loop was a no-op and the model's own name
-// decided the scale; opencode's two scales differ by model line, and answering
-// "none of the above" costs a usable effort setting on a model that takes one.
-func TestOpenCodeThinkingLevelsComeFromTheName(t *testing.T) {
-	thinking := launch.LaunchModel{
-		Name:         "openai/gpt-oss-120b",
-		Capabilities: []model.Capability{model.CapabilityThinking},
-	}
-	entry := opencodeModelEntry(t, thinking)
-
-	if entry["reasoning"] != true {
-		t.Fatalf("entry lacks reasoning = true: %v", entry)
-	}
-	options, _ := entry["options"].(map[string]any)
-	if got := options["reasoningEffort"]; got != "medium" {
-		t.Fatalf("options.reasoningEffort = %v, want medium", got)
-	}
-	variants, _ := entry["variants"].(map[string]any)
-	for _, level := range []string{"low", "medium", "high", "max"} {
-		effort, _ := variants[level].(map[string]any)["reasoningEffort"].(string)
-		if effort != level {
-			t.Fatalf("variants.%s.reasoningEffort = %q, want %q", level, effort, level)
+// TestOpenCodeReasoningModelsGetEveryEffortLevel pins that a model the Switch
+// reports as reasoning gets the same four effort variants whatever its name.
+// The Switch decides what a route does with an effort, so the launcher does not
+// guess from the name which models take one: a name test left `high` disabled
+// for every model off the gpt-oss line, and `--variant high` sent nothing. No
+// default effort is written either, so a launch without a variant leaves the
+// route's own default alone.
+func TestOpenCodeReasoningModelsGetEveryEffortLevel(t *testing.T) {
+	for _, name := range []string{"openai/gpt-oss-120b", "prizmal-flash"} {
+		entry := opencodeModelEntry(t, launch.LaunchModel{
+			Name:         name,
+			Capabilities: []model.Capability{model.CapabilityThinking},
+		})
+		if entry["reasoning"] != true {
+			t.Fatalf("%s: entry lacks reasoning = true: %v", name, entry)
 		}
-	}
-
-	// A model off the gpt-oss line keeps opencode's other scale, so the check
-	// is a name test and not a blanket "four levels".
-	plain := launch.LaunchModel{
-		Name:         "anthropic/claude-sonnet-5",
-		Capabilities: []model.Capability{model.CapabilityThinking},
-	}
-	plainVariants := opencodeModelEntry(t, plain)["variants"].(map[string]any)
-	if _, ok := plainVariants["none"]; !ok {
-		t.Fatalf("a non-gpt-oss model lost its none variant: %v", plainVariants)
+		if _, ok := entry["options"]; ok {
+			t.Fatalf("%s: entry sets a default effort: %v", name, entry["options"])
+		}
+		variants, _ := entry["variants"].(map[string]any)
+		for _, level := range []string{"low", "medium", "high", "max"} {
+			variant, _ := variants[level].(map[string]any)
+			if variant["reasoningEffort"] != level || variant["disabled"] != nil {
+				t.Fatalf("%s: variants.%s = %v, want reasoningEffort %q", name, level, variant, level)
+			}
+		}
 	}
 }

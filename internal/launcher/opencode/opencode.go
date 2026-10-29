@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher"
@@ -389,37 +388,19 @@ func buildModelEntries(modelList []launch.LaunchModel) map[string]any {
 		}
 		if model.HasCapability("thinking") {
 			entry["reasoning"] = true
-			if openCodeModelSupportsThinkingLevels(model) {
-				entry["options"] = map[string]any{"reasoningEffort": "medium"}
-				entry["variants"] = map[string]any{
-					"low":    map[string]any{"reasoningEffort": "low"},
-					"medium": map[string]any{"reasoningEffort": "medium"},
-					"high":   map[string]any{"reasoningEffort": "high"},
-					"max":    map[string]any{"reasoningEffort": "max"},
-				}
-			} else {
-				entry["variants"] = map[string]any{
-					"none":   map[string]any{"reasoningEffort": "none"},
-					"low":    map[string]any{"disabled": true},
-					"medium": map[string]any{"disabled": true},
-					"high":   map[string]any{"disabled": true},
-				}
+			// Every effort is offered and none is the default: the Switch
+			// reports which models reason and decides what a route does with
+			// an effort, so a launch without --variant keeps the route's own.
+			entry["variants"] = map[string]any{
+				"low":    map[string]any{"reasoningEffort": "low"},
+				"medium": map[string]any{"reasoningEffort": "medium"},
+				"high":   map[string]any{"reasoningEffort": "high"},
+				"max":    map[string]any{"reasoningEffort": "max"},
 			}
 		}
 		models[model.Name] = entry
 	}
 	return models
-}
-
-func openCodeModelSupportsThinkingLevels(model launch.LaunchModel) bool {
-	return strings.Contains(normalizeOpenCodeModelFamily(model.Name), "gptoss")
-}
-
-func normalizeOpenCodeModelFamily(s string) string {
-	s = strings.ToLower(s)
-	s = strings.ReplaceAll(s, "-", "")
-	s = strings.ReplaceAll(s, "_", "")
-	return s
 }
 
 // ModelEntries is the models map of an OpenCode provider block. Kilo is a fork

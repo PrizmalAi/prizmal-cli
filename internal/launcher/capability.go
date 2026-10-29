@@ -157,6 +157,17 @@ func CapabilitiesFromModalities(modalities []string) []model.Capability {
 	return capabilities
 }
 
+// knowsInputs says whether the model carries any input capability. Thinking is
+// a separate boolean, so it does not make a model's inputs known.
+func (m LaunchModel) knowsInputs() bool {
+	for _, c := range m.Capabilities {
+		if c != model.CapabilityThinking {
+			return true
+		}
+	}
+	return false
+}
+
 // DeclaredInputs returns the input modalities one harness declares for a model,
 // in vocabulary order.
 //
@@ -169,7 +180,7 @@ func CapabilitiesFromModalities(modalities []string) []model.Capability {
 // The result is a fresh slice, so a caller that appends to it cannot edit the
 // unknown list every later launch would read.
 func DeclaredInputs(m LaunchModel, harness string) []string {
-	if len(m.Capabilities) == 0 {
+	if !m.knowsInputs() {
 		return slices.Clone(unknownInputs[harness])
 	}
 	var declared []string
@@ -183,21 +194,8 @@ func DeclaredInputs(m LaunchModel, harness string) []string {
 	return declared
 }
 
-// CapabilityThinking is deliberately absent from the vocabulary above, and its
-// absence is a question this file does not answer on its own.
-//
-// opencode.go and pi.go both gate a reasoning field on
-// HasCapability(CapabilityThinking), and nothing in the tree can put that
-// capability in a model's list: CapabilitiesFromModalities is the only producer
-// of LaunchModel.Capabilities and no input modality maps to it. The Switch
-// reports reasoning as its own per-entry field, named in SwitchCatalogEntry's
-// comment and deliberately not read — it is a separate boolean beside
-// input_modalities, not a modality, and a reasoning trace is output rather than
-// something the model takes. Nothing in the catalogue the stub server serves
-// carries a reasoning modality, so no row here invents one.
-//
-// A vocabulary row is the place to put the answer if the Switch is ever seen
-// to report reasoning inside input_modalities, or the entry's reasoning field
-// is decided on. Until then the two gates stay unreachable rather than
-// silently true: a model that cannot report reasoning gets no reasoning
-// variants, which is the answer a harness needs to hear.
+// CapabilityThinking is not an input modality and has no row above. The Switch
+// reports reasoning as its own per-entry boolean, and ParseSwitchCatalog turns
+// a true value into CapabilityThinking, which opencode and pi gate their
+// reasoning fields on. knowsInputs ignores it, so a model that reports
+// reasoning and no modalities still gets the unknown list.
