@@ -123,6 +123,7 @@ func TestOpenCodeRunsInTwoProjectsKeepTheirModelsAndLeaveState(t *testing.T) {
 		}
 		t.Skip("opencode is not on PATH")
 	}
+	skipUnlessPinnedOpenCode(t)
 	home := sandboxedHome(t)
 	for _, name := range []string{"OPENCODE_CONFIG", "OPENCODE_CONFIG_CONTENT", "XDG_STATE_HOME", "XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME"} {
 		unsetEnv(t, name)
@@ -181,4 +182,36 @@ func TestOpenCodeRunsInTwoProjectsKeepTheirModelsAndLeaveState(t *testing.T) {
 			t.Errorf("-m %s: the launch changed model.json\nbefore: %s\nafter:  %s", model, before, after)
 		}
 	}
+}
+
+// skipUnlessPinnedOpenCode skips the test when the opencode on PATH is not the
+// release the terminal baselines pin. The launch passes --model before the
+// subcommand, which the pinned line accepts and a 2.x build rejects, so a run
+// against another release says nothing about this launcher. The CI workflow
+// installs the pin and sets PRIZMAL_HARNESS_LAUNCH to require, which turns the
+// skip into a failure.
+func skipUnlessPinnedOpenCode(t *testing.T) {
+	t.Helper()
+	pinned, err := os.ReadFile(filepath.Join("..", "..", "..", "cmd", "prizmal", "testdata", "terminal", "opencode", "opencode-version"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.TrimSpace(string(pinned))
+	out, err := exec.Command("opencode", "--version").Output()
+	if err != nil {
+		t.Fatalf("opencode --version: %v", err)
+	}
+	fields := strings.Fields(string(out))
+	if len(fields) == 0 {
+		t.Fatal("opencode --version printed nothing")
+	}
+	got := strings.TrimPrefix(fields[len(fields)-1], "v")
+	if got == want {
+		return
+	}
+	msg := "opencode " + got + " is on PATH, and the baselines pin " + want
+	if os.Getenv("PRIZMAL_HARNESS_LAUNCH") == "require" {
+		t.Fatal(msg)
+	}
+	t.Skip(msg)
 }
