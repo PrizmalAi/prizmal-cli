@@ -79,8 +79,8 @@ func TestPiLaunchArgsIgnoresFlagsAfterSeparator(t *testing.T) {
 func TestPiLaunchArgsUsesRequestedModel(t *testing.T) {
 	// The model id must come from the same source Edit writes
 	// (models[0].Name, plumbed through Run), not a second literal.
-	got := piLaunchArgs("prizmal/custom-model", nil, []string{"--print", "hi"})
-	want := []string{"--provider", piProviderID, "--model", "prizmal/custom-model", "--print", "hi"}
+	got := piLaunchArgs("prizmal/sample-model-a", nil, []string{"--print", "hi"})
+	want := []string{"--provider", piProviderID, "--model", "prizmal/sample-model-a", "--print", "hi"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("piLaunchArgs requested model = %v, want %v", got, want)
 	}

@@ -25,6 +25,6 @@
 › 1. smart (current)  Balanced blend
   2. tier-opus        smart · Balanced blend
   3. tier-haiku       flash
-  4. advisor-router
+  4. sample-model-a
 
   enter select · esc back

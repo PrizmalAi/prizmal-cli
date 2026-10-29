@@ -13,8 +13,7 @@ import (
 	"github.com/PrizmalAi/prizmal-cli/internal/stubserver"
 )
 
-// The Switch is about to stop serving a model name that is neither a router
-// config nor an alias with the key's bound config. These tests drive the real
+// The Switch refuses a model name that is neither a model nor an alias. These tests drive the real
 // Codex through prizmal against a stub that refuses such a name the same way,
 // and show that every request Codex made carried a name the tenant routes.
 //
@@ -39,7 +38,7 @@ const (
 	namesCore     = "prizmal-core"
 )
 
-// namesCatalog is the tenant: three router configs and no Claude tier.
+// namesCatalog is the tenant: three models and no Claude tier.
 var namesCatalog = []string{namesFlash, namesFrontier, namesCore}
 
 // codexNamesCase builds a Codex scenario against the strict stub. The scenario

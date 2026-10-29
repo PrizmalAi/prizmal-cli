@@ -192,8 +192,8 @@ func TestDefaultModelIsUsedWhenNoFlagIsGiven(t *testing.T) {
 	}
 }
 
-// A saved default_model of `default` names the key's bound config, which the
-// CLI no longer sends. A non-interactive launch that would fall back on it
+// A saved default_model of `default` is a placeholder, not a model name, and the
+// CLI never sends it. A non-interactive launch that would fall back on it
 // stops, and the error names the models this key routes.
 func TestSavedDefaultOfDefaultIsNeverSent(t *testing.T) {
 	useStubSwitch(t)
@@ -598,7 +598,7 @@ func TestBareLaunchOnATerminalOpensThePicker(t *testing.T) {
 		t.Fatalf("resolved %q, want chosen-here", chosen)
 	}
 	// The stub's tenant holds no Claude tier, so the picker offers its three
-	// router configs and no tier alias.
+	// models and no tier alias.
 	if len(sawRows) != 3 {
 		t.Fatalf("the picker was offered %d rows (%v), want the whole 3-model catalog and no tier", len(sawRows), sawRows)
 	}

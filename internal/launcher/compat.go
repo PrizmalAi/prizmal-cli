@@ -54,12 +54,12 @@ type LaunchModel struct {
 	// model gets no row of its own, and stays in the catalog so a launch that
 	// names it still finds its tier and description.
 	FoldedInto string
-	// HeldBy is the router config a tier alias's row stands for, empty for a
+	// HeldBy is the model a tier alias's row stands for, empty for a
 	// row that names a config or an alias no config holds.
 	HeldBy string
 	// AddedTier says the CLI added this entry as a tier alias's row, because
-	// the Switch lists router configs and not the aliases they hold. A harness
-	// that shows only router configs skips it.
+	// the Switch lists models and not the aliases they hold. A harness
+	// that shows only models skips it.
 	AddedTier bool
 }
 
@@ -250,7 +250,7 @@ func ResolvesTierWords(runner Runner) bool {
 
 // TierVocabularyRunner is a runner whose harness shows the tier rows in its
 // own words: Claude Code says Opus, Codex says Sol. A runner without it shows
-// the tenant's router configs by name and no tier rows, which is what pi,
+// the tenant's models by name and no tier rows, which is what pi,
 // OpenCode and Cline do.
 type TierVocabularyRunner interface {
 	TierVocabulary() tiers.Vocabulary

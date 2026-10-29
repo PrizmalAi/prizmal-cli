@@ -63,7 +63,7 @@ func TestOpenCodeUnknownModelStaysPermissive(t *testing.T) {
 func TestOpenCodeDeclaresTheVocabularyRowForACatalogEntry(t *testing.T) {
 	for _, row := range launchtest.VocabularyRows {
 		t.Run(row.Name, func(t *testing.T) {
-			m := launch.LaunchModel{Name: "router-config", Capabilities: row.Capabilities}
+			m := launch.LaunchModel{Name: "model-name", Capabilities: row.Capabilities}
 			if got := opencodeInputModalities(t, opencodeModelEntry(t, m)); !slices.Equal(got, row.OpenCode) {
 				t.Fatalf("opencode declared inputs = %v, want %v", got, row.OpenCode)
 			}

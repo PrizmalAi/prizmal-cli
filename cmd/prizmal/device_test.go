@@ -143,23 +143,17 @@ func TestAuthTokenReauthRequiredSaysRunLogin(t *testing.T) {
 	}
 }
 
-// The consent URL for a staging switch stays on the staging app, so a login
-// does not send a staging operator to the production page.
-func TestAppBaseURLFollowsSwitchHost(t *testing.T) {
+// The consent URL is the production app unless $PRIZMAL_APP_URL selects another.
+func TestAppBaseURL(t *testing.T) {
 	t.Setenv("PRIZMAL_SWITCH_URL", "")
 	t.Setenv("PRIZMAL_APP_URL", "")
-	envconfig.SetBaseURL("https://api.staging.prizmal.ai")
+	envconfig.SetBaseURL("https://api.example.invalid")
 	defer envconfig.SetBaseURL("")
-	if got := appBaseURL(); got != "https://app.staging.prizmal.ai" {
-		t.Fatalf("appBaseURL(staging) = %q", got)
-	}
-	envconfig.SetBaseURL("https://api.prizmal.ai")
 	if got := appBaseURL(); got != "https://app.prizmal.ai" {
-		t.Fatalf("appBaseURL(prod) = %q", got)
+		t.Fatalf("appBaseURL(default) = %q", got)
 	}
-	// An explicit override wins.
-	t.Setenv("PRIZMAL_APP_URL", "https://app.example.test/")
-	if got := appBaseURL(); got != "https://app.example.test" {
+	t.Setenv("PRIZMAL_APP_URL", "https://app.example.invalid/")
+	if got := appBaseURL(); got != "https://app.example.invalid" {
 		t.Fatalf("appBaseURL(override) = %q", got)
 	}
 }

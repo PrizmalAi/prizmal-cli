@@ -23,7 +23,7 @@
      3. Opus                   smart · Everyday coding
      4. Sonnet                 smart · Everyday coding
      5. Haiku                  quick · Quick answers
-     6. advisor-router         Custom model (advisor-router[1m])
+     6. sample-model-a         Custom model (sample-model-a[1m])
 
    ● High effort (default) ←/→ to adjust
 

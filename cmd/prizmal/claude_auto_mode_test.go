@@ -22,7 +22,7 @@ type autoModeCase struct {
 }
 
 // claudeAutoModeCases launches a model of each tier, named by a tier alias and
-// by a router config the Switch marks with the tier.
+// by a model the Switch marks with the tier.
 var claudeAutoModeCases = []autoModeCase{
 	{name: "tier-alias-opus", args: []string{"claude", "--model", "claude-tier-opus"}, entries: proposedCatalog},
 	{name: "tier-alias-sonnet", args: []string{"claude", "--model", "claude-tier-sonnet"}, entries: proposedCatalog},

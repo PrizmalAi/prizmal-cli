@@ -16,7 +16,7 @@ func genericRows(t *testing.T) []launch.ModelRow {
 	catalog, err := launch.ParseSwitchCatalog([]byte(`{"data":[
 		{"id":"smart[1m]","tier":"frontier","tiers":["frontier"],"description":"Everyday"},
 		{"id":"quick[1m]","tier":"flash","tiers":["flash"]},
-		{"id":"advisor-router[1m]"}
+		{"id":"sample-model-a[1m]"}
 	]}`))
 	if err != nil {
 		t.Fatal(err)
@@ -81,7 +81,7 @@ func TestClaudePickerLabelsGenericRowsWithClaudeWords(t *testing.T) {
 	want := []struct{ label, model, behavesAs string }{
 		{"Opus", "frontier[1m]", "claude-opus-5"},
 		{"Haiku", "flash[1m]", "claude-sonnet-5"},
-		{"advisor-router", "advisor-router[1m]", ""},
+		{"sample-model-a", "sample-model-a[1m]", ""},
 	}
 	if len(got.ModelPicker.Options) != len(want) {
 		t.Fatalf("options = %+v, want %d rows", got.ModelPicker.Options, len(want))

@@ -46,7 +46,7 @@ var codexBaselineCases = []baselineCase{
 		entries: []stubserver.Entry{
 			{ID: "smart", Tier: "opus", Description: "Balanced blend"},
 			{ID: "flash", Tier: "haiku"},
-			{ID: "advisor-router"},
+			{ID: "sample-model-a"},
 			{ID: "default"},
 		},
 		steps: []baselineStep{stepCodexPrompt, stepCodexOpenModel, stepCodexModelPicker},
@@ -59,7 +59,7 @@ var codexBaselineCases = []baselineCase{
 		entries: []stubserver.Entry{
 			{ID: "smart", Tier: "frontier", Tiers: []string{"frontier", "core"}, Description: "Everyday coding"},
 			{ID: "quick", Tier: "flash", Tiers: []string{"flash"}},
-			{ID: "advisor-router"},
+			{ID: "sample-model-a"},
 			{ID: "default"},
 		},
 		steps: []baselineStep{stepCodexPrompt, stepCodexOpenModel, stepCodexModelPicker},
