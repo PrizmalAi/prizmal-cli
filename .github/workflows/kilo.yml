@@ -1,0 +1,56 @@
+name: Kilo
+
+# Checks prizmal's Kilo Code integration. Each harness has its own workflow of
+# this kind, so the harnesses run in parallel and report under their own
+# names.
+#
+# launch runs Kilo through prizmal with a one-shot prompt, against a stub switch
+# that answers every turn with a placeholder reply, and passes when that reply
+# reaches stdout. No Switch key is involved. PRIZMAL_HARNESS_LAUNCH=require
+# turns a missing harness into a failure, so the job cannot pass by skipping.
+#
+# The job installs the Kilo release recorded in
+# cmd/prizmal/testdata/kilo/kilo-version.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '0 6 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kilo-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  launch:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(github.event_name == 'schedule' && '["macos-latest"]' || '["ubuntu-latest","windows-latest"]') }}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - name: Install the pinned kilo
+        run: npm install -g "@kilocode/cli@$(cat cmd/prizmal/testdata/kilo/kilo-version)"
+      - name: Launch kilo through prizmal
+        env:
+          PRIZMAL_HARNESS_LAUNCH: require
+        run: |
+          go test -count=1 -v -run 'TestHarnessLaunchKilo$|TestHarnessLaunchKiloWithoutAModel$' ./cmd/prizmal
+          go test -count=1 -v -run '^TestHarnessLaunchKiloFromDeviceLogin$' ./cmd/prizmal

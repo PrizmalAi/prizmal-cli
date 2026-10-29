@@ -154,3 +154,19 @@ export default {
   },
 }
 `
+
+// WriteSearchTool generates the Switch-backed search tool under dir/tool for a
+// fork of opencode that globs the same tool directory. It is rewritten on every
+// call so an older prizmal's version never lingers.
+func WriteSearchTool(dir string) error { return writeOpenCodeSearchTool(dir) }
+
+// SearchToolEnv lists the variables the generated tool reads when it runs: the
+// Switch endpoint, the model, and the credential. The launch passes the relay's
+// URL and placeholder, so the real key never reaches the tool.
+func SearchToolEnv(url, model, key string) []string {
+	return []string{
+		openCodeSearchURLEnv + "=" + url,
+		openCodeSearchModelEnv + "=" + model,
+		openCodeSearchKeyEnv + "=" + key,
+	}
+}
