@@ -91,6 +91,55 @@ func TestMainSandboxesHome(t *testing.T) {
 	}
 }
 
+// Another process refreshing the operator's token changes the real directory
+// with bytes the tests never wrote. The package must still pass.
+func TestOutsideWriterDoesNotFailTheRun(t *testing.T) {
+	realHome := t.TempDir()
+	write(t, filepath.Join(realHome, stateDir, "token.json"), `{"v":1}`)
+
+	code := runIn(realHome, func() int {
+		write(t, filepath.Join(os.Getenv("HOME"), stateDir, "config.json"), `{"mine":true}`)
+		write(t, filepath.Join(realHome, stateDir, "token.json"), `{"v":2}`)
+		write(t, filepath.Join(realHome, stateDir, "update-check.json"), `{"t":1}`)
+		return 0
+	})
+	if code != 0 {
+		t.Fatalf("runIn = %d, want 0", code)
+	}
+}
+
+// A test that writes into the real directory through an absolute path leaves
+// the same bytes there as in its temp home. The run must fail.
+func TestLeakIntoRealHomeFailsTheRun(t *testing.T) {
+	realHome := t.TempDir()
+	write(t, filepath.Join(realHome, stateDir, "token.json"), `{"v":1}`)
+
+	code := runIn(realHome, func() int {
+		body := `{"default_model":"m"}`
+		write(t, filepath.Join(os.Getenv("HOME"), stateDir, "config.json"), body)
+		write(t, filepath.Join(realHome, stateDir, "config.json"), body)
+		return 0
+	})
+	if code != 1 {
+		t.Fatalf("runIn = %d, want 1", code)
+	}
+}
+
+// A test that moves HOME to the real home and leaves it there is caught even
+// when it wrote nothing yet.
+func TestHomeLeftOnTheRealHomeFailsTheRun(t *testing.T) {
+	realHome := t.TempDir()
+	prev := os.Getenv("HOME")
+	code := runIn(realHome, func() int {
+		_ = os.Setenv("HOME", realHome)
+		return 0
+	})
+	_ = os.Setenv("HOME", prev)
+	if code != 1 {
+		t.Fatalf("runIn = %d, want 1", code)
+	}
+}
+
 func TestMain(m *testing.M) { os.Exit(Run(m)) }
 
 // A package added later with tests and no TestMain would run against the real
