@@ -77,4 +77,4 @@ export PRIZMAL_SWITCH_KEY=sk-...
 OPENCODE_CONFIG_CONTENT="$(jq -c --arg k "$PRIZMAL_SWITCH_KEY" '.provider.prizmal.options.apiKey = $k' opencode.json)" opencode
 ```
 
-`prizmal opencode` sets this up for the session. It also names the launch's model on the command line, adds a web search tool that goes through the Switch, and installs OpenCode when its binary is missing.
+`prizmal opencode` sets this up for the session. It also marks a model the Switch reports with `reasoning: true` as a reasoning model, so `--variant` takes effect; add `"reasoning": true` to a manual entry for such a model. It names the launch's model on the command line, adds a web search tool that goes through the Switch, and installs OpenCode when its binary is missing.
