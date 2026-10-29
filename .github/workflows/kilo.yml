@@ -10,7 +10,7 @@ name: Kilo
 # turns a missing harness into a failure, so the job cannot pass by skipping.
 #
 # The job installs the Kilo release recorded in
-# cmd/prizmal/testdata/terminal/kilo/kilo-version.
+# cmd/prizmal/testdata/kilo/kilo-version.
 
 on:
   push:
@@ -47,7 +47,7 @@ jobs:
         with:
           node-version: 22
       - name: Install the pinned kilo
-        run: npm install -g "@kilocode/cli@$(cat cmd/prizmal/testdata/terminal/kilo/kilo-version)"
+        run: npm install -g "@kilocode/cli@$(cat cmd/prizmal/testdata/kilo/kilo-version)"
       - name: Launch kilo through prizmal
         env:
           PRIZMAL_HARNESS_LAUNCH: require
