@@ -363,3 +363,96 @@ func TestRelayModelListOptIn(t *testing.T) {
 		}
 	})
 }
+
+// A client in Anthropic mode (POST /v1/messages) authenticates with x-api-key,
+// a client in OpenAI mode with Authorization: Bearer. Both must reach the
+// Switch as the launch's real Bearer credential, and the placeholder must not
+// travel upstream in either header.
+func TestRelaySwapsPlaceholderInEitherCredentialHeader(t *testing.T) {
+	cases := []struct {
+		name   string
+		path   string
+		header string
+		value  func(placeholder string) string
+	}{
+		{"openai bearer", "/chat/completions", "Authorization", func(p string) string { return "Bearer " + p }},
+		{"anthropic x-api-key", "/messages", "X-Api-Key", func(p string) string { return p }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				if got := req.Header.Get("Authorization"); got != "Bearer pz-s-dt-fresh" {
+					t.Errorf("upstream Authorization = %q, want the source token", got)
+				}
+				if got := req.Header.Get("X-Api-Key"); got != "" {
+					t.Errorf("upstream X-Api-Key = %q, want it removed", got)
+				}
+				_, _ = w.Write([]byte(`{}`))
+			}))
+			defer upstream.Close()
+			r, err := New(upstream.URL, func(context.Context) (string, error) { return "pz-s-dt-fresh", nil })
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer r.Close()
+
+			req, err := http.NewRequest(http.MethodPost, r.URL()+tc.path, strings.NewReader(`{}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set(tc.header, tc.value(r.Placeholder()))
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("status = %d, want 200", resp.StatusCode)
+			}
+		})
+	}
+}
+
+func TestRelayRejectsWrongOrMissingCredential(t *testing.T) {
+	var calls int
+	upstream := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls++ }))
+	defer upstream.Close()
+	r, err := New(upstream.URL, func(context.Context) (string, error) { return "pz-s-dt-fresh", nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+
+	cases := []struct {
+		name    string
+		headers map[string]string
+	}{
+		{"no credential", nil},
+		{"wrong x-api-key", map[string]string{"X-Api-Key": "wrong"}},
+		{"wrong bearer", map[string]string{"Authorization": "Bearer wrong"}},
+		{"right x-api-key beside wrong bearer", map[string]string{"X-Api-Key": r.Placeholder(), "Authorization": "Bearer wrong"}},
+		{"bare placeholder as Authorization", map[string]string{"Authorization": r.Placeholder()}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodPost, r.URL()+"/messages", strings.NewReader(`{}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for k, v := range tc.headers {
+				req.Header.Set(k, v)
+			}
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = resp.Body.Close()
+			if resp.StatusCode != http.StatusUnauthorized {
+				t.Fatalf("status = %d, want 401", resp.StatusCode)
+			}
+		})
+	}
+	if calls != 0 {
+		t.Fatalf("rejected requests reached upstream %d times", calls)
+	}
+}

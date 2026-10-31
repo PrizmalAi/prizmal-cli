@@ -25,6 +25,9 @@ import (
 // Codex implements launch.Runner for Codex integration
 type Codex struct{}
 
+// SupportedAPIs reports that Codex speaks the Responses API.
+func (c *Codex) SupportedAPIs() []string { return []string{launch.APIResponses} }
+
 func (c *Codex) String() string { return "Codex" }
 
 // codexSetting is one provider setting, rendered by both the -c overrides the
