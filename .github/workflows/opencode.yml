@@ -43,7 +43,13 @@ jobs:
     defaults:
       run:
         shell: bash
-    timeout-minutes: 15
+    # Windows runs the five steps below in 11.2 to 13.1 minutes of job time.
+    # Setup (checkout, Go, Node) takes 40-50s and the opencode npm install
+    # 19-25s. The rest is the launches themselves: 102-173s per step, mostly
+    # opencode's own startup on Windows. The cache and the build do not
+    # dominate, so 25 minutes (1.9 times the slowest run) gives the slow
+    # tail room that the 15-minute bound did not. Linux finishes in about 3.
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 25 || 15 }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6

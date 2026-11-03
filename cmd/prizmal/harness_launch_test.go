@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -38,10 +39,40 @@ import (
 
 const (
 	harnessLaunchRequireEnv = "PRIZMAL_HARNESS_LAUNCH"
-	harnessLaunchTimeout    = 3 * time.Minute
 	harnessLaunchModel      = "smart"
 	harnessLaunchPrompt     = "Reply with a short greeting."
 )
+
+// harnessLaunchTimeout is the wall clock one harness launch gets on this OS.
+var harnessLaunchTimeout = harnessLaunchBudgetFor(runtime.GOOS)
+
+// harnessLaunchBudgetFor returns the launch deadline for an OS. Linux and
+// macOS finish a launch in 22-41s, so 3 minutes is generous there.
+//
+// Windows runners measured, from the Actions jobs API (seconds):
+//
+//	opencode session past expiry: 116, 148, 157 (ubuntu: 37, 38)
+//	opencode search past expiry:  104, 107, 141 (ubuntu: 33, 34; macos: 22),
+//	                              and one launch killed at the old 180s deadline
+//
+// The slowest passing launch took 157s, 87% of the old deadline. Seven
+// minutes is 2.7 times that, and stays under go test's 10m default and the
+// jobs' timeout-minutes: 15.
+func harnessLaunchBudgetFor(goos string) time.Duration {
+	if goos == "windows" {
+		return 7 * time.Minute
+	}
+	return 3 * time.Minute
+}
+
+// launchDeadlineError names the deadline that killed a launch. The run error
+// of a killed process is only "exit status 1" on Windows, which hides the cause.
+func launchDeadlineError(runErr error, timedOut bool, deadline time.Duration) error {
+	if runErr == nil || !timedOut {
+		return runErr
+	}
+	return fmt.Errorf("killed at the %s launch deadline (harnessLaunchTimeout): %w", deadline, runErr)
+}
 
 // harnessLaunchCase is one harness's launch: the arguments passed after the
 // integration name, and the workflow that runs its test in CI.
@@ -380,7 +411,8 @@ func runPrizmalInSandbox(t *testing.T, prizmalBin, home, project, harnessPath st
 	// kills it. WaitDelay stops Wait from blocking on them.
 	cmd.WaitDelay = 10 * time.Second
 	runErr = cmd.Run()
-	return outBuf.String(), errBuf.String(), ctx.Err() != nil, runErr
+	timedOut = ctx.Err() != nil
+	return outBuf.String(), errBuf.String(), timedOut, launchDeadlineError(runErr, timedOut, harnessLaunchTimeout)
 }
 
 // codexWireCarriesASystemPrompt reports whether a responses request carries
