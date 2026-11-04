@@ -14,8 +14,8 @@ import (
 )
 
 // These tests drive the real Claude Code through prizmal against a stub that
-// refuses a model name that is neither a router config nor an alias, the way
-// the Switch will once it stops serving the key's bound config for one. They
+// refuses a model name that is neither a model nor an alias, the way
+// the Switch does. They
 // show that every request Claude Code made carried a name the tenant routes.
 //
 // Claude Code names a model in more places than its main loop:

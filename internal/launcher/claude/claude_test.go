@@ -884,17 +884,17 @@ func TestClaudeLaunchSpellsATieredConfigAsItsRow(t *testing.T) {
 // --url would otherwise let the helper fall back to the production default and
 // mint a token the launch's Switch cannot use.
 func TestEnsureHelperBaseURLPinsTheResolvedHost(t *testing.T) {
-	env := []string{"PATH=/usr/bin", "ANTHROPIC_BASE_URL=https://api.staging.prizmal.ai"}
+	env := []string{"PATH=/usr/bin", "ANTHROPIC_BASE_URL=https://api.example.invalid"}
 
-	got := EnsureHelperBaseURL(env, "https://api.staging.prizmal.ai")
-	if v := launchtest.EnvValue(got, envconfig.EnvVar+"="); v != "https://api.staging.prizmal.ai" {
+	got := EnsureHelperBaseURL(env, "https://api.example.invalid")
+	if v := launchtest.EnvValue(got, envconfig.EnvVar+"="); v != "https://api.example.invalid" {
 		t.Fatalf("%s = %q, want the resolved host pinned for the helper", envconfig.EnvVar, v)
 	}
 
 	// An operator's own exported URL is already the host the child resolves, so
 	// the pin does not add a second entry.
 	withEnv := append([]string{envconfig.EnvVar + "=https://operator.example.test"}, env...)
-	got2 := EnsureHelperBaseURL(withEnv, "https://api.staging.prizmal.ai")
+	got2 := EnsureHelperBaseURL(withEnv, "https://api.example.invalid")
 	count := 0
 	for _, name := range launchtest.EnvNames(got2) {
 		if name == envconfig.EnvVar {

@@ -134,7 +134,7 @@ func TestRefreshSignatureIsTaggedAndVerified(t *testing.T) {
 	if !key.VerifyRefresh("s", ts, sig) {
 		t.Fatal("signature did not verify against its own key")
 	}
-	// The env is inside the signed message: a staging signature does not
+	// The env is inside the signed message: a signature for another environment does not
 	// verify as production.
 	if key.VerifyRefresh("p", ts, sig) {
 		t.Fatal("a signature for env s verified for env p")
@@ -243,16 +243,27 @@ func TestRefreshStatusCodeMapping(t *testing.T) {
 }
 
 func TestEnvTagFromHost(t *testing.T) {
+	t.Setenv(EnvVar, "")
 	cases := map[string]string{
-		"https://api.prizmal.ai":         "p",
-		"https://api.staging.prizmal.ai": "s",
-		"http://localhost:8080":          "d",
-		"https://example.com":            "d",
+		"https://api.prizmal.ai":      "p",
+		"http://localhost:8080":       "d",
+		"https://api.example.invalid": "d",
 	}
 	for host, want := range cases {
 		if got := EnvTag(host); got != want {
 			t.Errorf("EnvTag(%q) = %q, want %q", host, got, want)
 		}
+	}
+}
+
+// $PRIZMAL_DEVICE_ENV sets the tag for another host and never for production.
+func TestEnvTagFromEnvironment(t *testing.T) {
+	t.Setenv(EnvVar, "s")
+	if got := EnvTag("https://api.example.invalid"); got != "s" {
+		t.Errorf("EnvTag(other host) = %q, want s", got)
+	}
+	if got := EnvTag("https://api.prizmal.ai"); got != "p" {
+		t.Errorf("EnvTag(production) = %q, want p", got)
 	}
 }
 

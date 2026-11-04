@@ -27,7 +27,7 @@ import (
 //   - an agent's own model: none is set, so every agent runs the session model.
 //   - the picker: it lists the provider's models, which are the launch's.
 
-// namesCatalog is the tenant: three router configs and no Claude tier.
+// namesCatalog is the tenant: three models and no Claude tier.
 var namesCatalog = []string{"prizmal-flash", "prizmal-frontier", "prizmal-core"}
 
 // The inline config names only the launch's models.

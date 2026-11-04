@@ -224,12 +224,12 @@ func TestModelRowsSkipEmptyNames(t *testing.T) {
 // A name `--list` prints is never dropped from the picker without a trace. A
 // config that holds a tier is folded into that tier's row, and the row says
 // which config it stands for; every other listed name keeps its own row. The
-// one exception is `default`, the bound-config placeholder a launch never
+// one exception is `default`, the placeholder a launch never
 // sends, so a row for it would offer a route the CLI refuses.
 func TestModelRowsShowEveryListedName(t *testing.T) {
 	catalog := withClaudeTiers([]LaunchModel{
 		{Name: "default"},
-		{Name: "advisor-router"},
+		{Name: "sample-model-a"},
 		{Name: "poet-config", Tier: "fable"},
 		{Name: "balanced-config", Tier: "sonnet"},
 		{Name: "flash-config", Tier: "haiku"},
@@ -254,8 +254,8 @@ func TestModelRowsShowEveryListedName(t *testing.T) {
 	for _, row := range rows {
 		byModel[row.Model] = row
 	}
-	if _, ok := byModel["advisor-router"]; !ok {
-		t.Errorf("advisor-router is listed but has no row: %+v", rows)
+	if _, ok := byModel["sample-model-a"]; !ok {
+		t.Errorf("sample-model-a is listed but has no row: %+v", rows)
 	}
 
 	for tier, folded := range map[string]string{

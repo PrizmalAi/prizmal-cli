@@ -31,7 +31,7 @@ func TestParseSwitchCatalogReadsGenericTiers(t *testing.T) {
 	}
 }
 
-// One router config may serve every tier. Each tier it holds gets a row named
+// One model may serve every tier. Each tier it holds gets a row named
 // by the tier's alias, and the config folds into the first.
 func TestOneConfigHoldingEveryTierOffersFourRows(t *testing.T) {
 	catalog := withClaudeTiers([]LaunchModel{
@@ -59,7 +59,7 @@ func genericTenant() []LaunchModel {
 	return withClaudeTiers([]LaunchModel{
 		{Name: "smart", Tiers: []tiers.Tier{tiers.Frontier}, Description: "Everyday"},
 		{Name: "flash", Tiers: []tiers.Tier{tiers.Flash}},
-		{Name: "advisor-router"},
+		{Name: "sample-model-a"},
 	})
 }
 
@@ -80,13 +80,13 @@ func TestModelRowsLabelTierRowsWithTheHarnessWord(t *testing.T) {
 		wantLabels []string
 		wantModels []string
 	}{
-		{tiers.ClaudeCode, []string{"Opus", "Haiku", "advisor-router"}, []string{"frontier", "flash", "advisor-router"}},
+		{tiers.ClaudeCode, []string{"Opus", "Haiku", "sample-model-a"}, []string{"frontier", "flash", "sample-model-a"}},
 		// Codex names a tier row after its config, so no row reads as an
 		// OpenAI model.
-		{tiers.Codex, []string{"smart", "flash", "advisor-router"}, []string{"frontier", "flash", "advisor-router"}},
-		{tiers.Generic, []string{"frontier", "flash", "advisor-router"}, []string{"frontier", "flash", "advisor-router"}},
-		// pi, OpenCode and Cline show the real router configs.
-		{tiers.ConfigNames, []string{"flash", "smart", "advisor-router"}, []string{"flash", "smart", "advisor-router"}},
+		{tiers.Codex, []string{"smart", "flash", "sample-model-a"}, []string{"frontier", "flash", "sample-model-a"}},
+		{tiers.Generic, []string{"frontier", "flash", "sample-model-a"}, []string{"frontier", "flash", "sample-model-a"}},
+		// pi, OpenCode and Cline show the real models.
+		{tiers.ConfigNames, []string{"flash", "smart", "sample-model-a"}, []string{"flash", "smart", "sample-model-a"}},
 	} {
 		labels, models := rowFields(ModelRowsFor(genericTenant(), tc.vocab))
 		if !slices.Equal(labels, tc.wantLabels) || !slices.Equal(models, tc.wantModels) {
@@ -103,7 +103,7 @@ func TestGenericTierRowBehavesAsItsClaudeFamily(t *testing.T) {
 	}
 }
 
-// A tenant whose Switch reports no tier shows its router configs by name.
+// A tenant whose Switch reports no tier shows its models by name.
 func TestNoTierShowsConfigNames(t *testing.T) {
 	_, models := rowFields(ModelRowsFor(withClaudeTiers([]LaunchModel{{Name: "a"}, {Name: "b"}}), tiers.Codex))
 	if !slices.Equal(models, []string{"a", "b"}) {

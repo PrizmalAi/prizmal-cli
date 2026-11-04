@@ -15,9 +15,9 @@ import (
 // The Claude Code screens live under testdata/terminal/claude. The claude-code
 // workflow installs the Claude Code version recorded in claude-code-version.
 
-// tierCatalog is a tenant with a router config whose name carries a Claude
+// tierCatalog is a tenant with a model whose name carries a Claude
 // Code tier word, hidden inside a longer id as tenant-named models do. Like
-// every tenant, it lists router configs only. The tier aliases come from the
+// every tenant, it lists models only. The tier aliases come from the
 // CLI.
 var tierCatalog = []string{"team-opus-blend", "smart", "default"}
 
@@ -28,7 +28,7 @@ var haikuCatalog = []stubserver.Entry{
 	{ID: "smart"},
 }
 
-// proposedCatalog is a tenant whose Switch lists router configs only. Each
+// proposedCatalog is a tenant whose Switch lists models only. Each
 // config that holds a tier alias carries that tier, and every config carries
 // its tenant's description but one. The tier rows stand for the four tier
 // configs, so only the two others get rows of their own.
@@ -49,7 +49,7 @@ var genericCatalog = []stubserver.Entry{
 	{ID: "default"},
 	{ID: "smart", Tier: "frontier", Tiers: []string{"frontier", "core"}, Description: "Everyday coding"},
 	{ID: "quick", Tier: "flash", Tiers: []string{"flash"}, Description: "Quick answers"},
-	{ID: "advisor-router"},
+	{ID: "sample-model-a"},
 }
 
 // claudeVersionPattern matches the version in Claude Code's banner. A baseline
@@ -168,7 +168,7 @@ var claudeBaselineCases = []baselineCase{
 		steps: []baselineStep{stepPrizmalExit},
 	},
 	// The first picker row is the Opus tier, which runs as Opus 5 with a 1M
-	// window. A router config without a tier word runs with a 1M window too.
+	// window. A model without a tier word runs with a 1M window too.
 	{
 		name: "claude-context-picked-100x40", cols: 100, rows: 40,
 		args: []string{"claude"}, claude: true,

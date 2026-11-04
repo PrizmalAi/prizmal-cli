@@ -357,7 +357,7 @@ func buildInlineConfigFor(api string, primary launch.LaunchModel, models []launc
 }
 
 // openCodeContextWindow is the window opencode budgets a session against. The
-// Switch rules every router config at one million tokens, as it does for the
+// Switch rules every model at one million tokens, as it does for the
 // other harnesses. opencode reads the window from a model's limit.context and
 // treats a model without one as having no window, so it never compacts ahead
 // of the provider's refusal.

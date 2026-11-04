@@ -32,7 +32,7 @@ const clineApiProvider = "openai-compatible"
 const clineLegacyProvider = "prizmal"
 
 // clineContextWindow is the window Cline budgets the session against. The
-// Switch rules every router config at one million tokens, as it does for Codex
+// Switch rules every model at one million tokens, as it does for Codex
 // and for Claude Code's [1m] ids. Cline reads the window from the provider's
 // contextWindow setting and defaults an openai-compatible model to 128,000
 // tokens when it is absent, compacting at 90 percent of that.
