@@ -224,16 +224,13 @@ through `--url` or `$PRIZMAL_SWITCH_URL` also needs `$PRIZMAL_APP_URL` for its
 app. Any other switch with no app setting stops the login and reports both
 settings it needs.
 
-A machine that signs in against another environment sets the switch, the app,
-and the environment tag:
+A machine that signs in against another environment sets the switch and the app
+in its config file, and exports nothing:
 
 ```json
 {"version": 1, "base_url": "https://api.example.test", "app_url": "https://app.example.test"}
 ```
 
-```bash
-export PRIZMAL_DEVICE_ENV=dev
-```
-
-The environment tag stays a variable that the operator sets. The CLI does not
-derive it from a host.
+The device token's environment label is server-side: the switch already knows
+which deployment it is, and the CLI neither sends nor names it. A login needs
+only `base_url` and `app_url`.

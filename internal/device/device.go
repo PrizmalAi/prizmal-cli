@@ -37,8 +37,9 @@ var ErrNoDeviceKey = errors.New("prizmal device key not found")
 
 // refreshDomainTag separates the refresh message from every other message an
 // ed25519 device key or the token signer could sign. The signed bytes are
-// (tag, env, deviceID, ts) length-prefixed, the EncodeMsg wire format the
-// server verifies verbatim.
+// (tag, deviceID, ts) length-prefixed, the EncodeMsg wire format the server
+// verifies verbatim. The deployment's identity is server-side, so no
+// environment value enters the message.
 const refreshDomainTag = "cli-refresh-v1"
 
 // Key is a device identity: the ed25519 key pair and the ids derived from it.
@@ -153,21 +154,22 @@ func LoadOrCreateKey() (*Key, bool, error) {
 }
 
 // SignRefresh produces the sig the refresh request carries: the ed25519
-// signature over (cli-refresh-v1, env, deviceID, ts) length-prefixed.
-func (k *Key) SignRefresh(env, ts string) string {
-	msg := EncodeMsg(refreshDomainTag, env, k.ID(), ts)
+// signature over (cli-refresh-v1, deviceID, ts) length-prefixed. The device id
+// ties the request to this machine; the server adds whatever context it needs.
+func (k *Key) SignRefresh(ts string) string {
+	msg := EncodeMsg(refreshDomainTag, k.ID(), ts)
 	sig := ed25519.Sign(k.Priv, msg)
 	return base64.RawURLEncoding.EncodeToString(sig)
 }
 
 // VerifyRefresh is the server side's arithmetic, replicated for tests: the
 // signature over the tagged message verifies against the public key.
-func (k *Key) VerifyRefresh(env, ts, sigB64 string) bool {
+func (k *Key) VerifyRefresh(ts, sigB64 string) bool {
 	sig, err := base64.RawURLEncoding.DecodeString(sigB64)
 	if err != nil {
 		return false
 	}
-	return ed25519.Verify(k.Pub, EncodeMsg(refreshDomainTag, env, k.ID(), ts), sig)
+	return ed25519.Verify(k.Pub, EncodeMsg(refreshDomainTag, k.ID(), ts), sig)
 }
 
 // EncodeMsg builds a length-prefixed canonical message from components:
