@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
-	"os"
 	"strings"
 	"time"
 )
@@ -52,39 +50,15 @@ var ErrUnavailable = errors.New("device token service unavailable")
 // Client issues device tokens against one Switch host.
 type Client struct {
 	BaseURL string
-	Env     string // the environment tag (d|s|p) the signature binds
 	HTTP    *http.Client
 }
 
-// NewClient builds a Client for baseURL, deriving the env tag from the host.
+// NewClient builds a Client for baseURL.
 func NewClient(baseURL string) *Client {
 	return &Client{
 		BaseURL: strings.TrimRight(baseURL, "/"),
-		Env:     EnvTag(baseURL),
 		HTTP:    &http.Client{Timeout: refreshTimeout},
 	}
-}
-
-// EnvVar is the environment variable that sets the environment tag for a host
-// other than the production API.
-const EnvVar = "PRIZMAL_DEVICE_ENV"
-
-// EnvTag names the environment a host belongs to, the tag the refresh
-// signature binds and the device token carries: p for the production API, d
-// otherwise (local development included). $PRIZMAL_DEVICE_ENV overrides the tag
-// for a host other than production.
-func EnvTag(baseURL string) string {
-	u, err := url.Parse(baseURL)
-	if err != nil {
-		return "d"
-	}
-	if strings.ToLower(u.Hostname()) == "api.prizmal.ai" {
-		return "p"
-	}
-	if v := strings.TrimSpace(os.Getenv(EnvVar)); v != "" {
-		return v
-	}
-	return "d"
 }
 
 // Token is a successful refresh: the device token, and the deadline the
@@ -120,7 +94,7 @@ func (c *Client) Refresh(key *Key, now time.Time) (*Token, error) {
 	body := map[string]string{
 		"device_id": key.ID(),
 		"ts":        ts,
-		"sig":       key.SignRefresh(c.Env, ts),
+		"sig":       key.SignRefresh(ts),
 	}
 	payload, err := json.Marshal(body)
 	if err != nil {
