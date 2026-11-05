@@ -179,6 +179,25 @@ func TestAppBaseURL(t *testing.T) {
 		t.Fatalf("appBaseURL(config app_url) = %q, %v; want the config app", got, err)
 	}
 
+	// A capitalised production host still reaches the production app.
+	envconfig.SetBaseURL("https://API.prizmal.ai")
+	got, err = appBaseURL()
+	if err != nil || got != "https://app.prizmal.ai" {
+		t.Fatalf("appBaseURL(capitalised production) = %q, %v; want the production app", got, err)
+	}
+
+	// Relay mode changes the URL a launch uses, not the switch the config names,
+	// so the paired app still answers.
+	envconfig.SetRelay("http://127.0.0.1:54321", "placeholder")
+	t.Cleanup(envconfig.ClearRelay)
+	envconfig.SetConfigBaseURL("https://api.example.test")
+	envconfig.SetConfigAppURL("https://app.example.test")
+	envconfig.SetBaseURL("https://api.example.test")
+	got, err = appBaseURL()
+	if err != nil || got != "https://app.example.test" {
+		t.Fatalf("appBaseURL(relay mode) = %q, %v; want the paired config app", got, err)
+	}
+
 	t.Setenv("PRIZMAL_APP_URL", "https://app.example.invalid/")
 	got, err = appBaseURL()
 	if err != nil || got != "https://app.example.invalid" {

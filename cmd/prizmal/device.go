@@ -46,7 +46,7 @@ func appBaseURL() (string, error) {
 // the one host whose consent app is known without configuration.
 func isDefaultSwitch() bool {
 	u, err := neturl.Parse(envconfig.BaseURL())
-	return err == nil && u.Hostname() == "api.prizmal.ai"
+	return err == nil && strings.EqualFold(u.Hostname(), "api.prizmal.ai")
 }
 
 // deviceKeyExists reports whether this machine has an enrolled (or

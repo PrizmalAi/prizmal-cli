@@ -149,7 +149,7 @@ func PairedAppURL() string {
 		return ""
 	}
 	if cfg != "" {
-		if BaseURL() != cfg {
+		if UpstreamBaseURL() != cfg {
 			return ""
 		}
 		return app
