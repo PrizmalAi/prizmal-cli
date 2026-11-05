@@ -3,8 +3,10 @@ package config
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -274,5 +276,167 @@ func TestHarnessesOmittedWhenEmpty(t *testing.T) {
 	data, _ := os.ReadFile(p)
 	if strings.Contains(string(data), "harnesses") {
 		t.Fatalf("empty config wrote a harnesses key: %s", data)
+	}
+}
+
+// captureStderr runs fn with os.Stderr redirected to a pipe and returns
+// everything written to it.
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = w
+	done := make(chan string, 1)
+	go func() {
+		var b strings.Builder
+		_, _ = io.Copy(&b, r)
+		done <- b.String()
+	}()
+	fn()
+	_ = w.Close()
+	os.Stderr = old
+	return <-done
+}
+
+// TestLoadWarnsOnUnknownKeys pins the warning half of the contract: an
+// option this build does not model is reported once, by name, and never
+// treated as an error.
+func TestLoadWarnsOnUnknownKeys(t *testing.T) {
+	useTempHome(t)
+	p, err := Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeRaw(t, p, `{"version":1,"base_url":"https://switch.example.com","api_key":"sk-known","mystery_option":{"nested":true},"experimental":"on"}`)
+
+	var cfg *Config
+	var loadErr error
+	out := captureStderr(t, func() { cfg, loadErr = Load() })
+	if loadErr != nil {
+		t.Fatalf("unknown options must not be an error, got %v", loadErr)
+	}
+	if cfg.BaseURL != "https://switch.example.com" {
+		t.Errorf("base_url = %q, want the file's value", cfg.BaseURL)
+	}
+	for _, key := range []string{"experimental", "mystery_option"} {
+		if !strings.Contains(out, key) {
+			t.Errorf("stderr does not name %q: %q", key, out)
+		}
+	}
+	for _, key := range []string{"version", "base_url", "api_key"} {
+		if strings.Contains(out, key) {
+			t.Errorf("stderr warns about known key %q: %q", key, out)
+		}
+	}
+}
+
+// TestSavePreservesUnknownKeys is the bug: --pick saves default_model through
+// a Save that marshalled the struct alone, so every option this build does
+// not model was deleted from the operator's file. A known field's update must
+// leave those options value-for-value intact.
+func TestSavePreservesUnknownKeys(t *testing.T) {
+	useTempHome(t)
+	p, err := Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeRaw(t, p, `{
+  "version": 1,
+  "base_url": "https://switch.example.com",
+  "api_key": "sk-known",
+  "default_model": "old",
+  "mystery_option": {"nested": true},
+  "experimental": 42
+}`)
+
+	var cfg *Config
+	captureStderr(t, func() { cfg, err = Load() })
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.DefaultModel = "new"
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	var got map[string]json.RawMessage
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("saved file is not JSON: %v\n%s", err, data)
+	}
+	want := map[string]string{
+		"mystery_option": `{"nested": true}`,
+		"experimental":   `42`,
+	}
+	for key, wantJSON := range want {
+		raw, ok := got[key]
+		if !ok {
+			t.Errorf("unknown option %q was dropped on save: %s", key, data)
+			continue
+		}
+		var wantVal, gotVal any
+		if err := json.Unmarshal([]byte(wantJSON), &wantVal); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(raw, &gotVal); err != nil {
+			t.Fatalf("%s is not valid JSON: %v", key, err)
+		}
+		if !reflect.DeepEqual(gotVal, wantVal) {
+			t.Errorf("%s = %s, want %s", key, raw, wantJSON)
+		}
+	}
+	var dm string
+	if err := json.Unmarshal(got["default_model"], &dm); err != nil || dm != "new" {
+		t.Errorf("default_model = %s, want \"new\"", got["default_model"])
+	}
+}
+
+// TestSavePreservesUnknownKeysAcrossSaves makes sure the preservation is not
+// one-shot: the options survive a Load of a file this package wrote, which is
+// what the next launch reads.
+func TestSavePreservesUnknownKeysAcrossSaves(t *testing.T) {
+	useTempHome(t)
+	p, err := Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeRaw(t, p, `{"version":1,"mystery_option":"keep me"}`)
+
+	var cfg *Config
+	captureStderr(t, func() { cfg, err = Load() })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	var reloaded *Config
+	captureStderr(t, func() { reloaded, err = Load() })
+	if err != nil {
+		t.Fatal(err)
+	}
+	reloaded.Version = PrizmalConfigVersion
+	if err := reloaded.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]json.RawMessage
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	var v string
+	if err := json.Unmarshal(got["mystery_option"], &v); err != nil || v != "keep me" {
+		t.Errorf("mystery_option = %s, want \"keep me\"", got["mystery_option"])
 	}
 }
