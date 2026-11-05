@@ -48,6 +48,10 @@ type Config struct {
 	Version int          `json:"version"`
 	BaseURL string       `json:"base_url,omitempty"`
 	APIKey  *APIKeyValue `json:"api_key,omitempty"`
+	// AppURL is the admin app that serves the /cli/authorize consent page.
+	// Signing in against a switch other than the production API needs it: the
+	// app origin cannot be derived from the switch URL.
+	AppURL string `json:"app_url,omitempty"`
 	// DefaultModel is the model the picker chose last. A launch that names no
 	// model sends this one. Only a pick writes it, so passing --model changes
 	// one launch without changing what a bare launch does.

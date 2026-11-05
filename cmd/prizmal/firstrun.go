@@ -244,6 +244,10 @@ func configFromPastedKey(read keyReader) (*config.Config, error) {
 // runBrowserSignIn is the first-run menu's browser path: it enrolls this
 // machine the way `prizmal login` does, reusing the same key and loop.
 func runBrowserSignIn() error {
+	appURL, err := appBaseURL()
+	if err != nil {
+		return err
+	}
 	key, created, err := device.LoadOrCreateKey()
 	if err != nil {
 		return err
@@ -253,7 +257,7 @@ func runBrowserSignIn() error {
 	}
 	client := device.NewClient(envconfig.BaseURL())
 	token, err := device.Login(client, key, device.LoginOptions{
-		AuthorizeBaseURL: appBaseURL(),
+		AuthorizeBaseURL: appURL,
 		DeviceName:       deviceName(),
 		Out:              os.Stderr,
 	})
