@@ -135,18 +135,26 @@ func ConfigBaseURL() string {
 	return configURL
 }
 
-// PairedAppURL returns the config file's app_url when the config file's
-// base_url is also the switch URL that resolved. A flag or $PRIZMAL_SWITCH_URL
-// override names another switch, for which the config app is the wrong page, so
-// an override must name its own app with $PRIZMAL_APP_URL.
+// PairedAppURL returns the config file's app_url when the app belongs to the
+// switch that resolved. That holds when the config file also names that switch,
+// or when the config names no switch and no flag or $PRIZMAL_SWITCH_URL chose
+// one either. An override names another switch, for which the config app is the
+// wrong page, so an override must name its own app with $PRIZMAL_APP_URL.
 func PairedAppURL() string {
+	envURL := strings.TrimRight(strings.TrimSpace(os.Getenv(EnvVar)), "/")
 	mu.RLock()
-	app, cfg := configApp, configURL
+	app, cfg, flagURL := configApp, configURL, override
 	mu.RUnlock()
 	if app == "" {
 		return ""
 	}
-	if cfg != "" && BaseURL() != cfg {
+	if cfg != "" {
+		if BaseURL() != cfg {
+			return ""
+		}
+		return app
+	}
+	if flagURL != "" || envURL != "" {
 		return ""
 	}
 	return app

@@ -219,6 +219,24 @@ func TestAppBaseURLIgnoresConfigAppForAnOverriddenSwitch(t *testing.T) {
 	if _, err := appBaseURL(); err == nil {
 		t.Fatal("appBaseURL used the configured app for a switch the override replaced")
 	}
+
+	// The pairing needs a switch in the config file. An app_url on its own is
+	// still not a pairing for a switch that another source resolved.
+	resetAppURLState(t)
+	envconfig.SetConfigAppURL("https://app.example.test")
+	envconfig.SetBaseURL("https://api.example.test")
+	if _, err := appBaseURL(); err == nil {
+		t.Fatal("appBaseURL used an app_url with no config base_url for an overridden switch")
+	}
+
+	// The same holds when $PRIZMAL_SWITCH_URL is the source that chose the
+	// switch.
+	resetAppURLState(t)
+	envconfig.SetConfigAppURL("https://app.example.test")
+	t.Setenv(envconfig.EnvVar, "https://api.example.test")
+	if _, err := appBaseURL(); err == nil {
+		t.Fatal("appBaseURL used the configured app for a switch the environment replaced")
+	}
 }
 
 // The config file's app_url drives the consent page, so a non-production machine
