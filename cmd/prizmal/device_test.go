@@ -171,6 +171,7 @@ func TestAppBaseURL(t *testing.T) {
 		t.Fatalf("appBaseURL(production) = %q, %v; want the production app", got, err)
 	}
 
+	envconfig.SetConfigBaseURL("https://api.example.test")
 	envconfig.SetConfigAppURL("https://app.example.test/")
 	envconfig.SetBaseURL("https://api.example.test")
 	got, err = appBaseURL()
@@ -201,6 +202,22 @@ func TestAppBaseURLRequiresAppURLForNonProductionSwitch(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error = %q, want it to name %s", err, want)
 		}
+	}
+}
+
+// A --url or $PRIZMAL_SWITCH_URL override replaces the configured switch, so
+// the configured consent app no longer belongs to it. Login must stop instead of
+// pointing the override's operator at the configured app.
+func TestAppBaseURLIgnoresConfigAppForAnOverriddenSwitch(t *testing.T) {
+	t.Setenv(envconfig.EnvVar, "")
+	t.Setenv("PRIZMAL_APP_URL", "")
+	resetAppURLState(t)
+	envconfig.SetConfigBaseURL("https://api.example.test")
+	envconfig.SetConfigAppURL("https://app.example.test")
+	envconfig.SetBaseURL("https://api.other.example")
+
+	if _, err := appBaseURL(); err == nil {
+		t.Fatal("appBaseURL used the configured app for a switch the override replaced")
 	}
 }
 

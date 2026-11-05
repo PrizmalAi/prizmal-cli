@@ -124,7 +124,7 @@ The config file carries the consent app beside the switch URL. Set `app_url` to 
 export PRIZMAL_DEVICE_ENV=s
 ```
 
-Without `app_url`, a `prizmal login` whose switch is not `api.prizmal.ai` stops and names the missing setting. `$PRIZMAL_APP_URL` overrides `app_url` for one shell.
+Without `app_url`, a `prizmal login` whose switch is not `api.prizmal.ai` stops and names the missing setting. `$PRIZMAL_APP_URL` overrides `app_url` for one shell, and it is also the way to name the app when `--url` or `$PRIZMAL_SWITCH_URL` replaces the configured switch.
 
 ### Precedence
 

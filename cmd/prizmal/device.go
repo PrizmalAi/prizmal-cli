@@ -20,22 +20,33 @@ import (
 // appBaseURL is the admin app that serves the /cli/authorize consent page. An
 // explicit $PRIZMAL_APP_URL wins, then the config file's app_url, then the
 // production app — but only for the production switch. The consent page lives
-// on another origin than the API, so any other switch host needs an app URL;
-// guessing one would send the operator to a tenant that is not the switch's.
+// on another environment's host, so any other switch needs an app URL; guessing
+// one would send the operator to a host that is not the switch's.
+//
+// The config file's app_url belongs to the base_url in the same file. When a
+// flag or $PRIZMAL_SWITCH_URL names a different switch, the config app is the
+// wrong page for it and is ignored, which leaves the override to name its own
+// app with $PRIZMAL_APP_URL.
 func appBaseURL() (string, error) {
 	if v := strings.TrimSpace(os.Getenv("PRIZMAL_APP_URL")); v != "" {
 		return strings.TrimRight(v, "/"), nil
 	}
-	if v := envconfig.ConfigAppURL(); v != "" {
-		return v, nil
+	if app := envconfig.PairedAppURL(); app != "" {
+		return app, nil
 	}
-	u, err := neturl.Parse(envconfig.BaseURL())
-	if err == nil && u.Hostname() == "api.prizmal.ai" {
+	if isDefaultSwitch() {
 		return "https://app.prizmal.ai", nil
 	}
 	return "", fmt.Errorf(
-		"no consent app URL for switch %s: set $PRIZMAL_APP_URL or app_url in the config file",
+		"no consent app for switch %s: set $PRIZMAL_APP_URL or the matching app_url in the config file",
 		envconfig.BaseURL())
+}
+
+// isDefaultSwitch reports whether the resolved switch is the production API,
+// the one host whose consent app is known without configuration.
+func isDefaultSwitch() bool {
+	u, err := neturl.Parse(envconfig.BaseURL())
+	return err == nil && u.Hostname() == "api.prizmal.ai"
 }
 
 // deviceKeyExists reports whether this machine has an enrolled (or

@@ -127,12 +127,29 @@ func SetConfigAppURL(u string) {
 	configApp = strings.TrimRight(strings.TrimSpace(u), "/")
 }
 
-// ConfigAppURL returns the consent app URL the config file names, empty when it
-// names none. $PRIZMAL_APP_URL outranks it.
-func ConfigAppURL() string {
+// ConfigBaseURL returns the switch URL the config file names, empty when it
+// names none.
+func ConfigBaseURL() string {
 	mu.RLock()
 	defer mu.RUnlock()
-	return configApp
+	return configURL
+}
+
+// PairedAppURL returns the config file's app_url when the config file's
+// base_url is also the switch URL that resolved. A flag or $PRIZMAL_SWITCH_URL
+// override names another switch, for which the config app is the wrong page, so
+// an override must name its own app with $PRIZMAL_APP_URL.
+func PairedAppURL() string {
+	mu.RLock()
+	app, cfg := configApp, configURL
+	mu.RUnlock()
+	if app == "" {
+		return ""
+	}
+	if cfg != "" && BaseURL() != cfg {
+		return ""
+	}
+	return app
 }
 
 // SetAPIKey sets the process-wide provider API key (used by the --api-key flag).
