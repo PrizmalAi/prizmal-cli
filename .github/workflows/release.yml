@@ -28,7 +28,7 @@ jobs:
             exit 0
           fi
           git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > "$RUNNER_TEMP/release-notes.md"
-          if [ -s "$RUNNER_TEMP/release-notes.md" ]; then
+          if grep -q '[^[:space:]]' "$RUNNER_TEMP/release-notes.md"; then
             echo "args=--release-notes $RUNNER_TEMP/release-notes.md" >> "$GITHUB_OUTPUT"
           fi
       # Skipped until the tap App exists; goreleaser then skips the cask push.
