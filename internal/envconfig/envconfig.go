@@ -27,6 +27,7 @@ var (
 	mu          sync.RWMutex
 	override    string
 	configURL   string
+	configApp   string
 	keyOverride string
 	configKey   string
 	deviceToken string
@@ -116,6 +117,22 @@ func SetConfigBaseURL(u string) {
 	mu.Lock()
 	defer mu.Unlock()
 	configURL = strings.TrimRight(strings.TrimSpace(u), "/")
+}
+
+// SetConfigAppURL records the consent app URL read from the config file. It
+// sits below $PRIZMAL_APP_URL and above the production default.
+func SetConfigAppURL(u string) {
+	mu.Lock()
+	defer mu.Unlock()
+	configApp = strings.TrimRight(strings.TrimSpace(u), "/")
+}
+
+// ConfigAppURL returns the consent app URL the config file names, empty when it
+// names none. $PRIZMAL_APP_URL outranks it.
+func ConfigAppURL() string {
+	mu.RLock()
+	defer mu.RUnlock()
+	return configApp
 }
 
 // SetAPIKey sets the process-wide provider API key (used by the --api-key flag).

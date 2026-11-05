@@ -81,7 +81,12 @@ func TestCommandAPIKeyTrimsWhitespace(t *testing.T) {
 
 func TestSaveCreates0600AndRoundTrips(t *testing.T) {
 	d := useTempHome(t)
-	c := &Config{Version: 1, BaseURL: "https://switch.example.com", APIKey: NewPlainAPIKey("sk-roundtrip")}
+	c := &Config{
+		Version: 1,
+		BaseURL: "https://api.example.test",
+		AppURL:  "https://app.example.test",
+		APIKey:  NewPlainAPIKey("sk-roundtrip"),
+	}
 	if err := c.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -109,8 +114,11 @@ func TestSaveCreates0600AndRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.BaseURL != "https://switch.example.com" {
+	if got.BaseURL != "https://api.example.test" {
 		t.Fatalf("base_url = %q", got.BaseURL)
+	}
+	if got.AppURL != "https://app.example.test" {
+		t.Fatalf("app_url = %q", got.AppURL)
 	}
 	if got.APIKey == nil || got.APIKey.Plain != "sk-roundtrip" {
 		t.Fatalf("api_key not round-tripped: %+v", got.APIKey)
