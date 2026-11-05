@@ -9,7 +9,9 @@
 // replaced the operator's plaintext api_key with {"integrations":{}} and
 // reported no error. One struct owns the file so that cannot come back; a
 // new persisted setting becomes a field on Config, which MarshalIndent
-// carries and Load reads.
+// carries and Load reads. A member the struct does not declare is warned
+// about and written back unchanged, so a Save never deletes an option this
+// build does not model.
 //
 // The API key is stored as plain text by default, matching how the
 // downstream coding harnesses store their own credentials. Three forms are
@@ -27,7 +29,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
+	"sort"
 	"strings"
 )
 
@@ -63,6 +67,13 @@ type Config struct {
 	// Harnesses holds per-harness settings, keyed by the integration name
 	// typed after `prizmal` (claude, codex, ...).
 	Harnesses map[string]HarnessConfig `json:"harnesses,omitempty"`
+
+	// unknown holds the file's top-level members that this struct does not
+	// declare, keyed by name. Save writes them back value-for-value, so a
+	// build that does not model an option (a newer one's setting, a hand
+	// edit, a teammate's addition) does not delete it. It is unexported, so
+	// it never appears in the marshalled output; Load fills it.
+	unknown map[string]json.RawMessage
 }
 
 // HarnessConfig is one harness's section of the config file.
@@ -238,7 +249,54 @@ func Load() (*Config, error) {
 	if c.Version == 0 {
 		c.Version = PrizmalConfigVersion
 	}
+	c.unknown = collectUnknownKeys(data, p)
 	return &c, nil
+}
+
+// collectUnknownKeys returns the file's top-level members that Config does not
+// declare and warns once for each, naming it. Unknown members are not an error:
+// a newer build, a hand edit or a teammate may have added one, and Save writes
+// them back rather than deleting them.
+func collectUnknownKeys(data []byte, path string) map[string]json.RawMessage {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil || len(raw) == 0 {
+		return nil
+	}
+	declared := declaredJSONKeys()
+	unknown := make(map[string]json.RawMessage)
+	for key, val := range raw {
+		if _, ok := declared[key]; !ok {
+			unknown[key] = val
+		}
+	}
+	if len(unknown) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(unknown))
+	for key := range unknown {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		fmt.Fprintf(os.Stderr, "warning: ignoring unrecognized option %q in %s; it is kept in the file\n", key, path)
+	}
+	return unknown
+}
+
+// declaredJSONKeys returns the top-level JSON names Config declares, read from
+// its tags so a field added later is recognized without a second list to keep
+// in step.
+func declaredJSONKeys() map[string]struct{} {
+	t := reflect.TypeOf(Config{})
+	keys := make(map[string]struct{}, t.NumField())
+	for i := 0; i < t.NumField(); i++ {
+		name, _, _ := strings.Cut(t.Field(i).Tag.Get("json"), ",")
+		if name == "" || name == "-" {
+			continue
+		}
+		keys[name] = struct{}{}
+	}
+	return keys
 }
 
 // Save writes the config file, creating the directory with 0700 and the file
@@ -257,6 +315,21 @@ func (c *Config) Save() error {
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err
+	}
+	if len(c.unknown) > 0 {
+		// The struct alone would drop the members it does not model, so the
+		// save merges the file's unknown members back over it.
+		var merged map[string]json.RawMessage
+		if err := json.Unmarshal(data, &merged); err != nil {
+			return err
+		}
+		for key, val := range c.unknown {
+			merged[key] = val
+		}
+		data, err = json.MarshalIndent(merged, "", "  ")
+		if err != nil {
+			return err
+		}
 	}
 	data = append(data, '\n')
 	return os.WriteFile(p, data, 0o600)
