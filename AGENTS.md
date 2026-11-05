@@ -85,6 +85,10 @@ finished content. `TestNoTicketRefsInCommittedFiles` fails on one, and
 the pull-request body is where a ticket link belongs, because Linear's
 GitHub integration reads it there to build its linkback comment.
 
+## Release notes
+
+Write the release notes into the annotated release tag with `git tag -a vX.Y.Z -F notes.md`, and push it with `git push origin vX.Y.Z`. The release workflow publishes that message as the GitHub release body, and uses the generated changelog when the message is empty.
+
 ## Harness workflows
 
 Each harness has its own workflow, named after it (`claude-code.yml`,
