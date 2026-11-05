@@ -203,3 +203,33 @@ Without the `env -u`, a `PRIZMAL_SWITCH_KEY` or `PRIZMAL_SWITCH_URL` in
 the launch environment leaks into tests whose assertions read that
 environment and expect it to contain nothing, and two launcher tests
 fail for an unrelated reason.
+
+## README holds production-facing instructions
+
+The README documents the production experience: the default Switch, the harness
+integrations, and the flags an operator runs. Setup for another environment,
+internal host knowledge, and any recipe that names a non-production endpoint
+belong in this file instead.
+
+## Consent app for a non-production login
+
+`prizmal login` takes the consent page from `$PRIZMAL_APP_URL`, then the config
+file's `app_url`, then the production app for a switch at `api.prizmal.ai`.
+The config file's `app_url` pairs with its own `base_url`, so an override
+through `--url` or `$PRIZMAL_SWITCH_URL` also needs `$PRIZMAL_APP_URL` for its
+app. Any other switch with no app setting stops the login and reports both
+settings it needs.
+
+A machine that signs in against another environment sets the switch, the app,
+and the environment tag:
+
+```json
+{"version": 1, "base_url": "https://api.example.test", "app_url": "https://app.example.test"}
+```
+
+```bash
+export PRIZMAL_DEVICE_ENV=dev
+```
+
+The environment tag stays a variable that the operator sets. The CLI does not
+derive it from a host.

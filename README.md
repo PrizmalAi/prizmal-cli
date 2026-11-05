@@ -83,8 +83,6 @@ prizmal login
 
 `prizmal login` generates an ed25519 key pair at `~/.prizmal/device.key` (mode `0600`, in the `0700` directory), prints a URL and a fingerprint, opens your browser, and waits. On the consent page you confirm the fingerprint and pick a model. Then choose Allow. The CLI then polls until your tenant approves the device and stores the first device token in `~/.prizmal/token.json` (mode `0600`). There is no localhost listener, so this works over SSH: open the printed URL on any machine with a browser.
 
-`prizmal login` takes the consent page from `$PRIZMAL_APP_URL`, then the config file's `app_url`. The production switch defaults to `https://app.prizmal.ai`. Any other switch needs one of those two settings, and login stops with an error naming them when neither is set.
-
 Once your tenant approves a device, a launch uses it automatically. `prizmal claude` runs with an `apiKeyHelper` that refreshes the device token every few minutes, so a session keeps working across a laptop sleep and doesn't need a restart. `prizmal codex` does the same through a command-backed provider `auth`, and runs the helper again after a 401. A sign-in that a tenant's identity provider manages does not expire. Otherwise the device has a deadline, and `prizmal claude` and `prizmal codex` warn you under 24 hours before it, and `prizmal login` again re-approves the same device key.
 
 A device token is a bearer credential that expires 10 minutes after issue, and the Switch binds it to one tenant. The private key never leaves the machine. The next refresh stops once a tenant manager revokes the device or disables the tenant, or sets the member inactive.
@@ -111,20 +109,6 @@ The key is stored as **plain text by default**. This matches how the downstream 
 ```json
 {"version": 1, "base_url": "https://api.prizmal.ai", "api_key": {"command": "op read op://Vault/item/field"}}
 ```
-
-### Signing in to a switch other than production
-
-The config file carries the consent app beside the switch URL. Set `app_url` to the admin app that serves the consent page, and export the environment tag that signs the token refresh:
-
-```json
-{"version": 1, "base_url": "https://api.example.test", "app_url": "https://app.example.test"}
-```
-
-```bash
-export PRIZMAL_DEVICE_ENV=s
-```
-
-Without `app_url`, a `prizmal login` whose switch is not `api.prizmal.ai` stops and names the missing setting. `$PRIZMAL_APP_URL` overrides `app_url` for one shell, and it is also the way to name the app when `--url` or `$PRIZMAL_SWITCH_URL` replaces the configured switch.
 
 ### Precedence
 
