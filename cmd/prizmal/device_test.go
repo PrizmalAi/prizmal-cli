@@ -143,18 +143,127 @@ func TestAuthTokenReauthRequiredSaysRunLogin(t *testing.T) {
 	}
 }
 
-// The consent URL is the production app unless $PRIZMAL_APP_URL selects another.
+// resetAppURLState clears the envconfig URL fields appBaseURL reads, so a
+// config URL one test loads cannot leak into the next.
+func resetAppURLState(t *testing.T) {
+	t.Helper()
+	envconfig.SetBaseURL("")
+	envconfig.SetConfigBaseURL("")
+	t.Cleanup(func() {
+		envconfig.SetBaseURL("")
+		envconfig.SetConfigBaseURL("")
+	})
+}
+
+// The consent URL is the switch host's app sibling on a Prizmal API host, and
+// the production app otherwise; $PRIZMAL_APP_URL always wins.
 func TestAppBaseURL(t *testing.T) {
 	t.Setenv("PRIZMAL_SWITCH_URL", "")
 	t.Setenv("PRIZMAL_APP_URL", "")
-	envconfig.SetBaseURL("https://api.example.invalid")
-	defer envconfig.SetBaseURL("")
-	if got := appBaseURL(); got != "https://app.prizmal.ai" {
-		t.Fatalf("appBaseURL(default) = %q", got)
+	resetAppURLState(t)
+
+	for _, tc := range []struct{ switchURL, want string }{
+		{"https://api.prizmal.ai", "https://app.prizmal.ai"},
+		{"https://api.staging.prizmal.ai", "https://app.staging.prizmal.ai"},
+		{"https://api.example.invalid", "https://app.prizmal.ai"},
+		{"http://127.0.0.1:8080", "https://app.prizmal.ai"},
+	} {
+		envconfig.SetBaseURL(tc.switchURL)
+		if got := appBaseURL(); got != tc.want {
+			t.Errorf("appBaseURL(switch %s) = %q, want %q", tc.switchURL, got, tc.want)
+		}
 	}
+
+	envconfig.SetBaseURL("https://api.staging.prizmal.ai")
 	t.Setenv("PRIZMAL_APP_URL", "https://app.example.invalid/")
 	if got := appBaseURL(); got != "https://app.example.invalid" {
 		t.Fatalf("appBaseURL(override) = %q", got)
+	}
+}
+
+// A login whose only staging setting is the config file's base_url must open
+// the staging consent page. The login reads that file for the switch endpoint,
+// and the app the operator approves on follows the same URL; sending a staging
+// device to the production page approves it where the staging tenant does not
+// exist.
+func TestLoginConsentAppFollowsConfigBaseURL(t *testing.T) {
+	home := useTempHome(t)
+	t.Setenv(envconfig.EnvVar, "")
+	t.Setenv("PRIZMAL_APP_URL", "")
+	resetAppURLState(t)
+
+	dir := filepath.Join(home, ".prizmal")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeJSONFile(t, filepath.Join(dir, "config.json"), map[string]any{
+		"version": 1, "base_url": "https://api.staging.prizmal.ai",
+	})
+
+	if err := applyURLPrecedence("", ""); err != nil {
+		t.Fatalf("applyURLPrecedence: %v", err)
+	}
+	if got := envconfig.BaseURL(); got != "https://api.staging.prizmal.ai" {
+		t.Fatalf("BaseURL() = %q, want the config file's staging URL", got)
+	}
+	if got := appBaseURL(); got != "https://app.staging.prizmal.ai" {
+		t.Fatalf("appBaseURL() = %q, want the staging consent app from the config base_url", got)
+	}
+}
+
+// A config file that exists but cannot be parsed must stop the login rather
+// than let it fall back to the production default and approve a
+// non-production device there.
+func TestLoginRefusesUnreadableConfig(t *testing.T) {
+	home := useTempHome(t)
+	t.Setenv(envconfig.EnvVar, "")
+	t.Setenv("PRIZMAL_APP_URL", "")
+	resetAppURLState(t)
+
+	dir := filepath.Join(home, ".prizmal")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := applyURLPrecedence("", ""); err == nil {
+		t.Fatal("applyURLPrecedence accepted a malformed config file")
+	}
+}
+
+// The apiKeyHelper runs with no --url, so it must take the switch endpoint from
+// the config file.
+func TestAuthTokenUsesConfigBaseURL(t *testing.T) {
+	home := useTempHome(t)
+	writeDeviceKey(t, home)
+	t.Setenv(envconfig.EnvVar, "")
+	resetAppURLState(t)
+
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		_ = json.NewEncoder(w).Encode(map[string]any{"device_token": "pz-d-dt-from-config", "expires_in": 600})
+	}))
+	defer srv.Close()
+
+	writeJSONFile(t, filepath.Join(home, ".prizmal", "config.json"), map[string]any{
+		"version": 1, "base_url": srv.URL,
+	})
+
+	cmds := deviceCommands()
+	auth := cmds[1]
+	auth.SetArgs([]string{"token"})
+	out, err := captureStdout(t, func() error { return auth.Execute() })
+	if err != nil {
+		t.Fatalf("auth token: %v", err)
+	}
+	if out != "pz-d-dt-from-config\n" {
+		t.Fatalf("stdout = %q, want the token from the config's switch", out)
+	}
+	if gotPath != "/v1/cli/token" {
+		t.Fatalf("request path = %q, want the switch refresh path", gotPath)
 	}
 }
 

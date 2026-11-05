@@ -83,6 +83,8 @@ prizmal login
 
 `prizmal login` generates an ed25519 key pair at `~/.prizmal/device.key` (mode `0600`, in the `0700` directory), prints a URL and a fingerprint, opens your browser, and waits. On the consent page you confirm the fingerprint and pick a model. Then choose Allow. The CLI then polls until your tenant approves the device and stores the first device token in `~/.prizmal/token.json` (mode `0600`). There is no localhost listener, so this works over SSH: open the printed URL on any machine with a browser.
 
+`prizmal login` picks the consent page from the switch URL that `--url`, `$PRIZMAL_SWITCH_URL` or the config file's `base_url` resolves, so a switch at `api.<env>.prizmal.ai` signs in on `app.<env>.prizmal.ai`. Set `$PRIZMAL_APP_URL` to use another consent app.
+
 Once your tenant approves a device, a launch uses it automatically. `prizmal claude` runs with an `apiKeyHelper` that refreshes the device token every few minutes, so a session keeps working across a laptop sleep and doesn't need a restart. `prizmal codex` does the same through a command-backed provider `auth`, and runs the helper again after a 401. A sign-in that a tenant's identity provider manages does not expire. Otherwise the device has a deadline, and `prizmal claude` and `prizmal codex` warn you under 24 hours before it, and `prizmal login` again re-approves the same device key.
 
 A device token is a bearer credential that expires 10 minutes after issue, and the Switch binds it to one tenant. The private key never leaves the machine. The next refresh stops once a tenant manager revokes the device or disables the tenant, or sets the member inactive.

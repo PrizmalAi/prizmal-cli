@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	neturl "net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,10 +18,34 @@ import (
 )
 
 // appBaseURL is the admin app that serves the /cli/authorize consent page. An
-// $PRIZMAL_APP_URL selects another app; without it the production app serves.
+// explicit $PRIZMAL_APP_URL wins; otherwise it is derived from the resolved
+// switch base URL — the flag, $PRIZMAL_SWITCH_URL, or the config file's
+// base_url — so a login against a non-production API stays on that
+// environment's app instead of approving a non-production device on the
+// production page.
 func appBaseURL() string {
 	if v := strings.TrimSpace(os.Getenv("PRIZMAL_APP_URL")); v != "" {
 		return strings.TrimRight(v, "/")
+	}
+	return appSiblingURL(envconfig.BaseURL())
+}
+
+// appSiblingURL maps an api.<env>.prizmal.ai switch host to its app sibling,
+// app.<env>.prizmal.ai. A host outside the Prizmal domain has no sibling to
+// derive, so the production app serves it; $PRIZMAL_APP_URL is how an operator
+// names one.
+func appSiblingURL(switchBase string) string {
+	u, err := neturl.Parse(switchBase)
+	if err == nil && u.Scheme != "" {
+		host := strings.ToLower(u.Hostname())
+		if env, ok := strings.CutPrefix(host, "api."); ok &&
+			(env == "prizmal.ai" || strings.HasSuffix(env, ".prizmal.ai")) {
+			app := "app." + env
+			if port := u.Port(); port != "" {
+				app += ":" + port
+			}
+			return u.Scheme + "://" + app
+		}
 	}
 	return "https://app.prizmal.ai"
 }
@@ -127,7 +152,9 @@ func loadCachedToken() *device.CachedToken {
 func cmdLogin(cmd *cobra.Command, _ []string) error {
 	flagURL, _ := cmd.Flags().GetString("url")
 	flagKey, _ := cmd.Flags().GetString("api-key")
-	applyURLPrecedence(flagURL, flagKey)
+	if err := applyURLPrecedence(flagURL, flagKey); err != nil {
+		return err
+	}
 
 	key, created, err := device.LoadOrCreateKey()
 	if err != nil {
@@ -169,7 +196,9 @@ func cmdLogin(cmd *cobra.Command, _ []string) error {
 func cmdAuthToken(cmd *cobra.Command, _ []string) error {
 	flagURL, _ := cmd.Flags().GetString("url")
 	flagKey, _ := cmd.Flags().GetString("api-key")
-	applyURLPrecedence(flagURL, flagKey)
+	if err := applyURLPrecedence(flagURL, flagKey); err != nil {
+		return err
+	}
 
 	key, err := device.LoadKey()
 	if err != nil {
@@ -208,12 +237,20 @@ func cmdAuthToken(cmd *cobra.Command, _ []string) error {
 // applyURLPrecedence settles the base URL and key the way the root command
 // does, for a subcommand that does not go through the root's RunE: --url, then
 // $PRIZMAL_SWITCH_URL, then the config file. It never prompts and never writes.
-func applyURLPrecedence(flagURL, flagKey string) {
+//
+// A config file that exists but cannot be read is an error, not a fallback to
+// the default URL: signing in would otherwise approve a non-production device
+// on the production page, the exact wrong answer when the file's base_url was
+// unreadable.
+func applyURLPrecedence(flagURL, flagKey string) error {
 	envconfig.SetBaseURL(flagURL)
 	envconfig.SetAPIKey(flagKey)
 	cfg, err := config.Load()
 	if err != nil {
-		return
+		if errors.Is(err, config.ErrNoConfig) {
+			return nil
+		}
+		return fmt.Errorf("could not read the config file: %w", err)
 	}
 	if cfg.BaseURL != "" {
 		envconfig.SetConfigBaseURL(cfg.BaseURL)
@@ -223,6 +260,7 @@ func applyURLPrecedence(flagURL, flagKey string) {
 			envconfig.SetConfigAPIKey(resolved)
 		}
 	}
+	return nil
 }
 
 // deviceName is the label offered to the consent page, from the machine's
