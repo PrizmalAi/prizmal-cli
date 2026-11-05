@@ -37,8 +37,9 @@ var ErrNoDeviceKey = errors.New("prizmal device key not found")
 
 // refreshDomainTag separates the refresh message from every other message an
 // ed25519 device key or the token signer could sign. The signed bytes are
-// (tag, env, deviceID, ts) length-prefixed, the EncodeMsg wire format the
-// server verifies verbatim.
+// (tag, deviceID, ts) length-prefixed, the EncodeMsg wire format the server
+// verifies verbatim. The deployment's identity is server-side, so no
+// environment value enters the message.
 const refreshDomainTag = "cli-refresh-v1"
 
 // Key is a device identity: the ed25519 key pair and the ids derived from it.
