@@ -1,0 +1,86 @@
+Launch a coding-agent harness (Claude Code, Codex, OpenCode, Pi, ...) configured
+to use the Prizmal Switch endpoint.
+
+The provider URL is resolved from (in order):
+  1. the --url flag
+  2. the $PRIZMAL_SWITCH_URL environment variable
+  3. the config file (base_url in ~/.prizmal/config.json)
+  4. the default https://api.prizmal.ai
+
+The provider API key resolves from --api-key, then $PRIZMAL_SWITCH_KEY,
+then the config file's api_key, the same order the URL follows. The launch
+announces which source was used:
+  using api key from: --api-key | $PRIZMAL_SWITCH_KEY | config file (~/.prizmal/config.json) | none
+Launching against a remote host with no credential is refused; loopback
+URLs need no key, and --allow-unauthenticated overrides the refusal.
+
+The config file (~/.prizmal/config.json) also holds launch arguments for one
+harness, keyed by the integration's name (claude, codex, cline, kilo, opencode,
+pi), so a flag is added to every launch of that harness and is not retyped each
+time:
+  {"harnesses": {"claude": {"args": "--allow-dangerously-skip-permissions"}}}
+That string is split like a shell line, so quotes keep a value together.
+prizmal adds a configured flag only when the launch does not already carry it,
+and it does not check the arguments against the harness.
+
+Flags before the integration name are prizmal's own: --model, --url,
+--api-key, --relay, --yes, --list, --restore, --persist. Every argument after the
+integration name is handed to the harness unchanged, so claude --resume
+<session-id> and any other harness flag needs no separator and can never
+be read as a prizmal flag.
+
+--relay starts a loopback relay for the launch. The harness receives a random
+placeholder credential, and the relay sends the launch's real credential to the
+Switch. It stops when the harness exits. Cline and Kilo Code always run through it: Cline so its
+/model picker can list the tenant's names, Kilo Code so a device login
+refreshes per request.
+
+--list answers a different question: it prints the models this switch key's
+tenant serves, one per line, and exits without launching. It holds exactly the
+names that key can route to: the Claude tier aliases your tenant holds first,
+since those route even though the Switch does not list them, then the tenant's
+own entries.
+
+
+Examples:
+  prizmal                                   # list integrations
+  prizmal --list                            # list the tenant's models
+  prizmal --pick claude                     # choose a model, and save the choice
+  prizmal --model gpt-oss:20b claude        # launch Claude Code
+  prizmal claude --resume <session-id>      # harness flags pass straight through
+  prizmal --url http://localhost:8080 codex -- --sandbox workspace-write
+  PRIZMAL_SWITCH_URL=http://localhost:1234 prizmal opencode
+
+Usage:
+  prizmal [flags] [INTEGRATION] [-- EXTRA_ARGS...]
+  prizmal [command]
+
+Available Commands:
+  auth        Device credential helpers
+  completion  Generate the autocompletion script for the specified shell
+  help        Help about any command
+  login       Approve this machine in your browser, so prizmal claude needs no key
+
+Flags:
+      --allow-unauthenticated   allow an unauthenticated launch against a remote Switch (debugging o
+nly)
+      --api string              wire API the harness speaks to the Switch: chat, responses or anthro
+pic (default: the harness's own)
+  -k, --api-key string          provider API key (or $PRIZMAL_SWITCH_KEY)
+  -h, --help                    help for prizmal
+  -l, --list                    print the models this switch key's tenant serves, and exit
+  -m, --model string            model to launch with
+      --persist                 write the integration configuration without launching (persistent un
+til --restore)
+      --pick                    choose a model from this switch key's tenant, and save it as the def
+ault
+      --relay                   route the launched harness through a per-session loopback relay
+      --restore                 restore the integration's original configuration and exit
+      --subagent-model string   model for subagents, which default to the session model (Claude Code
+ and Codex)
+  -u, --url string              provider base URL (or $PRIZMAL_SWITCH_URL)
+  -v, --version                 version for prizmal
+  -y, --yes                     auto-approve confirmation prompts
+
+Use "prizmal [command] --help" for more information about a command.
+[prizmal exited 0]

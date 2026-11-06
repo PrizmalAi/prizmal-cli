@@ -54,6 +54,26 @@ var (
 // own; every argument after the name is harness passthrough.
 const usageLine = "prizmal [flags] [INTEGRATION] [-- EXTRA_ARGS...]"
 
+// harnessArgsHelp is the paragraph of the help text that documents the config
+// file's per-harness launch arguments. It is a const of its own so a test can
+// pin it to the section the loader reads; the rest of the text is one literal
+// that nothing reads.
+//
+// It sits beside the two other mentions of the config file, which describe the
+// credential and the endpoint. Between them they used to read as the file's
+// whole contract, so a reader looking for a way to make a flag persistent
+// concluded the file held no such thing and went looking for a wrapper.
+const harnessArgsHelp = `The config file (~/.prizmal/config.json) also holds launch arguments for one
+harness, keyed by the integration's name (claude, codex, cline, kilo, opencode,
+pi), so a flag is added to every launch of that harness and is not retyped each
+time:
+  {"harnesses": {"claude": {"args": "--allow-dangerously-skip-permissions"}}}
+That string is split like a shell line, so quotes keep a value together.
+prizmal adds a configured flag only when the launch does not already carry it,
+and it does not check the arguments against the harness.
+
+`
+
 func main() {
 	root := &cobra.Command{
 		Use:   usageLine,
@@ -74,7 +94,7 @@ announces which source was used:
 Launching against a remote host with no credential is refused; loopback
 URLs need no key, and --allow-unauthenticated overrides the refusal.
 
-Flags before the integration name are prizmal's own: --model, --url,
+` + harnessArgsHelp + `Flags before the integration name are prizmal's own: --model, --url,
 --api-key, --relay, --yes, --list, --restore, --persist. Every argument after the
 integration name is handed to the harness unchanged, so claude --resume
 <session-id> and any other harness flag needs no separator and can never
