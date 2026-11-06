@@ -10,8 +10,8 @@ import (
 // The screens prizmal draws for its own commands live under
 // testdata/terminal/prizmal.
 
-// prizmalBaselineDir holds the screens prizmal's own subcommands draw: the
-// first-run prompt and the device-login flow. They come from the real
+// prizmalBaselineDir holds the screens prizmal's own subcommands draw: the help
+// text, the first-run prompt and the device-login flow. They come from the real
 // prizmal binary and the stub switch, with no harness involved.
 const prizmalBaselineDir = "testdata/terminal/prizmal"
 
@@ -62,15 +62,25 @@ func withStableDeviceValues(screen string) string {
 }
 
 // prizmalBaselineCases are the screens prizmal draws for its own commands: the
-// first-run prompt and the device-login flow. They run the real prizmal binary
-// against the stub switch with no harness, so a stand-in claude keeps the
-// first-run case from offering an install.
+// help text, the first-run prompt and the device-login flow. They run the real
+// prizmal binary against the stub switch with no harness, so a stand-in claude
+// keeps the first-run case from offering an install.
 //
 // The login cases pin PRIZMAL_APP_URL to a non-routable host. PRIZMAL_ENV=testing
 // already refuses to open a browser, and the pinned URL keeps even a stray
 // window off the production consent page. The stub decides pending (404) versus
 // approved (200), so neither needs the polling loop to advance.
 var prizmalBaselineCases = []baselineCase{
+	// The help screen, which is where an operator learns the config file holds
+	// anything beyond a key: it is the only screen that renders the per-harness
+	// launch arguments. The pane is as tall as the text on purpose — 30 rows show
+	// the tail of it, the flag list, and leave the paragraph this case exists for
+	// above the top of the capture.
+	{
+		name: "help-100x82", cols: 100, rows: 82,
+		args:  []string{"--help"},
+		steps: []baselineStep{{waitFor: "[prizmal exited 0]"}},
+	},
 	// The first-run menu. The config file is absent, so ensureConfig prompts with
 	// the shared picker: the two ways to sign in, under the "Sign in" heading.
 	{
@@ -143,8 +153,9 @@ var prizmalBaselineCases = []baselineCase{
 }
 
 // TestTerminalBaselinesPrizmal renders the screens prizmal draws itself: the
-// first-run prompt and the device-login flow. It needs no harness, so it runs
-// wherever tmux is, and its screens live under testdata/terminal/prizmal.
+// help text, the first-run prompt and the device-login flow. It needs no
+// harness, so it runs wherever tmux is, and its screens live under
+// testdata/terminal/prizmal.
 func TestTerminalBaselinesPrizmal(t *testing.T) {
 	runBaselineCases(t, append(append([]baselineCase{}, prizmalBaselineCases...), updateBaselineCases...), prizmalBaselineDir)
 }
