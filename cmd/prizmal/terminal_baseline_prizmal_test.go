@@ -73,11 +73,12 @@ func withStableDeviceValues(screen string) string {
 var prizmalBaselineCases = []baselineCase{
 	// The help screen, which is where an operator learns the config file holds
 	// anything beyond a key: it is the only screen that renders the per-harness
-	// launch arguments. The pane is as tall as the text on purpose — 30 rows show
+	// launch arguments. The pane is taller than the text on purpose: 30 rows show
 	// the tail of it, the flag list, and leave the paragraph this case exists for
-	// above the top of the capture.
+	// above the top of the capture, and the slack keeps a help text that grows by
+	// a few lines from scrolling its own first line out of the baseline.
 	{
-		name: "help-100x82", cols: 100, rows: 82,
+		name: "help-100x90", cols: 100, rows: 90,
 		args:  []string{"--help"},
 		steps: []baselineStep{{waitFor: "[prizmal exited 0]"}},
 	},

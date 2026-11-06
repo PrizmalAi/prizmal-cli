@@ -1,3 +1,7 @@
+Launch a coding-agent harness (Claude Code, Codex, OpenCode, Pi, ...) configured
+to use the Prizmal Switch endpoint.
+
+The provider URL is resolved from (in order):
   1. the --url flag
   2. the $PRIZMAL_SWITCH_URL environment variable
   3. the config file (base_url in ~/.prizmal/config.json)
@@ -11,8 +15,9 @@ Launching against a remote host with no credential is refused; loopback
 URLs need no key, and --allow-unauthenticated overrides the refusal.
 
 The config file (~/.prizmal/config.json) also holds launch arguments for one
-harness, keyed by the integration name typed after prizmal, so a flag is added
-to every launch of that harness and is not retyped each time:
+harness, keyed by the integration's name (claude, codex, cline, kilo, opencode,
+pi), so a flag is added to every launch of that harness and is not retyped each
+time:
   {"harnesses": {"claude": {"args": "--allow-dangerously-skip-permissions"}}}
 That string is split like a shell line, so quotes keep a value together.
 prizmal adds a configured flag only when the launch does not already carry it,

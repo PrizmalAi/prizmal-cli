@@ -64,8 +64,9 @@ const usageLine = "prizmal [flags] [INTEGRATION] [-- EXTRA_ARGS...]"
 // whole contract, so a reader looking for a way to make a flag persistent
 // concluded the file held no such thing and went looking for a wrapper.
 const harnessArgsHelp = `The config file (~/.prizmal/config.json) also holds launch arguments for one
-harness, keyed by the integration name typed after prizmal, so a flag is added
-to every launch of that harness and is not retyped each time:
+harness, keyed by the integration's name (claude, codex, cline, kilo, opencode,
+pi), so a flag is added to every launch of that harness and is not retyped each
+time:
   {"harnesses": {"claude": {"args": "--allow-dangerously-skip-permissions"}}}
 That string is split like a shell line, so quotes keep a value together.
 prizmal adds a configured flag only when the launch does not already carry it,
