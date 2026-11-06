@@ -28,6 +28,10 @@ jobs:
       - name: Read the tag message
         id: notes
         run: |
+          # actions/checkout fetches the annotated tag, then replaces that ref
+          # with a lightweight ref to the commit it targets. Read the tag object
+          # again before asking for its type and message.
+          git fetch --force --no-tags origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
           if [ "$(git cat-file -t "$GITHUB_REF_NAME")" != tag ]; then
             exit 0
           fi
