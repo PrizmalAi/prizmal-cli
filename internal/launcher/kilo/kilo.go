@@ -207,13 +207,17 @@ func buildInlineConfigFor(api, model string, catalog []launch.LaunchModel) (stri
 	return string(data), nil
 }
 
-// modelEntries builds OpenCode's provider entries and adjusts the input
-// modalities for Kilo. Kilo withholds an attachment whose type the entry does
-// not list, so each entry follows the model's own input_modalities: text,
-// image for the image capability, pdf for the document capability. A model
-// that reports no list keeps text and image, and gets no pdf. The reasoning
-// flag is not an input modality, so a reasoning model with no list is still a
-// model with no list.
+// modelEntries builds OpenCode's provider entries and declares Kilo's input
+// modalities. Kilo withholds an attachment whose type the entry does not list,
+// so the list must be the one Kilo's own vocabulary row gives: text always,
+// image for the image capability, pdf for the document capability, and text
+// with image for a model that reports no list. The reasoning flag is not an
+// input modality, so a reasoning model with no list is still a model with no
+// list.
+//
+// The declaration comes from the vocabulary rather than a list kept here, so a
+// modality Kilo gains a name for is one edit in capability.go and not an
+// adapter translating on its own.
 func modelEntries(models []launch.LaunchModel) map[string]any {
 	entries := opencode.ModelEntries(models)
 	for _, m := range models {
@@ -222,11 +226,9 @@ func modelEntries(models []launch.LaunchModel) map[string]any {
 		// variants and options OpenCode's entry adds are dropped.
 		delete(entry, "variants")
 		delete(entry, "options")
-		if m.KnowsInputs() {
-			continue
-		}
+		// OpenCode declared its own list; Kilo asks for its own.
 		entry["modalities"] = map[string]any{
-			"input":  []string{"text", "image"},
+			"input":  launch.DeclaredInputs(m, launch.HarnessKilo),
 			"output": []string{"text"},
 		}
 	}

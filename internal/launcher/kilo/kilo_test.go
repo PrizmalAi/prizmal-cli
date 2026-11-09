@@ -207,6 +207,26 @@ func TestInlineConfigInputsFollowTheModelsModalities(t *testing.T) {
 	}
 }
 
+// TestInlineConfigInputsComeFromTheKiloVocabulary pins Kilo's entry to the
+// answer the capability vocabulary gives for Kilo, rather than to a list the
+// launcher keeps for itself. A row added for Kilo, or a spelling changed for
+// it, must reach the entry or this fails.
+func TestInlineConfigInputsComeFromTheKiloVocabulary(t *testing.T) {
+	for _, m := range []launch.LaunchModel{
+		{Name: "known", Capabilities: []model.Capability{model.CapabilityCompletion, model.CapabilityVision, model.CapabilityDocument}},
+		{Name: "bare"},
+		{Name: "thinker", Capabilities: []model.Capability{model.CapabilityThinking}},
+	} {
+		config := inlineConfig(t, m.Name, []launch.LaunchModel{m})
+		models := config["provider"].(map[string]any)["prizmal"].(map[string]any)["models"].(map[string]any)
+		input := models[m.Name].(map[string]any)["modalities"].(map[string]any)["input"]
+		want := launch.DeclaredInputs(m, launch.HarnessKilo)
+		if got := toStrings(input); strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Fatalf("%s: modalities.input = %v, want the vocabulary's %v", m.Name, got, want)
+		}
+	}
+}
+
 // TestInlineConfigPerAPI pins the provider package and endpoint each of Kilo's
 // three API modes needs. The default is chat completions; the other two are
 // opt-in. Each package appends its own path to the base, so all three bases are

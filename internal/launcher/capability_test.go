@@ -13,7 +13,7 @@ import (
 // declares no input at all.
 func TestDeclaredInputsAlwaysIncludeText(t *testing.T) {
 	m := LaunchModel{Name: "hand-built", Capabilities: []model.Capability{model.CapabilityVision}}
-	for _, harness := range []string{HarnessCodex, HarnessOpenCode, HarnessPi} {
+	for _, harness := range []string{HarnessCodex, HarnessKilo, HarnessOpenCode, HarnessPi} {
 		if got := DeclaredInputs(m, harness); !slices.Contains(got, "text") {
 			t.Fatalf("%s declared inputs = %v, want them to include text", harness, got)
 		}
@@ -24,7 +24,7 @@ func TestDeclaredInputsAlwaysIncludeText(t *testing.T) {
 // new harness that asks the vocabulary for its unknown case and finds none gets
 // an empty input list, which is a config that declares nothing at all.
 func TestEveryHarnessHasAnUnknownInputList(t *testing.T) {
-	for _, harness := range []string{HarnessCodex, HarnessOpenCode, HarnessPi} {
+	for _, harness := range []string{HarnessCodex, HarnessKilo, HarnessOpenCode, HarnessPi} {
 		unknown, ok := unknownInputs[harness]
 		if !ok {
 			t.Fatalf("no unknown-input list for %s", harness)
@@ -71,7 +71,7 @@ func TestForwardMapIsDerivedFromTheVocabulary(t *testing.T) {
 // list, and TestThinkingIsNotAnInputModality says why.
 func TestEveryWriterGateHasAVocabularyRow(t *testing.T) {
 	known := map[string]bool{
-		HarnessCodex: true, HarnessOpenCode: true, HarnessPi: true,
+		HarnessCodex: true, HarnessKilo: true, HarnessOpenCode: true, HarnessPi: true,
 	}
 	gated := map[model.Capability]bool{
 		model.CapabilityVision:   false,
