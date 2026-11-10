@@ -131,17 +131,8 @@ func (o *OpenCode) Run(model string, models []launch.LaunchModel, args []string)
 		return err
 	}
 
-	// A device-mode launch has no key in its config: the plugin is the
-	// credential, so a launch that cannot write it stops here rather than
-	// start a session every request of which would be refused.
-	if envconfig.DeviceMode() && !envconfig.RelayMode() {
-		dir, err := openCodeSearchDir()
-		if err != nil {
-			return fmt.Errorf("find the directory for OpenCode's auth plugin: %w", err)
-		}
-		if err := writeOpenCodeAuthPlugin(dir); err != nil {
-			return fmt.Errorf("write OpenCode's auth plugin: %w", err)
-		}
+	if err := prepareAuthPlugin(); err != nil {
+		return err
 	}
 
 	cmd := exec.Command(opencodePath, args...)
@@ -188,23 +179,14 @@ func (o *OpenCode) envVars(model string, models []launch.LaunchModel) []string {
 }
 
 // searchDirEnv is the part of the environment that depends on the search
-// directory: the config directory holding the search tool and the device-mode
-// auth plugin, and the variables those read. Each feature that cannot be set up
-// is dropped with one notice naming it and the reason.
+// directory: the config directory holding the search tool and the variables the
+// tool reads. The auth plugin in the same directory is Run's, through
+// prepareAuthPlugin. A search tool that cannot be set up is dropped with one
+// notice naming the feature and the reason.
 func (o *OpenCode) searchDirEnv(model string) []string {
 	dir, err := openCodeSearchDir()
 	if err != nil {
 		noticeDegraded("web search", "cannot resolve the home directory: "+err.Error())
-		noticeDeviceSignInIfNeeded("cannot resolve the home directory: " + err.Error())
-		return nil
-	}
-	// The plugin is written on a device-mode launch and removed on any other,
-	// so a static-key launch never runs the command.
-	deviceAuth := envconfig.DeviceMode() && !envconfig.RelayMode()
-	if err := syncOpenCodeAuthPlugin(dir, deviceAuth); err != nil && deviceAuth {
-		noticeDegraded("device sign-in", "cannot write "+filepath.Join(dir, "plugin"))
-		// The launch stops here, so the search tool is not set up either.
-		noticeDegraded("web search", "device sign-in could not be set up")
 		return nil
 	}
 	if err := writeOpenCodeSearchTool(dir); err != nil {
@@ -237,12 +219,6 @@ func (o *OpenCode) searchDirEnv(model string) []string {
 // line on stderr.
 func noticeDegraded(feature, reason string) {
 	_, _ = fmt.Fprintf(noticeOut, "prizmal: %s is off on this launch: %s\n", feature, reason)
-}
-
-func noticeDeviceSignInIfNeeded(reason string) {
-	if envconfig.DeviceMode() && !envconfig.RelayMode() {
-		noticeDegraded("device sign-in", reason)
-	}
 }
 
 // OpenCodeInstallerDependencies lists what OpenCode's installer needs to run.

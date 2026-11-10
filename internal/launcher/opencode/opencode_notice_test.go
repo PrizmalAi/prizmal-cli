@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher/launchtest"
 )
 
@@ -71,32 +72,57 @@ func TestOpenCodeUnwritableSearchDirNamesWebSearch(t *testing.T) {
 	}
 }
 
-func TestOpenCodeDeviceAuthPluginFailureNamesDeviceSignIn(t *testing.T) {
+// A device-mode launch that cannot write the plugin fails in Run's
+// prepareAuthPlugin with an error, so envVars has no device notice of its own.
+func TestPrepareAuthPluginFailsLoudlyWhenDeviceWriteFails(t *testing.T) {
 	home := sandboxedHome(t)
 	launchtest.WithDeviceMode(t)
-	out := captureNotices(t)
-	// A regular file where the plugin directory belongs fails only the plugin.
 	dir := filepath.Join(home, ".cache", "prizmal", "opencode")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// A regular file where the plugin directory belongs fails only the plugin.
 	if err := os.WriteFile(filepath.Join(dir, "plugin"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	env := (&OpenCode{}).envVars("wire-test-model", wireKeyTestModel())
+	err := prepareAuthPlugin()
+	if err == nil || !strings.Contains(err.Error(), "write OpenCode's auth plugin") {
+		t.Fatalf("prepareAuthPlugin = %v, want the write error", err)
+	}
+}
 
-	if _, ok := envLookup(env, "OPENCODE_CONFIG_CONTENT"); !ok {
-		t.Error("OPENCODE_CONFIG_CONTENT dropped")
+// prepareAuthPlugin owns the plugin's removal: a launch that is not device mode
+// deletes the plugin an earlier device launch left behind.
+func TestPrepareAuthPluginRemovesStalePluginOutsideDeviceMode(t *testing.T) {
+	home := sandboxedHome(t)
+	pluginPath := filepath.Join(home, ".cache", "prizmal", "opencode", "plugin", "prizmal_auth.ts")
+
+	launchtest.WithDeviceMode(t)
+	if err := prepareAuthPlugin(); err != nil {
+		t.Fatalf("device prepareAuthPlugin: %v", err)
 	}
-	var device []string
-	for _, line := range noticeLines(out) {
-		if strings.HasPrefix(line, "prizmal: device sign-in") {
-			device = append(device, line)
-		}
+	if _, err := os.Stat(pluginPath); err != nil {
+		t.Fatalf("device launch left no plugin: %v", err)
 	}
-	if len(device) != 1 || !strings.HasPrefix(device[0], "prizmal: device sign-in is off on this launch: cannot write ") {
-		t.Fatalf("device notices = %q, all output %q", device, out.String())
+
+	envconfig.SetDeviceMode(false)
+	envconfig.SetDeviceToken("")
+	if err := prepareAuthPlugin(); err != nil {
+		t.Fatalf("static-key prepareAuthPlugin: %v", err)
+	}
+	if _, err := os.Stat(pluginPath); !os.IsNotExist(err) {
+		t.Fatalf("stale plugin survived a static-key launch (stat err: %v)", err)
+	}
+}
+
+// envVars no longer touches the plugin.
+func TestOpenCodeEnvVarsLeavesTheAuthPluginAlone(t *testing.T) {
+	home := sandboxedHome(t)
+	launchtest.WithDeviceMode(t)
+	(&OpenCode{}).envVars("wire-test-model", wireKeyTestModel())
+	if _, err := os.Stat(filepath.Join(home, ".cache", "prizmal", "opencode", "plugin")); !os.IsNotExist(err) {
+		t.Fatalf("envVars wrote under the plugin directory (stat err: %v)", err)
 	}
 }
 
