@@ -143,6 +143,52 @@ func TestAuthTokenReauthRequiredSaysRunLogin(t *testing.T) {
 	}
 }
 
+// A running session cannot start over when the 7-day sign-in deadline passes,
+// so the helper does what the launcher does at launch: with a switch key in
+// hand, it prints that key and Claude Code keeps working. The warning goes to
+// stderr, where the helper's diagnostics belong.
+func TestAuthTokenFallsBackToSwitchKeyWhenReauthRequired(t *testing.T) {
+	home := useTempHome(t)
+	writeDeviceKey(t, home)
+	t.Setenv(envconfig.KeyEnvVar, "sk-fallback-from-env")
+	envconfig.SetAPIKey("")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"code":"REAUTH_REQUIRED"}}`))
+	}))
+	defer srv.Close()
+
+	out, err := runAuthToken(t, srv.URL)
+	if err != nil {
+		t.Fatalf("auth token: %v, want the switch key as the fallback", err)
+	}
+	if strings.TrimSpace(out) != "sk-fallback-from-env" {
+		t.Fatalf("stdout = %q, want the switch key and nothing else", out)
+	}
+}
+
+// The fallback never invents a credential: with no switch key anywhere, the
+// helper still fails and says to sign in.
+func TestAuthTokenFallbackNeedsASwitchKey(t *testing.T) {
+	home := useTempHome(t)
+	writeDeviceKey(t, home)
+	t.Setenv(envconfig.KeyEnvVar, "")
+	envconfig.SetAPIKey("")
+	envconfig.SetConfigAPIKey("")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"code":"REAUTH_REQUIRED"}}`))
+	}))
+	defer srv.Close()
+
+	out, err := runAuthToken(t, srv.URL)
+	if err == nil || !strings.Contains(err.Error(), "prizmal login") || strings.TrimSpace(out) != "" {
+		t.Fatalf("stdout = %q, err = %v; want no output and a run-prizmal-login error", out, err)
+	}
+}
+
 // resetAppURLState clears the envconfig URL fields appBaseURL reads, so a
 // config URL one test loads cannot leak into the next.
 func resetAppURLState(t *testing.T) {
@@ -550,5 +596,46 @@ func TestEnterDeviceModeSucceedsSetsDeviceMode(t *testing.T) {
 	}
 	if got := envconfig.APIKey(); got != "pz-d-dt-ok" {
 		t.Fatalf("APIKey() = %q, want the fresh device token", got)
+	}
+}
+
+// The deadline warning prints once device mode is on and the deadline is under
+// a day away, and stays silent for a deadline further out or for a member with
+// none.
+func TestWarnReauthDeadline(t *testing.T) {
+	useTempHome(t)
+	resetDeviceModeState(t)
+	now := time.Now()
+
+	save := func(by *time.Time) {
+		t.Helper()
+		if err := (&device.CachedToken{Token: "pz-d-x", Expiry: now.Add(10 * time.Minute), ReauthBy: by}).Save(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	warn := func() string {
+		var b strings.Builder
+		warnReauthDeadline(&b, now)
+		return b.String()
+	}
+
+	soon := now.Add(5 * time.Hour)
+	save(&soon)
+	if got := warn(); got != "" {
+		t.Fatalf("warning printed with device mode off: %q", got)
+	}
+
+	envconfig.SetDeviceMode(true)
+	if got := warn(); !strings.Contains(got, "prizmal login") || !strings.Contains(got, soon.UTC().Format("2006-01-02 15:04 UTC")) {
+		t.Fatalf("warning = %q, want the deadline and the login command", got)
+	}
+	far := now.Add(72 * time.Hour)
+	save(&far)
+	if got := warn(); got != "" {
+		t.Fatalf("warning printed 3 days out: %q", got)
+	}
+	save(nil)
+	if got := warn(); got != "" {
+		t.Fatalf("warning printed for a member with no deadline: %q", got)
 	}
 }

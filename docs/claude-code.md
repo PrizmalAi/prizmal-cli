@@ -27,6 +27,10 @@ Claude Code can refresh a device token during a session, so a `prizmal claude` l
 
 In device mode `ANTHROPIC_AUTH_TOKEN` is left unset, and a value exported in your shell is filtered out of the child environment. Claude Code treats that variable as a fixed credential it never refreshes and builds the bearer header from it before consulting the helper, so leaving it set would pin the session to the launch-time token.
 
+A launch inside the last day before the device's seven-day sign-in deadline prints the deadline before the model picker opens. Run `prizmal login` to re-approve the device.
+
+A session that is still running when the deadline passes keeps working if a switch key is available: the helper prints that key (from `--api-key`, `$PRIZMAL_SWITCH_KEY` or the config file) in place of the device token, and warns on stderr. Without a switch key, requests fail with "Your apiKeyHelper script is failing". To go back to the device token, run `prizmal login` in any terminal. Claude Code runs the helper again within four minutes, and it prints the new token.
+
 ## Extra arguments
 
 The `harnesses.claude.args` string in `~/.prizmal/config.json` adds arguments to every `prizmal claude` launch. For example, `"--allow-dangerously-skip-permissions"` puts bypass mode in the Shift+Tab cycle without starting in it. `prizmal` adds a configured flag only when the launch doesn't already carry it, spelled `--flag` or `--flag=value`. Claude Code runs the rest unchanged, including a `-p` you configure, which makes every launch headless. Outside `prizmal`, pass the same arguments to `claude` yourself.

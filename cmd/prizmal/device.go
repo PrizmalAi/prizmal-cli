@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	neturl "net/url"
 	"os"
 	"path/filepath"
@@ -130,6 +131,22 @@ func enterDeviceMode() error {
 	return nil
 }
 
+// warnReauthDeadline prints the sign-in deadline warning when device mode is on
+// and the deadline is under a day away. It reads the token cache the refresh
+// just wrote, and prints nothing for a member with no deadline.
+func warnReauthDeadline(out io.Writer, now time.Time) {
+	if !envconfig.DeviceMode() {
+		return
+	}
+	ct, err := device.LoadCachedToken()
+	if err != nil || ct == nil {
+		return
+	}
+	if w := device.ReauthWarning(ct.ReauthBy, now); w != "" {
+		fmt.Fprintf(out, "%s%s%s\n", launcher.AnsiYellow, w, launcher.AnsiReset)
+	}
+}
+
 // loadCachedToken reads the token cache for HelperToken, returning nil when
 // there is none.
 func loadCachedToken() *device.CachedToken {
@@ -217,6 +234,18 @@ func cmdAuthToken(cmd *cobra.Command, _ []string) error {
 	client := device.NewClient(envconfig.BaseURL())
 	token, ct, err := device.HelperToken(client, key, time.Now(), loadCachedToken, time.Sleep)
 	if err != nil {
+		// A running session cannot restart when the device's sign-in deadline
+		// passes, so the helper falls back the way the launcher does: a
+		// switch key from a flag, $PRIZMAL_SWITCH_KEY or the config file keeps
+		// the session alive. The warning goes to stderr, because stdout
+		// carries the credential and nothing else. Run prizmal login to go
+		// back to the device token; Claude Code runs this helper again on its
+		// next refresh.
+		if fallback, src := envconfig.APIKey(), envconfig.APIKeySource(); fallback != "" && device.ValidHelperOutput(fallback) {
+			fmt.Fprintf(os.Stderr, "warning: device key could not refresh (%v); using the switch key from %s instead. Run prizmal login to sign in again.\n", err, src)
+			_, _ = fmt.Fprintln(os.Stdout, fallback)
+			return nil
+		}
 		// The one 401 whose fix differs: the developer signs in again, which
 		// re-approves the same device key. Every other refusal is the same
 		// "device not authorized" the switch sends, and this never guesses

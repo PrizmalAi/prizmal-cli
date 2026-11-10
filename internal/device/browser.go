@@ -116,7 +116,8 @@ func ReauthWarning(reauthBy *time.Time, now time.Time) string {
 	if remaining < 0 {
 		return "Your Prizmal sign-in is past its deadline. Run prizmal login to re-approve this device."
 	}
-	return fmt.Sprintf("Your Prizmal sign-in expires in %s. Run prizmal login to re-approve this device.", formatRemaining(remaining))
+	return fmt.Sprintf("Your Prizmal sign-in expires in %s, at %s. Run prizmal login to re-approve this device.",
+		formatRemaining(remaining), reauthBy.UTC().Format("2006-01-02 15:04 UTC"))
 }
 
 // formatRemaining spells a duration the way a warning reads: whole days or

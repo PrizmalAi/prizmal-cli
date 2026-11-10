@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/config"
-	"github.com/PrizmalAi/prizmal-cli/internal/device"
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	"github.com/PrizmalAi/prizmal-cli/internal/fileutil"
 	"github.com/spf13/cobra"
@@ -216,6 +215,14 @@ Examples:
 			if apiKey == "" && (listFlag || pickFlag || len(args) > 0) && deviceLoginApplies(listFlag, args) {
 				if err := enterDeviceMode(); err != nil {
 					return err
+				}
+				// A device's sign-in deadline is worth a warning before it
+				// arrives, so the operator re-approves on their own time. It
+				// prints here, ahead of the model picker, because a launch
+				// that starts inside the last day runs a session the deadline
+				// can end. --list launches nothing.
+				if !listFlag {
+					warnReauthDeadline(os.Stderr, time.Now())
 				}
 			}
 
@@ -867,17 +874,6 @@ func launch(name string, extraArgs []string, cfg *config.Config, ask launcher.As
 	announceKeySource(os.Stderr)
 	if err := requireCredentialForRemote(); err != nil {
 		return err
-	}
-
-	// A device's sign-in deadline is worth a warning before it arrives, so the
-	// operator re-approves on their own time. Claude Code, Codex and Pi run in
-	// device mode, and the warning belongs on the launch it affects.
-	if envconfig.DeviceMode() {
-		if ct, err := device.LoadCachedToken(); err == nil {
-			if w := device.ReauthWarning(ct.ReauthBy, time.Now()); w != "" {
-				fmt.Fprintf(os.Stderr, "%s%s%s\n", launcher.AnsiYellow, w, launcher.AnsiReset)
-			}
-		}
 	}
 
 	if shouldUseRelay(spec.Name) {
