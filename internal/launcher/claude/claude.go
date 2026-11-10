@@ -313,6 +313,12 @@ func (c *Claude) envVars() []string {
 		// request carries the full tool list. The Switch parses and forwards
 		// tool_reference blocks, so turn it back on explicitly.
 		"ENABLE_TOOL_SEARCH=true",
+		// Gateway mode makes /usage read the gateway instead of a fixed
+		// Anthropic host, so it shows the tenant's spend limit from the
+		// Switch, and the status line gets a spend_limit field. It needs
+		// ANTHROPIC_BASE_URL and a bearer credential, both set above or by the
+		// device-mode helper.
+		"CLAUDE_CODE_USE_GATEWAY=1",
 	)
 	if envconfig.DeviceMode() && !envconfig.RelayMode() {
 		// The helper refreshes the device token 4 minutes before it would

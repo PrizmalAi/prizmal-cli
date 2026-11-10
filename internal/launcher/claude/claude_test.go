@@ -83,6 +83,19 @@ func TestClaudeEnvVarsEnableToolSearch(t *testing.T) {
 	}
 }
 
+// TestClaudeEnvVarsEnableGatewayMode pins gateway mode on. Without it,
+// Claude Code's /usage calls a fixed Anthropic host and never reaches the
+// Switch; with it, /usage reads the Switch and shows the tenant's spend limit.
+func TestClaudeEnvVarsEnableGatewayMode(t *testing.T) {
+	resetAPIKey(t)
+
+	env := (&Claude{}).envVars()
+
+	if got := launchtest.EnvValue(env, "CLAUDE_CODE_USE_GATEWAY="); got != "1" {
+		t.Fatalf("CLAUDE_CODE_USE_GATEWAY = %q, want 1", got)
+	}
+}
+
 // Every launch opts out of claude.ai cloud connectors.
 //
 // The variable is the explicit opt-out. Claude Code reads it before it checks

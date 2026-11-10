@@ -11,7 +11,7 @@
 | Model, tier remaps, `/model` rows | the inline `--settings` JSON |
 | Device login | an `apiKeyHelper` in the same settings JSON |
 
-`ANTHROPIC_API_KEY` is emptied so that an Anthropic key exported in your shell stays out of Switch requests. The launch also sets `ENABLE_TOOL_SEARCH=true`, hides the claude.ai connector warning, and turns off the attribution header and error reporting.
+`ANTHROPIC_API_KEY` is emptied so that an Anthropic key exported in your shell stays out of Switch requests. The launch also sets `ENABLE_TOOL_SEARCH=true` and `CLAUDE_CODE_USE_GATEWAY=1`, hides the claude.ai connector warning, and turns off the attribution header and error reporting.
 
 A launch with no model from `--model` or a saved default, and no terminal to ask on, stops with an error that lists the names `--list` prints. `claude -p` is such a run even at a terminal: it prints its answer and exits, so the launch skips the picker and fails rather than starting on a guessed model.
 
@@ -44,6 +44,7 @@ ANTHROPIC_BASE_URL=https://api.prizmal.ai \
 ANTHROPIC_AUTH_TOKEN="$PRIZMAL_SWITCH_KEY" \
 ANTHROPIC_API_KEY= \
 ENABLE_TOOL_SEARCH=true \
+CLAUDE_CODE_USE_GATEWAY=1 \
 ENABLE_CLAUDEAI_MCP_SERVERS=false \
 CLAUDE_CODE_ATTRIBUTION_HEADER=0 \
 DISABLE_ERROR_REPORTING=1 \
@@ -60,6 +61,7 @@ The first two variables connect Claude Code to the Switch. The others match what
 | `ANTHROPIC_AUTH_TOKEN=` | Your switch key, sent as `Authorization: Bearer`. |
 | `ANTHROPIC_API_KEY=` | Empty, so an Anthropic key exported in your shell stays out of Switch requests. Keep your switch key out of this variable too, because Claude Code asks for approval before the first turn when it finds a key there. |
 | `ENABLE_TOOL_SEARCH=true` | Claude Code turns tool search off for any host other than Anthropic's. Without it, each request sends the full tool list. |
+| `CLAUDE_CODE_USE_GATEWAY=1` | Makes `/usage` read the Switch, so it shows your spend limit. |
 | `ENABLE_CLAUDEAI_MCP_SERVERS=false` | Hides the startup warning about claude.ai connectors, which need a claude.ai login that this launch doesn't use. |
 | `CLAUDE_CODE_ATTRIBUTION_HEADER=0`, `DISABLE_ERROR_REPORTING=1`, `DISABLE_FEEDBACK_COMMAND=1`, `CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1` | Turn off the attribution header, error reports to Anthropic, `/feedback`, and the feedback survey. |
 
