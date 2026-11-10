@@ -30,11 +30,11 @@ Pi's `--extension` adds to the extensions Pi discovers rather than replacing the
 
 ## Turn cost
 
-Pi's footer shows a turn's cost from the per-token `cost` rates in `models.json`. The Switch picks the serving model for each turn, so no fixed rate is right, and Pi shows no cost.
+Pi's footer shows a turn's cost from the per-token `cost` rates in `models.json`. The Switch picks the serving model for each turn, so no fixed rate is right, and Pi leaves the cost at 0.
 
 Every `prizmal pi` launch loads the extension above, and the extension reads the charge the Switch sends on the last chunk of a turn: `usage.charged_total_pico` (dollars times 10^12), or `usage.cost` in dollars when the first is absent. It sets that message's cost to the charge, so the footer shows what the Switch billed. A turn with no charge, as on a free tenant, keeps Pi's own figure.
 
-This needs Pi 0.99.0 or later, which added the `provider_stream_event` hook the extension reads. Older releases still work and show no cost. To get the same footer without `prizmal`, load an extension that does the same from a `--extension` flag or `~/.pi/agent/extensions`.
+This needs Pi 0.99.0 or later, which added the `provider_stream_event` hook the extension reads. Older releases still work, and their footer leaves the cost at 0. To get the same footer without `prizmal`, load an extension that does the same from a `--extension` flag or `~/.pi/agent/extensions`.
 
 ## Restore
 
