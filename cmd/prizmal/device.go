@@ -143,7 +143,7 @@ func warnReauthDeadline(out io.Writer, now time.Time) {
 		return
 	}
 	if w := device.ReauthWarning(ct.ReauthBy, now); w != "" {
-		fmt.Fprintf(out, "%s%s%s\n", launcher.AnsiYellow, w, launcher.AnsiReset)
+		_, _ = fmt.Fprintf(out, "%s%s%s\n", launcher.AnsiYellow, w, launcher.AnsiReset)
 	}
 }
 
