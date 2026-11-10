@@ -16,7 +16,8 @@ import (
 // types.
 
 const chargeHarness = `
-const mod = await import(process.argv[2]);
+const { pathToFileURL } = await import("node:url");
+const mod = await import(pathToFileURL(process.argv[2]).href);
 const handlers = {};
 const pi = { on: (name, fn) => { (handlers[name] ||= []).push(fn); }, registerProvider() {} };
 mod.default(pi);
