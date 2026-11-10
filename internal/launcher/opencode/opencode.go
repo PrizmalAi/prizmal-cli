@@ -382,7 +382,7 @@ func buildModelEntries(modelList []launch.LaunchModel) map[string]any {
 				"output":  openCodeMaxOutputTokens,
 			},
 			"modalities": map[string]any{
-				"input":  launch.DeclaredInputs(model, launch.HarnessOpenCode),
+				"input":  launch.DeclaredInputs(model, Inputs),
 				"output": []string{"text"},
 			},
 		}

@@ -1,6 +1,8 @@
 package launch
 
 import (
+	"errors"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -8,27 +10,65 @@ import (
 )
 
 // This file is the capability vocabulary: the one place the Switch's
-// input-modality names are translated into model.Capability and back into the
-// names each harness's config uses. It was moved out of switchmodels.go so
-// that the forward map and the reverse map cannot drift apart, and so that
-// adding a modality is an edit here rather than an edit in every config
-// writer. The Switch fetch, the [1m] decoration and the tier fold stay in
-// switchmodels.go.
+// input-modality names are translated into model.Capability. Each harness
+// declares its own names for them, and the inputs it assumes for an unknown
+// model, in its own package as a HarnessInputs. The Switch fetch, the [1m]
+// decoration and the tier fold stay in switchmodels.go.
 
-// harness names one config writer in the vocabulary. It is a plain string so a
-// row of the table names a writer and nothing else: a harness contributes its
-// own spelling of a capability, never its own decision about when to declare
-// it.
+// The Switch's input types, as a harness package spells them when it declares
+// which of its own names each one maps to. A harness never invents a key of
+// its own: the keys are the Switch's, and the values are the harness's.
 const (
-	HarnessCodex    = "codex"
-	HarnessKilo     = "kilo"
-	HarnessOpenCode = "opencode"
-	HarnessPi       = "pi"
+	InputText  = "text"
+	InputImage = "image"
+	InputFile  = "file"
+	InputAudio = "audio"
 )
 
-// inputCapability is one input modality in the vocabulary. The row carries
-// both directions at once, so a modality that gains a name in one harness
-// cannot be added without that harness being written down here.
+// HarnessInputs is what one harness declares about its input modalities. It
+// lives in the harness's own package, so a new harness adds a declaration there
+// and never edits this file.
+type HarnessInputs struct {
+	// Names maps a Switch input type to the key the harness declares the same
+	// input under. A type absent from the map has nowhere to land in that
+	// harness's config, which is a fact about the harness and not an omission
+	// to fix.
+	Names map[string]string
+
+	// Unknown is what the harness declares for a model with no capabilities at
+	// all, which is unknown rather than text-only. The posture is a per-harness
+	// decision: over-declaring is safe for some harnesses and wrong for others.
+	Unknown []string
+}
+
+// Validate reports a declaration that would give a harness a config with no
+// input at all: no names, no unknown list, or a name for a type the Switch does
+// not define. A harness that launches models with known modalities must at
+// least name text.
+func (h HarnessInputs) Validate() error {
+	if len(h.Names) == 0 {
+		return errors.New("declares no input names")
+	}
+	if len(h.Unknown) == 0 {
+		return errors.New("declares no unknown-input list")
+	}
+	for switchInput, name := range h.Names {
+		if _, ok := modalityCapabilities[switchInput]; !ok {
+			return fmt.Errorf("names Switch input type %q, which the Switch does not define", switchInput)
+		}
+		if name == "" {
+			return fmt.Errorf("names Switch input type %q with an empty name", switchInput)
+		}
+	}
+	if _, ok := h.Names[InputText]; !ok {
+		return errors.New("declares no name for text")
+	}
+	return nil
+}
+
+// inputCapability is one input modality in the vocabulary: the Switch's name
+// for it and the capability it means. Each harness's own name for it is
+// declared by the harness, in HarnessInputs.
 type inputCapability struct {
 	// switchModality is the key the Switch spells this modality under in an
 	// entry's input_modalities array.
@@ -36,11 +76,6 @@ type inputCapability struct {
 
 	// capability is what that modality means in the launcher's vocabulary.
 	capability model.Capability
-
-	// harnessNames maps a harness to the key that harness declares the same
-	// input under. A harness absent from the map has nowhere to declare it,
-	// which is a fact about that harness and not an omission to fix.
-	harnessNames map[string]string
 
 	// always is set on the modality every harness declares whatever the
 	// capabilities say. "text" is that modality: it is unconditional here
@@ -52,7 +87,7 @@ type inputCapability struct {
 }
 
 // inputVocabulary is the Switch's input-modality vocabulary, mapped to the
-// launcher's and on to each harness's own spelling.
+// launcher's.
 //
 // "text" maps to CapabilityCompletion so that a model the Switch calls
 // text-only still comes back with a non-empty capability list. That is what
@@ -70,76 +105,29 @@ type inputCapability struct {
 // land.
 //
 // "audio" is mapped so the Switch's audio rows are not mistaken for
-// text-only, but no harness declares an audio input modality today, so it names
-// no harness. That is the whole of it: the capability travels and the
-// declaration does not exist yet.
+// text-only, but no harness declares an audio input modality today. The
+// capability travels and the declaration does not exist yet.
 //
 // "video" is served by the Switch and deliberately missing here: it has no
 // capability in the vocabulary and no entry builder has anywhere to put it.
 var inputVocabulary = []inputCapability{
 	{
-		switchModality: "text",
+		switchModality: InputText,
 		capability:     model.CapabilityCompletion,
-		harnessNames: map[string]string{
-			HarnessCodex:    "text",
-			HarnessKilo:     "text",
-			HarnessOpenCode: "text",
-			HarnessPi:       "text",
-		},
-		always: true,
+		always:         true,
 	},
 	{
-		switchModality: "image",
+		switchModality: InputImage,
 		capability:     model.CapabilityVision,
-		harnessNames: map[string]string{
-			HarnessCodex:    "image",
-			HarnessKilo:     "image",
-			HarnessOpenCode: "image",
-			HarnessPi:       "image",
-		},
 	},
 	{
-		switchModality: "file",
+		switchModality: InputFile,
 		capability:     model.CapabilityDocument,
-		harnessNames: map[string]string{
-			HarnessKilo:     "pdf",
-			HarnessOpenCode: "pdf",
-		},
 	},
 	{
-		switchModality: "audio",
+		switchModality: InputAudio,
 		capability:     model.CapabilityAudio,
-		harnessNames:   nil,
 	},
-}
-
-// unknownInputs is what a harness declares for a model with no capabilities at
-// all, which is unknown rather than text-only.
-//
-// The Switch omits input_modalities on some entries and the fetch is skipped
-// outright for an unauthenticated launch, so unknown is the common case and
-// the posture is a per-harness decision rather than one rule.
-//
-// OpenCode only forwards an attached image or PDF when the entry declares the
-// matching input modality; otherwise it writes a refusal into the prompt and
-// the model answers without the document. So an unknown model keeps the
-// permissive list that entry has always declared, and a known text-only model
-// gets the narrow one — over-declaring is the safe direction for opencode and
-// only opencode.
-//
-// codex and pi declare text alone when the model is unknown. That is what they
-// declare for a text-only model, and narrowing it further is what keeping the
-// list unchanged here means.
-//
-// Kilo declares text and image when the model is unknown, and no pdf. Kilo
-// withholds an attachment whose type the entry does not list, so declaring pdf
-// for a model that never reported one would offer a document the model may
-// refuse; text and image is the list its launcher has always declared.
-var unknownInputs = map[string][]string{
-	HarnessCodex:    {"text"},
-	HarnessKilo:     {"text", "image"},
-	HarnessOpenCode: {"text", "image", "pdf"},
-	HarnessPi:       {"text"},
 }
 
 // modalityCapabilities is the forward half of the vocabulary, derived from
@@ -183,20 +171,20 @@ func (m LaunchModel) KnowsInputs() bool {
 // in vocabulary order.
 //
 // A model with no capabilities is unknown, not text-only, and gets the
-// per-harness unknown list. Otherwise each modality the model has is declared
-// under that harness's own spelling, and a modality the harness does not name
+// harness's unknown list. Otherwise each modality the model has is declared
+// under the harness's own spelling, and a modality the harness does not name
 // is skipped: declaring a key that harness's schema does not have, or has not
 // grown, is how a correct capability turns into a broken config.
 //
 // The result is a fresh slice, so a caller that appends to it cannot edit the
 // unknown list every later launch would read.
-func DeclaredInputs(m LaunchModel, harness string) []string {
+func DeclaredInputs(m LaunchModel, harness HarnessInputs) []string {
 	if !m.KnowsInputs() {
-		return slices.Clone(unknownInputs[harness])
+		return slices.Clone(harness.Unknown)
 	}
 	var declared []string
 	for _, entry := range inputVocabulary {
-		name, ok := entry.harnessNames[harness]
+		name, ok := harness.Names[entry.switchModality]
 		if !ok || !entry.always && !m.HasCapability(entry.capability) {
 			continue
 		}

@@ -891,7 +891,7 @@ func createConfig(model launch.LaunchModel) map[string]any {
 	// The declared inputs come from the capability vocabulary in
 	// capability.go, which owns what a modality means, what each harness
 	// spells it as, and what an unknown model gets.
-	cfg["input"] = launch.DeclaredInputs(model, launch.HarnessPi)
+	cfg["input"] = launch.DeclaredInputs(model, Inputs)
 
 	// Set reasoning based on thinking capability
 	if model.HasCapability("thinking") {
