@@ -220,8 +220,8 @@ Examples:
 				// arrives, so the operator re-approves on their own time. It
 				// prints here, ahead of the model picker, because a launch
 				// that starts inside the last day runs a session the deadline
-				// can end. --list launches nothing.
-				if !listFlag {
+				// can end. --list and a bare --pick launch nothing.
+				if !listFlag && len(args) > 0 {
 					warnReauthDeadline(os.Stderr, time.Now())
 				}
 			}

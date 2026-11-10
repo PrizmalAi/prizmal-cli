@@ -213,7 +213,8 @@ func cmdLogin(cmd *cobra.Command, _ []string) error {
 }
 
 // cmdAuthToken is `prizmal auth token`, the Claude Code apiKeyHelper. It prints
-// one device token on stdout and nothing else: Claude Code captures stdout and
+// one credential on stdout and nothing else: the device token, or the switch
+// key once the sign-in deadline has passed: Claude Code captures stdout and
 // rejects anything that is not a single printable-ASCII line within its size
 // limit. Every diagnostic goes to stderr.
 func cmdAuthToken(cmd *cobra.Command, _ []string) error {
@@ -241,8 +242,13 @@ func cmdAuthToken(cmd *cobra.Command, _ []string) error {
 		// carries the credential and nothing else. Run prizmal login to go
 		// back to the device token; Claude Code runs this helper again on its
 		// next refresh.
-		if fallback, src := envconfig.APIKey(), envconfig.APIKeySource(); fallback != "" && device.ValidHelperOutput(fallback) {
-			fmt.Fprintf(os.Stderr, "warning: device key could not refresh (%v); using the switch key from %s instead. Run prizmal login to sign in again.\n", err, src)
+		//
+		// Only the sign-in deadline falls back. A revoked or unknown device,
+		// a rate limit and an unreachable switch keep failing closed: a
+		// static, tenant-wide key must not stand in for a device credential
+		// an admin withdrew or a throttle briefly refused.
+		if fallback, src := envconfig.APIKey(), envconfig.APIKeySource(); errors.Is(err, device.ErrReauthRequired) && fallback != "" && device.ValidHelperOutput(fallback) {
+			fmt.Fprintf(os.Stderr, "warning: this device's sign-in deadline passed; using the switch key from %s instead. Run prizmal login to sign in again.\n", src)
 			_, _ = fmt.Fprintln(os.Stdout, fallback)
 			return nil
 		}

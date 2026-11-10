@@ -634,8 +634,54 @@ func TestWarnReauthDeadline(t *testing.T) {
 	if got := warn(); got != "" {
 		t.Fatalf("warning printed 3 days out: %q", got)
 	}
+	past := now.Add(-time.Hour)
+	save(&past)
+	if got := warn(); !strings.Contains(got, "past its deadline") {
+		t.Fatalf("warning = %q, want the past-deadline sentence", got)
+	}
 	save(nil)
 	if got := warn(); got != "" {
 		t.Fatalf("warning printed for a member with no deadline: %q", got)
+	}
+}
+
+// Only the sign-in deadline falls back. A device the admin revoked answers
+// 401 NOT_AUTHORIZED, and the helper must fail rather than put the static key
+// in its place.
+func TestAuthTokenDoesNotFallBackForARevokedDevice(t *testing.T) {
+	home := useTempHome(t)
+	writeDeviceKey(t, home)
+	t.Setenv(envconfig.KeyEnvVar, "sk-fallback-from-env")
+	envconfig.SetAPIKey("")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"code":"UNAUTHORIZED"}}`))
+	}))
+	defer srv.Close()
+
+	out, err := runAuthToken(t, srv.URL)
+	if err == nil || strings.Contains(out, "sk-fallback") {
+		t.Fatalf("stdout = %q, err = %v; want a failure and no switch key on stdout", out, err)
+	}
+}
+
+// A switch key that is not one printable ASCII line cannot go to Claude Code,
+// so the helper fails with the login instruction instead of printing it.
+func TestAuthTokenFallbackRejectsAnUnprintableKey(t *testing.T) {
+	home := useTempHome(t)
+	writeDeviceKey(t, home)
+	t.Setenv(envconfig.KeyEnvVar, "sk-bad\nkey")
+	envconfig.SetAPIKey("")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"code":"REAUTH_REQUIRED"}}`))
+	}))
+	defer srv.Close()
+
+	out, err := runAuthToken(t, srv.URL)
+	if err == nil || strings.TrimSpace(out) != "" {
+		t.Fatalf("stdout = %q, err = %v; want a login error and no output", out, err)
 	}
 }
