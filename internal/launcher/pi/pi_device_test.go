@@ -97,21 +97,30 @@ func TestPiDeviceLaunchRemovesItsDirectory(t *testing.T) {
 	}
 }
 
-// TestPiDeviceLaunchAbsentOutsideDeviceMode pins that a switch-key launch
-// writes nothing and passes no extension: the provider entry Edit wrote and
-// the key in the environment are the whole configuration.
-func TestPiDeviceLaunchAbsentOutsideDeviceMode(t *testing.T) {
+// TestPiSwitchKeyLaunchLoadsTheChargeExtensionOnly pins that a switch-key
+// launch loads the extension for the turn charge and writes no sidecar
+// config: the provider entry Edit wrote and the key in the environment stay the
+// whole provider configuration.
+func TestPiSwitchKeyLaunchLoadsTheChargeExtensionOnly(t *testing.T) {
 	envconfig.SetDeviceMode(false)
 
 	launch, err := piDeviceLaunchFor("probe-model", nil)
 	if err != nil {
 		t.Fatalf("piDeviceLaunchFor: %v", err)
 	}
-	if launch != nil {
-		t.Fatalf("a switch-key launch wrote a device extension: %+v", launch)
+	t.Cleanup(launch.clean)
+	if launch.extensionPath == "" || launch.configPath != "" {
+		t.Fatalf("launch = %+v, want an extension and no config", launch)
 	}
-	if got := piLaunchArgs("probe-model", launch, nil); !reflect.DeepEqual(got, []string{"--provider", piProviderID, "--model", "probe-model"}) {
-		t.Fatalf("piLaunchArgs = %v, want no extension flag", got)
+	if got := piLaunchArgs("probe-model", launch, nil); !reflect.DeepEqual(got, []string{"--extension", launch.extensionPath, "--provider", piProviderID, "--model", "probe-model"}) {
+		t.Fatalf("piLaunchArgs = %v, want the extension flag", got)
+	}
+	env := (&Pi{}).envVars(launch)
+	if got := launchtest.EnvValue(env, envconfig.KeyEnvVar+"="); got == "" && envconfig.APIKey() != "" {
+		t.Errorf("%s missing from a switch-key launch environment", envconfig.KeyEnvVar)
+	}
+	if got := launchtest.EnvValue(env, piDeviceConfigEnv+"="); got != "" {
+		t.Errorf("%s = %q in a switch-key launch, want none", piDeviceConfigEnv, got)
 	}
 }
 

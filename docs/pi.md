@@ -28,6 +28,14 @@ The command path is the running `prizmal` binary, quoted, so Pi finds it whether
 
 Pi's `--extension` adds to the extensions Pi discovers rather than replacing them. Your own extensions, from `~/.pi/agent/extensions`, a project's `.pi/extensions`, or an installed Pi package, load on a device-login launch exactly as they do on any other.
 
+## Turn cost
+
+Pi's footer shows a turn's cost from the per-token `cost` rates in `models.json`. The Switch picks the serving model for each turn, so no fixed rate is right, and Pi shows no cost.
+
+Every `prizmal pi` launch loads the extension above, and the extension reads the charge the Switch sends on the last chunk of a turn: `usage.charged_total_pico` (dollars times 10^12), or `usage.cost` in dollars when the first is absent. It sets that message's cost to the charge, so the footer shows what the Switch billed. A turn with no charge, as on a free tenant, keeps Pi's own figure.
+
+This needs Pi 0.99.0 or later, which added the `provider_stream_event` hook the extension reads. Older releases still work and show no cost. To get the same footer without `prizmal`, load an extension that does the same from a `--extension` flag or `~/.pi/agent/extensions`.
+
 ## Restore
 
 ```bash
@@ -89,5 +97,6 @@ With a device login instead, there is no key to export. Pi reads a provider's `a
 - It declares each model's window and output budget, as the examples above do.
 - It sets `"reasoning": true` on a model the Switch's `GET /v1/models` reports with `reasoning: true`, so `--thinking` takes effect. Add the same field to a manual entry for such a model.
 - The extension's provider is the only prizmal provider a device launch loads. A switch-key launch uses your `models.json` entry instead.
+- It loads the extension that shows the Switch's turn charge in Pi's footer, as described under Turn cost.
 - It updates an older Pi that reads a provider's key only once, rather than for each request.
 - It installs Pi when the `pi` binary is missing.
