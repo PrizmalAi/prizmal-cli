@@ -161,7 +161,7 @@ func (o *OpenCode) Run(model string, models []launch.LaunchModel, args []string)
 // their own tools is replaced for this launch, even when the search tool could
 // not be written and the launch sets none.
 func (o *OpenCode) childEnv(model string, models []launch.LaunchModel) []string {
-	return launch.ChildEnv([]string{"OPENCODE_CONFIG_DIR"}, o.envVars(model, models))
+	return launch.ChildEnv([]string{"OPENCODE_CONFIG_DIR", "OPENCODE_DISABLE_AUTOUPDATE"}, o.envVars(model, models))
 }
 
 // envVars returns the variables prizmal adds to the opencode child process, on
@@ -173,7 +173,10 @@ func (o *OpenCode) childEnv(model string, models []launch.LaunchModel) []string 
 // It leaves opencode's XDG directories alone: the model picker state, prompt
 // history, sign-ins and sessions are opencode's own.
 func (o *OpenCode) envVars(model string, models []launch.LaunchModel) []string {
-	var env []string
+	// Keeps a pinned install on its major version: opencode 1.x offers 2.x when
+	// no 1.x update exists, and 2.x runs neither the auth plugin nor the search
+	// tool. Set before the early returns below so no path skips it.
+	env := []string{"OPENCODE_DISABLE_AUTOUPDATE=1"}
 	if content := o.resolveContent(model, models); content != "" {
 		env = append(env, "OPENCODE_CONFIG_CONTENT="+content)
 	}

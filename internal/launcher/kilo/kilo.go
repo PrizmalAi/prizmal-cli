@@ -113,7 +113,7 @@ func (k *Kilo) Run(model string, models []launch.LaunchModel, args []string) err
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Env = launch.ChildEnv([]string{"KILO_CONFIG_DIR"}, k.envVars(model, content))
+	cmd.Env = launch.ChildEnv([]string{"KILO_CONFIG_DIR", "KILO_DISABLE_AUTOUPDATE"}, k.envVars(model, content))
 	return cmd.Run()
 }
 
@@ -122,7 +122,10 @@ func (k *Kilo) Run(model string, models []launch.LaunchModel, args []string) err
 // runs, without web search. Kilo reads one config directory from
 // KILO_CONFIG_DIR, so childEnv drops any inherited value.
 func (k *Kilo) envVars(model, content string) []string {
-	env := []string{"KILO_CONFIG_CONTENT=" + content}
+	// Kilo's own variable, not OpenCode's. Keeps a pinned install on its
+	// version: without it Kilo announces minor and major releases and installs
+	// patch releases unasked. Set before the early return below.
+	env := []string{"KILO_CONFIG_CONTENT=" + content, "KILO_DISABLE_AUTOUPDATE=1"}
 	dir, err := searchDir()
 	if err != nil || opencode.WriteSearchTool(dir) != nil {
 		return env

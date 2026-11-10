@@ -77,4 +77,4 @@ export PRIZMAL_SWITCH_KEY=sk-...
 KILO_CONFIG_CONTENT="$(jq -c --arg k "$PRIZMAL_SWITCH_KEY" '.provider.prizmal.options.apiKey = $k' kilo.json)" kilo
 ```
 
-Kilo ignores `OPENCODE_CONFIG_CONTENT`. `prizmal kilo` also names the launch's model on the command line and runs the relay. When the `kilo` binary is missing, it installs Kilo with npm.
+Kilo ignores `OPENCODE_CONFIG_CONTENT`. `prizmal kilo` also names the launch's model on the command line and runs the relay. It sets `KILO_DISABLE_AUTOUPDATE=1`, so Kilo doesn't announce or install releases. When the `kilo` binary is missing, it installs Kilo with npm.
