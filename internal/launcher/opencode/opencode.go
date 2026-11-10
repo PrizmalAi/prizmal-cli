@@ -236,7 +236,7 @@ func (o *OpenCode) searchDirEnv(model string) []string {
 // noticeDegraded tells the operator a feature is off for this launch, in one
 // line on stderr.
 func noticeDegraded(feature, reason string) {
-	fmt.Fprintf(noticeOut, "prizmal: %s is off on this launch: %s\n", feature, reason)
+	_, _ = fmt.Fprintf(noticeOut, "prizmal: %s is off on this launch: %s\n", feature, reason)
 }
 
 func noticeDeviceSignInIfNeeded(reason string) {
