@@ -105,7 +105,13 @@ func (k *Kilo) Run(model string, models []launch.LaunchModel, args []string) err
 	if err != nil {
 		return err
 	}
-	content, err := buildInlineConfigFor(k.api, model, models)
+	costPluginURL := ""
+	if dir, err := searchDir(); err == nil {
+		if url, err := writeKiloCostPlugin(dir); err == nil {
+			costPluginURL = url
+		}
+	}
+	content, err := buildInlineConfigFor(k.api, model, models, costPluginURL)
 	if err != nil {
 		return err
 	}
@@ -122,7 +128,12 @@ func (k *Kilo) Run(model string, models []launch.LaunchModel, args []string) err
 // runs, without web search. Kilo reads one config directory from
 // KILO_CONFIG_DIR, so childEnv drops any inherited value.
 func (k *Kilo) envVars(model, content string) []string {
-	env := []string{"KILO_CONFIG_CONTENT=" + content}
+	env := []string{
+		"KILO_CONFIG_CONTENT=" + content,
+		// The cost plugin rewrites nothing outside the provider this launch
+		// wrote, so it needs the base it was pointed at.
+		kiloCostBaseURLEnv + "=" + envconfig.OpenAIBaseURL(false),
+	}
 	dir, err := searchDir()
 	if err != nil || opencode.WriteSearchTool(dir) != nil {
 		return env
@@ -158,11 +169,11 @@ func launchArgs(model string, args []string) []string {
 // buildInlineConfig is the JSON for KILO_CONFIG_CONTENT. The launch's model
 // comes first in the list, then the rest of the catalog.
 func buildInlineConfig(model string, catalog []launch.LaunchModel) (string, error) {
-	return buildInlineConfigFor("", model, catalog)
+	return buildInlineConfigFor("", model, catalog, "")
 }
 
 // buildInlineConfigFor builds the config for one API mode; "" is chat.
-func buildInlineConfigFor(api, model string, catalog []launch.LaunchModel) (string, error) {
+func buildInlineConfigFor(api, model string, catalog []launch.LaunchModel, costPluginURL string) (string, error) {
 	if api == "" {
 		api = "chat"
 	}
@@ -199,6 +210,11 @@ func buildInlineConfigFor(api, model string, catalog []launch.LaunchModel) (stri
 		// Switch, so both blocks turn it off, as the OpenCode launch does.
 		"tools":      map[string]any{"websearch": false},
 		"permission": map[string]any{"websearch": "deny"},
+	}
+	// Kilo learns about a plugin only from this list. The cost plugin is an
+	// extra: with no file written there is no entry, and the launch is unchanged.
+	if costPluginURL != "" {
+		config["plugin"] = []string{costPluginURL}
 	}
 	data, err := json.Marshal(config)
 	if err != nil {
