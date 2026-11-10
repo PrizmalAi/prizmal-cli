@@ -36,8 +36,11 @@ type HarnessInputs struct {
 	Names map[string]string
 
 	// Unknown is what the harness declares for a model with no capabilities at
-	// all, which is unknown rather than text-only. The posture is a per-harness
-	// decision: over-declaring is safe for some harnesses and wrong for others.
+	// all, which is unknown rather than text-only. The Switch omits
+	// input_modalities on some entries and the fetch is skipped outright for an
+	// unauthenticated launch, so unknown is the common case. The posture is a
+	// per-harness decision: over-declaring is safe for some harnesses and wrong
+	// for others. Every entry must be one of the harness's own Names values.
 	Unknown []string
 }
 
@@ -62,6 +65,18 @@ func (h HarnessInputs) Validate() error {
 	}
 	if _, ok := h.Names[InputText]; !ok {
 		return errors.New("declares no name for text")
+	}
+	if !slices.Contains(h.Unknown, h.Names[InputText]) {
+		return errors.New("declares an unknown-input list without text")
+	}
+	for _, unknown := range h.Unknown {
+		found := false
+		for _, name := range h.Names {
+			found = found || name == unknown
+		}
+		if !found {
+			return fmt.Errorf("lists unknown input %q, which is not one of its names", unknown)
+		}
 	}
 	return nil
 }
@@ -99,10 +114,9 @@ type inputCapability struct {
 //
 // "file" is the Switch's document modality, the one that says a model
 // can take a PDF. It is handed out independently of "image": the catalogue has
-// rows with both, and rows with image and no file. OpenCode and Kilo declare
-// it as "pdf"; codex and pi have no document modality at all and are absent
-// from that row's names, so the capability reaches them and has nowhere to
-// land.
+// rows with both, and rows with image and no file. A harness declares it
+// under its own name, or names nothing for it, in which case the capability
+// reaches that harness and has nowhere to land.
 //
 // "audio" is mapped so the Switch's audio rows are not mistaken for
 // text-only, but no harness declares an audio input modality today. The
@@ -195,6 +209,6 @@ func DeclaredInputs(m LaunchModel, harness HarnessInputs) []string {
 
 // CapabilityThinking is not an input modality and has no row above. The Switch
 // reports reasoning as its own per-entry boolean, and ParseSwitchCatalog turns
-// a true value into CapabilityThinking, which opencode, kilo and pi gate their
+// a true value into CapabilityThinking, which harnesses gate their
 // reasoning fields on. KnowsInputs ignores it, so a model that reports
 // reasoning and no modalities still gets the unknown list.

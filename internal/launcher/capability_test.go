@@ -29,12 +29,14 @@ func TestDeclaredInputsAlwaysIncludeText(t *testing.T) {
 // config that declares nothing at all, so the declaration is refused.
 func TestHarnessInputsWithoutNamesAreInvalid(t *testing.T) {
 	for name, h := range map[string]HarnessInputs{
-		"zero value":      {},
-		"no names":        {Unknown: []string{"text"}},
-		"no unknown list": {Names: map[string]string{InputText: "text"}},
-		"no text":         {Names: map[string]string{InputImage: "image"}, Unknown: []string{"image"}},
-		"foreign type":    {Names: map[string]string{InputText: "text", "video": "video"}, Unknown: []string{"text"}},
-		"empty name":      {Names: map[string]string{InputText: ""}, Unknown: []string{"text"}},
+		"zero value":        {},
+		"no names":          {Unknown: []string{"text"}},
+		"no unknown list":   {Names: map[string]string{InputText: "text"}},
+		"no text":           {Names: map[string]string{InputImage: "image"}, Unknown: []string{"image"}},
+		"foreign type":      {Names: map[string]string{InputText: "text", "video": "video"}, Unknown: []string{"text"}},
+		"unknown not named": {Names: map[string]string{InputText: "text"}, Unknown: []string{"text", "pdf"}},
+		"unknown no text":   {Names: map[string]string{InputText: "text", InputImage: "image"}, Unknown: []string{"image"}},
+		"empty name":        {Names: map[string]string{InputText: ""}, Unknown: []string{"text"}},
 	} {
 		if err := h.Validate(); err == nil {
 			t.Fatalf("%s: Validate accepted %+v", name, h)
