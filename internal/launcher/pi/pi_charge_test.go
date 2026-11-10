@@ -34,7 +34,7 @@ for (const turn of turns) {
   }
   const message = { role: "assistant", provider: turn.provider ?? "prizmal",
     usage: { input: 1, cost: { input: 0, output: 0, total: 0 } } };
-  const out = await emit("message_end", { message });
+  const out = turn.noEnd ? undefined : await emit("message_end", { message });
   results.push(out ? out.message.usage.cost.total : null);
 }
 console.log(JSON.stringify(results));
@@ -73,6 +73,9 @@ func runChargeHarness(t *testing.T, turns any) []*float64 {
 type chargeTurn struct {
 	Provider string `json:"provider,omitempty"`
 	Chunks   []any  `json:"chunks"`
+	// NoEnd ends the stream without a message_end, as a call that emits no
+	// message events does.
+	NoEnd bool `json:"noEnd,omitempty"`
 }
 
 func TestTurnChargeReplacesMessageCost(t *testing.T) {
@@ -86,12 +89,16 @@ func TestTurnChargeReplacesMessageCost(t *testing.T) {
 		{Chunks: []any{map[string]any{"usage": map[string]any{"cost": 0.25}}}},
 		// a tool step carries no charge, and the previous turn's must not leak in
 		{Chunks: []any{map[string]any{"usage": map[string]any{"prompt_tokens": 5}}}},
+		// a stream that never reaches message_end leaves a charge behind, and
+		// the next message must not inherit it
+		{NoEnd: true, Chunks: []any{map[string]any{"usage": map[string]any{"cost": 7.0}}}},
+		{Chunks: []any{map[string]any{"choices": []any{}}}},
 		// a free tenant: no charge fields
 		{Chunks: []any{map[string]any{"choices": []any{}}}},
 		// another provider's stream keeps Pi's own pricing
 		{Provider: "anthropic", Chunks: []any{map[string]any{"usage": map[string]any{"cost": 9.0}}}},
 	})
-	want := []float64{0.04821, 0.25, -1, -1, -1}
+	want := []float64{0.04821, 0.25, -1, -1, -1, -1, -1}
 	if len(got) != len(want) {
 		t.Fatalf("got %d results, want %d", len(got), len(want))
 	}

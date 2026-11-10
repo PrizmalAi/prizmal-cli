@@ -94,6 +94,10 @@ export function chargeFromChunk(chunk: unknown): number | undefined {
  * tool step, so the last chunk of a message is the only one that can carry it.
  * The charge is held from that chunk until the message ends, then dropped, so
  * a later message with no charge never inherits it.
+ *
+ * One value serves the whole process: Pi's stream event carries no message id,
+ * so two assistant streams running at once in one Pi process would share it.
+ * Pi runs one assistant stream at a time today.
  */
 function registerTurnCharge(pi: ExtensionAPI) {
   let charge: number | undefined;
