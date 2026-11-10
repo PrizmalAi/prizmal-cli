@@ -3,6 +3,7 @@ package opencode
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +17,9 @@ import (
 const openCodeInstallScript = "curl -fsSL https://opencode.ai/install | bash"
 
 var openCodeGOOS = runtime.GOOS
+
+// noticeOut is where launch notices go.
+var noticeOut io.Writer = os.Stderr
 
 // OpenCode implements launch.Runner and Editor for OpenCode integration.
 // Config is passed via OPENCODE_CONFIG_CONTENT env var at launch time
@@ -173,34 +177,50 @@ func (o *OpenCode) childEnv(model string, models []launch.LaunchModel) []string 
 // It leaves opencode's XDG directories alone: the model picker state, prompt
 // history, sign-ins and sessions are opencode's own.
 func (o *OpenCode) envVars(model string, models []launch.LaunchModel) []string {
+	// Invariant environment comes first: what every launch carries, whatever
+	// happens to the search directory. Anything added here is never skipped by
+	// the degraded paths below, which return what they have so far.
 	var env []string
 	if content := o.resolveContent(model, models); content != "" {
 		env = append(env, "OPENCODE_CONFIG_CONTENT="+content)
 	}
+	return append(env, o.searchDirEnv(model)...)
+}
 
+// searchDirEnv is the part of the environment that depends on the search
+// directory: the config directory holding the search tool and the device-mode
+// auth plugin, and the variables those read. Each feature that cannot be set up
+// is dropped with one notice naming it and the reason.
+func (o *OpenCode) searchDirEnv(model string) []string {
 	dir, err := openCodeSearchDir()
 	if err != nil {
-		return env
+		noticeDegraded("web search", "cannot resolve the home directory: "+err.Error())
+		noticeDeviceSignInIfNeeded("cannot resolve the home directory: " + err.Error())
+		return nil
 	}
 	// The plugin is written on a device-mode launch and removed on any other,
 	// so a static-key launch never runs the command.
 	deviceAuth := envconfig.DeviceMode() && !envconfig.RelayMode()
 	if err := syncOpenCodeAuthPlugin(dir, deviceAuth); err != nil && deviceAuth {
-		return env
+		noticeDegraded("device sign-in", "cannot write "+filepath.Join(dir, "plugin"))
+		// The launch stops here, so the search tool is not set up either.
+		noticeDegraded("web search", "device sign-in could not be set up")
+		return nil
 	}
 	if err := writeOpenCodeSearchTool(dir); err != nil {
 		// Search is an extra, not a precondition for the session. A launch that
 		// cannot write the tool still runs, just without web search.
-		return env
+		noticeDegraded("web search", "cannot write "+filepath.Join(dir, "tool"))
+		return nil
 	}
-	env = append(env,
+	env := []string{
 		// childEnv drops any inherited copy of this variable, so the
 		// directory the launch writes the search tool to is the one opencode
 		// reads.
-		"OPENCODE_CONFIG_DIR="+dir,
-		openCodeSearchURLEnv+"="+envconfig.OpenAIBaseURL(false),
-		openCodeSearchModelEnv+"="+model,
-	)
+		"OPENCODE_CONFIG_DIR=" + dir,
+		openCodeSearchURLEnv + "=" + envconfig.OpenAIBaseURL(false),
+		openCodeSearchModelEnv + "=" + model,
+	}
 	if !envconfig.DeviceMode() || envconfig.RelayMode() {
 		return append(env, openCodeSearchKeyEnv+"="+envconfig.APIKey())
 	}
@@ -211,6 +231,18 @@ func (o *OpenCode) envVars(model string, models []launch.LaunchModel) []string {
 		return env
 	}
 	return claude.EnsureHelperBaseURL(append(env, openCodeAuthBinEnv+"="+exe), envconfig.BaseURL())
+}
+
+// noticeDegraded tells the operator a feature is off for this launch, in one
+// line on stderr.
+func noticeDegraded(feature, reason string) {
+	fmt.Fprintf(noticeOut, "prizmal: %s is off on this launch: %s\n", feature, reason)
+}
+
+func noticeDeviceSignInIfNeeded(reason string) {
+	if envconfig.DeviceMode() && !envconfig.RelayMode() {
+		noticeDegraded("device sign-in", reason)
+	}
 }
 
 // OpenCodeInstallerDependencies lists what OpenCode's installer needs to run.
