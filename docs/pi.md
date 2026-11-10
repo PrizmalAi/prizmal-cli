@@ -34,7 +34,7 @@ Pi's footer shows a turn's cost from the per-token `cost` rates in `models.json`
 
 Every `prizmal pi` launch loads the extension above, and the extension reads the charge the Switch sends on the last chunk of a turn: `usage.charged_total_pico` (dollars times 10^12), or `usage.cost` in dollars when the first is absent. It sets that message's cost to the charge, so the footer shows what the Switch billed. A turn with no charge, as on a free tenant, keeps Pi's own figure.
 
-This needs Pi 0.99.0 or later, which added the `provider_stream_event` hook the extension reads. To get the same footer without `prizmal`, load an extension that does the same from a `--extension` flag or `~/.pi/agent/extensions`.
+This needs Pi 0.99.0 or later, which added the `provider_stream_event` hook the extension reads. On an older Pi (tested on 0.77.0 and 0.87.1) the launch still works and the footer cost stays at 0. To get the same footer without `prizmal`, load an extension that does the same from a `--extension` flag or `~/.pi/agent/extensions`.
 
 ## Restore
 

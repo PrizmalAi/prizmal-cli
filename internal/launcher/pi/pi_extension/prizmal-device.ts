@@ -135,7 +135,15 @@ function registerTurnCharge(pi: ExtensionAPI) {
 }
 
 export default function (pi: ExtensionAPI) {
-  registerTurnCharge(pi);
+  // provider_stream_event arrived in Pi 0.99.0. The launcher accepts a Pi back
+  // to 0.77.0, and those releases ignore the unknown event, so the cost stays
+  // at Pi's own figure. The guard keeps a release that rejects an unknown event
+  // from taking the session down: the charge is cosmetic, the session is not.
+  try {
+    registerTurnCharge(pi);
+  } catch {
+    // Leave the cost at Pi's own figure.
+  }
 
   const configPath = process.env.PRIZMAL_PI_CONFIG;
   if (!configPath) {

@@ -121,3 +121,45 @@ func TestChargeExtensionProviderMatchesLaunch(t *testing.T) {
 		t.Fatalf("extension lacks %s", want)
 	}
 }
+
+// TestChargeExtensionSurvivesAPiThatRejectsTheHook covers a Pi older than
+// 0.99.0 that throws on an event it does not know: the extension must still
+// load, and a device launch's provider must still register.
+func TestChargeExtensionSurvivesAPiThatRejectsTheHook(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed")
+	}
+	dir := t.TempDir()
+	harness := filepath.Join(dir, "harness.mjs")
+	script := `
+const { pathToFileURL } = await import("node:url");
+const mod = await import(pathToFileURL(process.argv[2]).href);
+const pi = { on() { throw new Error("unknown event"); }, registerProvider() { console.log("registered"); } };
+mod.default(pi);
+console.log("loaded");
+`
+	if err := os.WriteFile(harness, []byte(script), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ext := filepath.Join(dir, "prizmal-device.ts")
+	if err := os.WriteFile(ext, piDeviceExtensionSource, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(dir, "cfg.json")
+	if err := os.WriteFile(cfg, []byte(`{"providerID":"prizmal","baseURL":"http://x/v1","models":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(node, "--experimental-strip-types", "--no-warnings", harness, ext)
+	cmd.Env = append(os.Environ(), "PRIZMAL_PI_CONFIG="+cfg, "PRIZMAL_PI_CREDENTIAL_COMMAND=true")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		if strings.Contains(string(out), "strip-types") || strings.Contains(string(out), "bad option") {
+			t.Skipf("node cannot strip types: %s", out)
+		}
+		t.Fatalf("the extension threw on a Pi that rejects the hook: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "registered") || !strings.Contains(string(out), "loaded") {
+		t.Fatalf("output = %q, want the provider registered and the extension loaded", out)
+	}
+}
