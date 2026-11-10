@@ -21,6 +21,7 @@ import (
 // it.
 const (
 	HarnessCodex    = "codex"
+	HarnessKilo     = "kilo"
 	HarnessOpenCode = "opencode"
 	HarnessPi       = "pi"
 )
@@ -63,9 +64,10 @@ type inputCapability struct {
 //
 // "file" is the Switch's document modality, the one that says a model
 // can take a PDF. It is handed out independently of "image": the catalogue has
-// rows with both, and rows with image and no file. OpenCode declares it as
-// "pdf"; codex and pi have no document modality at all and are absent from
-// that row's names, so the capability reaches them and has nowhere to land.
+// rows with both, and rows with image and no file. OpenCode and Kilo declare
+// it as "pdf"; codex and pi have no document modality at all and are absent
+// from that row's names, so the capability reaches them and has nowhere to
+// land.
 //
 // "audio" is mapped so the Switch's audio rows are not mistaken for
 // text-only, but no harness declares an audio input modality today, so it names
@@ -80,6 +82,7 @@ var inputVocabulary = []inputCapability{
 		capability:     model.CapabilityCompletion,
 		harnessNames: map[string]string{
 			HarnessCodex:    "text",
+			HarnessKilo:     "text",
 			HarnessOpenCode: "text",
 			HarnessPi:       "text",
 		},
@@ -90,6 +93,7 @@ var inputVocabulary = []inputCapability{
 		capability:     model.CapabilityVision,
 		harnessNames: map[string]string{
 			HarnessCodex:    "image",
+			HarnessKilo:     "image",
 			HarnessOpenCode: "image",
 			HarnessPi:       "image",
 		},
@@ -98,6 +102,7 @@ var inputVocabulary = []inputCapability{
 		switchModality: "file",
 		capability:     model.CapabilityDocument,
 		harnessNames: map[string]string{
+			HarnessKilo:     "pdf",
 			HarnessOpenCode: "pdf",
 		},
 	},
@@ -125,8 +130,14 @@ var inputVocabulary = []inputCapability{
 // codex and pi declare text alone when the model is unknown. That is what they
 // declare for a text-only model, and narrowing it further is what keeping the
 // list unchanged here means.
+//
+// Kilo declares text and image when the model is unknown, and no pdf. Kilo
+// withholds an attachment whose type the entry does not list, so declaring pdf
+// for a model that never reported one would offer a document the model may
+// refuse; text and image is the list its launcher has always declared.
 var unknownInputs = map[string][]string{
 	HarnessCodex:    {"text"},
+	HarnessKilo:     {"text", "image"},
 	HarnessOpenCode: {"text", "image", "pdf"},
 	HarnessPi:       {"text"},
 }
@@ -196,6 +207,6 @@ func DeclaredInputs(m LaunchModel, harness string) []string {
 
 // CapabilityThinking is not an input modality and has no row above. The Switch
 // reports reasoning as its own per-entry boolean, and ParseSwitchCatalog turns
-// a true value into CapabilityThinking, which opencode and pi gate their
+// a true value into CapabilityThinking, which opencode, kilo and pi gate their
 // reasoning fields on. KnowsInputs ignores it, so a model that reports
 // reasoning and no modalities still gets the unknown list.
