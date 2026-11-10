@@ -951,7 +951,7 @@ func launch(name string, extraArgs []string, cfg *config.Config, ask launcher.As
 // list, before the launch sends it anyway. The list carries each config once
 // and none of the aliases the Switch also routes, so the name may still route.
 func warnUnlisted(w io.Writer, flag, name string) {
-	fmt.Fprintf(w, "%swarning: %smodel %q is not in the model list this Switch serves; "+
+	_, _ = fmt.Fprintf(w, "%swarning: %smodel %q is not in the model list this Switch serves; "+
 		"sending it as given, because the Switch also routes aliases it does not list. "+
 		"Run `prizmal --list` for the listed names.%s\n", launcher.AnsiYellow, flag, name, launcher.AnsiReset)
 }
