@@ -150,7 +150,12 @@ type serverConfig struct {
 	// revokeFirst answers the first refresh with 401 DEVICE_REVOKED, the one
 	// answer the Switch gives a revoked device's key, then follows the
 	// approval options. revoked records that the first answer went out.
-	revokeFirst         bool
+	revokeFirst bool
+	// reauthFirst answers the first refresh with 401 REAUTH_REQUIRED, as the
+	// Switch does for a key whose sign-in deadline passed, then follows the
+	// approval options. reauthSent records that the first answer went out.
+	reauthFirst         bool
+	reauthSent          atomic.Bool
 	revoked             atomic.Bool
 	issuer              *DeviceTokenIssuer
 	toolLoop            *toolScript
@@ -456,6 +461,14 @@ func WithDeviceApproval() ServerOption {
 // predates the route does. Without it the stub reports ApprovalURL.
 func WithoutApprovalPage() ServerOption {
 	return func(c *serverConfig) { c.noApprovalPage = true }
+}
+
+// WithDeviceReauthFirst makes the first POST /v1/cli/token answer 401
+// REAUTH_REQUIRED, as the Switch does for a key whose sign-in deadline passed,
+// and every later one follow the approval options. A login then meets an
+// expired key, shows the approval link, and waits for the approval it asks for.
+func WithDeviceReauthFirst() ServerOption {
+	return func(c *serverConfig) { c.reauthFirst = true }
 }
 
 // WithDeviceRevokedFirst makes the first POST /v1/cli/token answer 401
@@ -775,6 +788,12 @@ func handleCLIConfig(w http.ResponseWriter, c *serverConfig) {
 // short-lived tokens, otherwise a fresh short-lived one. The 600-second expiry
 // and fixed reauth_by mirror the shape the Switch forwards from the Config API.
 func handleCLIToken(w http.ResponseWriter, c *serverConfig) {
+	if c.reauthFirst && c.reauthSent.CompareAndSwap(false, true) {
+		writeJSON(w, http.StatusUnauthorized, map[string]any{
+			"error": map[string]any{"code": "REAUTH_REQUIRED", "message": "device sign-in deadline passed"},
+		})
+		return
+	}
 	if c.revokeFirst && c.revoked.CompareAndSwap(false, true) {
 		writeJSON(w, http.StatusUnauthorized, map[string]any{
 			"error": map[string]any{"code": "DEVICE_REVOKED", "message": "device revoked"},

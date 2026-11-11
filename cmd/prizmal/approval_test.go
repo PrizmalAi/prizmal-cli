@@ -157,7 +157,7 @@ func TestLoginWithoutAnApprovalPageStillMakesAKey(t *testing.T) {
 	srv, _ := configStub(t, http.StatusNotFound, `{}`)
 	var out bytes.Buffer
 
-	appURL, key, created, err := prepareLogin(device.NewClient(srv.URL), &out)
+	appURL, key, created, _, err := prepareLogin(device.NewClient(srv.URL), &out)
 	if err != nil || key == nil || !created || appURL != defaultApprovalURL {
 		t.Fatalf("prepareLogin = %q, %v, %v, %v; want the default page and a new key", appURL, key != nil, created, err)
 	}

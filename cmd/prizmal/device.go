@@ -35,15 +35,32 @@ func approvalURL(client *device.Client, out io.Writer) string {
 	return url
 }
 
-// prepareLogin does what a login needs before it prints a URL: it asks the
-// Switch for the approval page, then settles the device key.
-func prepareLogin(client *device.Client, out io.Writer) (string, *device.Key, bool, error) {
-	appURL := approvalURL(client, out)
-	key, created, err := ensureDeviceKey(client, out)
+// prepareLogin does what a login needs before it prints a URL. It settles the
+// device key first, and that step tries one refresh with an existing key. When
+// the refresh succeeds the device is already approved: prepareLogin returns the
+// token, asks for no approval page, and the caller prints no link. Otherwise it
+// asks the Switch for the approval page.
+func prepareLogin(client *device.Client, out io.Writer) (string, *device.Key, bool, *device.Token, error) {
+	key, created, approved, err := ensureDeviceKey(client, out)
 	if err != nil {
-		return "", nil, false, err
+		return "", nil, false, nil, err
 	}
-	return appURL, key, created, nil
+	if approved != nil {
+		return "", key, false, approved, nil
+	}
+	return approvalURL(client, out), key, created, nil, nil
+}
+
+// reportAlreadyApproved says that a login found the device already approved,
+// with the deadline when one applies. It prints no link: there is nothing to
+// approve.
+func reportAlreadyApproved(out io.Writer, token *device.Token) {
+	if token.ReauthBy != nil {
+		_, _ = fmt.Fprintf(out, "%sThis device is already approved until %s.%s\n",
+			launcher.AnsiGreen, token.ReauthBy.Format(time.RFC3339), launcher.AnsiReset)
+		return
+	}
+	_, _ = fmt.Fprintf(out, "%sThis device is already approved.%s\n", launcher.AnsiGreen, launcher.AnsiReset)
 }
 
 // deviceKeyExists reports whether this machine has an enrolled (or
@@ -157,12 +174,19 @@ func cmdLogin(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// Ask the Switch for the approval page before making a key: a login that
-	// cannot tell where to approve must not leave a new device key behind.
 	client := device.NewClient(envconfig.BaseURL())
-	appURL, key, created, err := prepareLogin(client, os.Stderr)
+	appURL, key, created, approved, err := prepareLogin(client, os.Stderr)
 	if err != nil {
 		return err
+	}
+	if approved != nil {
+		// A key still inside its approval: nothing to approve, so no link and no
+		// wait. Keep the fresh token and finish.
+		if err := (&device.CachedToken{Token: approved.Value, Expiry: approved.Expiry, ReauthBy: approved.ReauthBy}).Save(); err != nil {
+			return err
+		}
+		reportAlreadyApproved(os.Stderr, approved)
+		return nil
 	}
 
 	fmt.Fprintf(os.Stderr, "\nSigning in with your browser...\n")

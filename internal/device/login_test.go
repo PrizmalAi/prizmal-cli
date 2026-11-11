@@ -349,3 +349,54 @@ func TestLoginApprovedElsewhereNeedsNoEnter(t *testing.T) {
 		t.Fatalf("output does not say the approval was seen:\n%s", out.String())
 	}
 }
+
+// loginAgainst runs Login against a server whose refresh answers are scripted:
+// each entry is a status for one poll, and the last repeats.
+func loginAgainst(t *testing.T, statuses ...int) string {
+	t.Helper()
+	key, _ := GenerateKey()
+	clk := &fakeClock{t: time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)}
+	var polls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		i := int(atomic.AddInt32(&polls, 1)) - 1
+		if i >= len(statuses) {
+			i = len(statuses) - 1
+		}
+		if statuses[i] == http.StatusOK {
+			_ = json.NewEncoder(w).Encode(map[string]any{"device_token": "pz-d-dt-token", "expires_in": 600})
+			return
+		}
+		w.WriteHeader(statuses[i])
+		_, _ = w.Write([]byte(`{"error":{"code":"NOT_FOUND"}}`))
+	}))
+	defer srv.Close()
+	var out strings.Builder
+	if _, err := Login(NewClient(srv.URL), key, LoginOptions{
+		ApprovalURL: "https://app.example.invalid/cli/authorize",
+		Sleep:       clk.sleep,
+		Now:         clk.now,
+		OpenBrowser: func(string) error { return nil },
+		Confirm:     func(done <-chan struct{}) (bool, error) { <-done; return false, nil },
+		Out:         &out,
+	}); err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	return out.String()
+}
+
+// "Approved in your browser." claims a person clicked Allow while the CLI
+// waited. It is printed only when the wait began with a refresh that failed and
+// a later one succeeded. A first refresh that succeeds means nobody approved
+// anything during the wait, so the line would be false.
+func TestLoginSaysApprovedInTheBrowserOnlyAfterWaiting(t *testing.T) {
+	const line = "Approved in your browser."
+	if out := loginAgainst(t, http.StatusOK); strings.Contains(out, line) {
+		t.Fatalf("a first refresh that succeeded printed %q:\n%s", line, out)
+	}
+	if out := loginAgainst(t, http.StatusNotFound, http.StatusOK); !strings.Contains(out, line) {
+		t.Fatalf("an approval after a pending refresh did not print %q:\n%s", line, out)
+	}
+	if out := loginAgainst(t, http.StatusTooManyRequests, http.StatusOK); strings.Contains(out, line) {
+		t.Fatalf("a rate-limited refresh then success printed %q:\n%s", line, out)
+	}
+}
