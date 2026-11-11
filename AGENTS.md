@@ -221,7 +221,7 @@ belong in this file instead.
 device: `GET <switch>/v1/cli/config` returns `{"approval_url": "..."}`, and the
 CLI opens that URL with the device's public key as its query. The request needs
 no key. The page belongs to the same deployment as the Switch, so the CLI holds
-no host list, no environment setting and no default page.
+no per-deployment host list and no setting for it.
 
 When the Switch cannot say (no such route, an empty or invalid answer, a failure
 or no answer at all), the login says so and uses the default approval page,
