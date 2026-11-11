@@ -33,9 +33,9 @@ func TestLoginAsksTheSwitchForTheApprovalPage(t *testing.T) {
 	useTempHome(t)
 	srv, paths := configStub(t, http.StatusOK, `{"approval_url":"https://app.example.invalid/cli/authorize"}`)
 
-	got, err := approvalURL(device.NewClient(srv.URL))
-	if err != nil || got != "https://app.example.invalid/cli/authorize" {
-		t.Fatalf("approvalURL = %q, %v; want the Switch's approval_url", got, err)
+	got := approvalURL(device.NewClient(srv.URL), &bytes.Buffer{})
+	if got != "https://app.example.invalid/cli/authorize" {
+		t.Fatalf("approvalURL = %q; want the Switch's approval_url", got)
 	}
 	if len(*paths) != 1 || (*paths)[0] != "GET /v1/cli/config" {
 		t.Fatalf("requests = %v, want one GET /v1/cli/config", *paths)
@@ -49,9 +49,9 @@ func TestApprovalURLIgnoresTheOldEnvironmentVariable(t *testing.T) {
 	t.Setenv("PRIZMAL_APP_URL", "https://stale.example.invalid")
 	srv, _ := configStub(t, http.StatusOK, `{"approval_url":"https://app.example.invalid/cli/authorize"}`)
 
-	got, err := approvalURL(device.NewClient(srv.URL))
-	if err != nil || got != "https://app.example.invalid/cli/authorize" {
-		t.Fatalf("approvalURL = %q, %v; want the Switch's answer, not $PRIZMAL_APP_URL", got, err)
+	got := approvalURL(device.NewClient(srv.URL), &bytes.Buffer{})
+	if got != "https://app.example.invalid/cli/authorize" {
+		t.Fatalf("approvalURL = %q; want the Switch's answer, not $PRIZMAL_APP_URL", got)
 	}
 }
 
@@ -76,14 +76,15 @@ func TestOldConfigFileWithAppURLStillLoadsAndIsIgnored(t *testing.T) {
 		t.Fatalf("config = %+v, %v; want the file's base_url read", cfg, err)
 	}
 	srv, _ := configStub(t, http.StatusOK, `{"approval_url":"https://app.example.invalid/cli/authorize"}`)
-	if got, err := approvalURL(device.NewClient(srv.URL)); err != nil || strings.Contains(got, "stale") {
-		t.Fatalf("approvalURL = %q, %v; the old app_url must not be used", got, err)
+	if got := approvalURL(device.NewClient(srv.URL), &bytes.Buffer{}); strings.Contains(got, "stale") {
+		t.Fatalf("approvalURL = %q; the old app_url must not be used", got)
 	}
 }
 
-// A Switch with no such route, or one that returns nothing, stops the login
-// with an error that says what to update. There is no fallback page.
-func TestApprovalURLErrorsWhenTheSwitchReportsNone(t *testing.T) {
+// When the Switch cannot report an approval page, the login does not stop: it
+// uses the default page and says so. That covers a Switch with no such route, an
+// empty or invalid answer, a failing Switch and one that cannot be reached.
+func TestApprovalURLFallsBackToTheDefault(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		status int
@@ -94,32 +95,62 @@ func TestApprovalURLErrorsWhenTheSwitchReportsNone(t *testing.T) {
 		{"empty field", http.StatusOK, `{"approval_url":""}`},
 		{"no field", http.StatusOK, `{}`},
 		{"not a url", http.StatusOK, `{"approval_url":"app.example.invalid"}`},
+		{"not json", http.StatusOK, `<html>`},
+		{"server error", http.StatusInternalServerError, `{}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			useTempHome(t)
 			srv, _ := configStub(t, tc.status, tc.body)
-			_, err := approvalURL(device.NewClient(srv.URL))
-			if err == nil {
-				t.Fatal("approvalURL returned no error")
+			var out bytes.Buffer
+			if got := approvalURL(device.NewClient(srv.URL), &out); got != defaultApprovalURL {
+				t.Fatalf("approvalURL = %q, want the default %q", got, defaultApprovalURL)
 			}
-			errorMentions(t, err, "approval page", srv.URL, "needs updating")
+			if !strings.Contains(out.String(), "default approval page") {
+				t.Fatalf("output %q must say the default page is in use", out.String())
+			}
 		})
 	}
 }
 
-// With no approval page, the login stops before it makes or changes a device
-// key, so a failed login leaves nothing behind.
-func TestLoginWithoutAnApprovalPageLeavesNoKeyBehind(t *testing.T) {
+// A Switch that cannot be reached at all falls back too.
+func TestApprovalURLFallsBackWhenTheSwitchIsUnreachable(t *testing.T) {
 	useTempHome(t)
+	srv, _ := configStub(t, http.StatusOK, `{}`)
+	url := srv.URL
+	srv.Close()
+
+	var out bytes.Buffer
+	if got := approvalURL(device.NewClient(url), &out); got != defaultApprovalURL {
+		t.Fatalf("approvalURL = %q, want the default %q", got, defaultApprovalURL)
+	}
+	if !strings.Contains(out.String(), "default approval page") {
+		t.Fatalf("output %q must say the default page is in use", out.String())
+	}
+}
+
+// A valid answer wins over the default, and prints nothing about a fallback.
+func TestApprovalURLPrefersTheSwitchsAnswer(t *testing.T) {
+	useTempHome(t)
+	srv, _ := configStub(t, http.StatusOK, `{"approval_url":"https://app.example.invalid/cli/authorize"}`)
+	var out bytes.Buffer
+	if got := approvalURL(device.NewClient(srv.URL), &out); got != "https://app.example.invalid/cli/authorize" {
+		t.Fatalf("approvalURL = %q, want the Switch's answer", got)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("output %q, want nothing when the Switch answers", out.String())
+	}
+}
+
+// With no approval page from the Switch, the login still gets a key and goes on.
+func TestLoginWithoutAnApprovalPageStillMakesAKey(t *testing.T) {
+	useTempHome(t)
+	answerPrompts(t, false, "")
 	srv, _ := configStub(t, http.StatusNotFound, `{}`)
 	var out bytes.Buffer
 
-	_, _, _, err := prepareLogin(device.NewClient(srv.URL), &out)
-	if err == nil {
-		t.Fatal("prepareLogin returned no error")
-	}
-	if deviceKeyExists() {
-		t.Fatal("a failed login left a device key behind")
+	appURL, key, created, err := prepareLogin(device.NewClient(srv.URL), &out)
+	if err != nil || key == nil || !created || appURL != defaultApprovalURL {
+		t.Fatalf("prepareLogin = %q, %v, %v, %v; want the default page and a new key", appURL, key != nil, created, err)
 	}
 }
 

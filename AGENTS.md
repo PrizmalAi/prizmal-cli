@@ -223,9 +223,10 @@ CLI opens that URL with the device's public key as its query. The request needs
 no key. The page belongs to the same deployment as the Switch, so the CLI holds
 no host list, no environment setting and no default page.
 
-A Switch that has no such route, or returns no usable URL, stops the login with
-an error that says the Switch doesn't report an approval page and that the CLI
-or the Switch needs updating. There is no fallback.
+When the Switch cannot say (no such route, an empty or invalid answer, a failure
+or no answer at all), the login says so and uses the default approval page,
+`defaultApprovalURL` in `cmd/prizmal/device.go`, so a CLI newer than its Switch
+still signs in.
 
 A machine that signs in against another deployment needs only `base_url` in its
 config file, or `--url`, or `$PRIZMAL_SWITCH_URL`:

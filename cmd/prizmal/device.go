@@ -16,29 +16,29 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// defaultApprovalURL is the approval page a login uses when the Switch does not
+// report one.
+const defaultApprovalURL = "https://app.prizmal.ai/cli/authorize"
+
 // approvalURL asks the Switch where a person approves a device. The page
-// belongs to the same deployment as the Switch, so the Switch reports it and
-// the CLI holds no list of hosts, no environment setting and no default. A
-// Switch that reports none stops the login: there is no other page to send the
-// operator to.
-func approvalURL(client *device.Client) (string, error) {
+// belongs to the same deployment as the Switch, so the Switch is the one place
+// that knows it, and the CLI holds no setting for it. When the Switch cannot
+// say (no such route, an empty or invalid answer, a failure, or no answer at
+// all) the login uses the default page and says so, so a CLI newer than its
+// Switch still signs in.
+func approvalURL(client *device.Client, out io.Writer) string {
 	url, err := client.ApprovalURL()
-	if errors.Is(err, device.ErrNoApprovalPage) {
-		return "", fmt.Errorf(
-			"the Switch at %s doesn't report an approval page, so prizmal login can't tell where to approve this device; the CLI or the Switch needs updating",
-			client.BaseURL)
+	if err != nil {
+		_, _ = fmt.Fprintf(out, "The Switch doesn't report an approval page, so using the default approval page.\n")
+		return defaultApprovalURL
 	}
-	return url, err
+	return url
 }
 
 // prepareLogin does what a login needs before it prints a URL: it asks the
-// Switch for the approval page, then settles the device key. The page comes
-// first, so a Switch that reports none leaves no new key behind.
+// Switch for the approval page, then settles the device key.
 func prepareLogin(client *device.Client, out io.Writer) (string, *device.Key, bool, error) {
-	appURL, err := approvalURL(client)
-	if err != nil {
-		return "", nil, false, err
-	}
+	appURL := approvalURL(client, out)
 	key, created, err := ensureDeviceKey(client, out)
 	if err != nil {
 		return "", nil, false, err

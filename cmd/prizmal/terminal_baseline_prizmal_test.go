@@ -165,13 +165,14 @@ var prizmalBaselineCases = []baselineCase{
 			{key: "Enter", waitFor: "This device is approved"},
 		},
 	},
-	// A Switch that does not report an approval page. The login stops before it
-	// makes a device key and says the CLI or the Switch needs updating.
+	// A Switch that does not report an approval page. The login says it uses the
+	// default page and goes on to the same screen as any other login.
 	{
-		name: "login-no-approval-page-100x30", cols: 100, rows: 30,
+		name: "login-approval-page-fallback-100x30", cols: 100, rows: 30,
 		args:           []string{"login"},
 		noApprovalPage: true,
-		steps:          []baselineStep{{waitFor: "needs updating"}},
+		deviceApproved: true,
+		steps:          []baselineStep{{waitFor: "This device is approved"}},
 	},
 	// Codex missing from PATH with npm present: the launch offers to install
 	// it, as it does for the other npm-installed harnesses.
