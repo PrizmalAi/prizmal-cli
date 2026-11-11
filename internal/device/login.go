@@ -80,10 +80,15 @@ func (o *LoginOptions) withDefaults() LoginOptions {
 // page derives the device id and fingerprint itself and trusts no other
 // parameter.
 func AuthorizeURL(approvalURL string, key *Key, name string) string {
-	q := url.Values{}
+	u, err := url.Parse(approvalURL)
+	if err != nil {
+		return approvalURL
+	}
+	q := u.Query()
 	q.Set("pk", key.PublicB64())
 	q.Set("name", name)
-	return approvalURL + "?" + q.Encode()
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 // Login enrolls (or re-approves) the device: it prints the consent URL and the

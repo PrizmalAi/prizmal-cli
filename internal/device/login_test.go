@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -173,6 +174,23 @@ func TestAuthorizeURLAddsOnlyTheQuery(t *testing.T) {
 	want := "https://app.example.invalid/cli/authorize?name=my+laptop&pk=" + key.PublicB64()
 	if got != want {
 		t.Fatalf("AuthorizeURL = %q, want %q", got, want)
+	}
+}
+
+// A reported page that already has a query keeps it, and the CLI adds its own.
+func TestAuthorizeURLKeepsAnExistingQuery(t *testing.T) {
+	key, _ := GenerateKey()
+	got := AuthorizeURL("https://app.example.invalid/cli/authorize?tenant=one", key, "n")
+	u, err := url.Parse(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := u.Query()
+	if q.Get("tenant") != "one" || q.Get("pk") != key.PublicB64() || q.Get("name") != "n" {
+		t.Fatalf("query = %v, want tenant, pk and name all present in %q", q, got)
+	}
+	if strings.Count(got, "?") != 1 {
+		t.Fatalf("URL %q has more than one '?'", got)
 	}
 }
 

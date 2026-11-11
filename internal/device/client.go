@@ -55,12 +55,6 @@ var ErrRateLimited = errors.New("device refresh too soon")
 // failing.
 var ErrUnavailable = errors.New("device token service unavailable")
 
-// ErrNoApprovalPage means the Switch did not report where to approve a device:
-// it has no config route (404, or 401 from a Switch that predates the route),
-// or its answer holds no usable URL. The CLI has no page to fall back to, so a
-// login stops, and either the CLI or the Switch needs updating.
-var ErrNoApprovalPage = errors.New("the Switch does not report an approval page")
-
 // configPath is the route that reports the approval page, appended to the
 // configured Switch host. It needs no credential.
 const configPath = "/v1/cli/config"
@@ -195,8 +189,8 @@ func codeOf(data []byte) string {
 
 // ApprovalURL asks the Switch where a person approves a device: the full URL of
 // the approval page, before any query. The request is a GET with no credential.
-// A Switch that reports no usable page gives ErrNoApprovalPage; a Switch that
-// fails or cannot be reached gives its own error.
+// A Switch that has no such route, answers with nothing usable, fails or cannot
+// be reached gives an error, and the caller decides what to use instead.
 func (c *Client) ApprovalURL() (string, error) {
 	req, err := http.NewRequest(http.MethodGet, c.BaseURL+configPath, nil)
 	if err != nil {
@@ -215,21 +209,18 @@ func (c *Client) ApprovalURL() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("ask the Switch for its approval page: %w", err)
 	}
-	switch {
-	case resp.StatusCode >= 500:
+	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("ask the Switch for its approval page: switch answered %s", resp.Status)
-	case resp.StatusCode != http.StatusOK:
-		return "", ErrNoApprovalPage
 	}
 	var body struct {
 		ApprovalURL string `json:"approval_url"`
 	}
 	if err := json.Unmarshal(data, &body); err != nil {
-		return "", ErrNoApprovalPage
+		return "", fmt.Errorf("ask the Switch for its approval page: %w", err)
 	}
 	u, err := url.Parse(strings.TrimSpace(body.ApprovalURL))
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return "", ErrNoApprovalPage
+		return "", fmt.Errorf("ask the Switch for its approval page: the answer holds no usable URL")
 	}
 	return u.String(), nil
 }

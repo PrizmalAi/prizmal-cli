@@ -153,13 +153,3 @@ func TestLoginWithoutAnApprovalPageStillMakesAKey(t *testing.T) {
 		t.Fatalf("prepareLogin = %q, %v, %v, %v; want the default page and a new key", appURL, key != nil, created, err)
 	}
 }
-
-// errorMentions fails the test when err's text lacks any of the given parts.
-func errorMentions(t *testing.T, err error, parts ...string) {
-	t.Helper()
-	for _, want := range parts {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("error %q does not mention %q", err, want)
-		}
-	}
-}

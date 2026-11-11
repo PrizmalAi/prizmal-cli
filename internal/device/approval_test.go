@@ -1,7 +1,6 @@
 package device
 
 import (
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -30,25 +29,24 @@ func TestApprovalURLRequestsTheConfigRouteWithoutACredential(t *testing.T) {
 	}
 }
 
-// A Switch that reports no usable approval page is ErrNoApprovalPage, whether
-// it lacks the route (404, or 401 from a Switch that predates it) or answers
-// without a URL. A Switch that fails is a different error.
-func TestApprovalURLClassifiesTheAnswer(t *testing.T) {
+// A Switch that reports no usable approval page is an error, whether it lacks
+// the route (404, or 401 from a Switch that predates it), answers without a URL,
+// or fails. The caller decides what to do about it.
+func TestApprovalURLErrorsWhenThereIsNoUsablePage(t *testing.T) {
 	for _, tc := range []struct {
-		name       string
-		status     int
-		body       string
-		wantNoPage bool
+		name   string
+		status int
+		body   string
 	}{
-		{"not found", http.StatusNotFound, `{}`, true},
-		{"key required", http.StatusUnauthorized, `{}`, true},
-		{"empty field", http.StatusOK, `{"approval_url":""}`, true},
-		{"missing field", http.StatusOK, `{}`, true},
-		{"not json", http.StatusOK, `<html>`, true},
-		{"relative", http.StatusOK, `{"approval_url":"/cli/authorize"}`, true},
-		{"wrong scheme", http.StatusOK, `{"approval_url":"ftp://app.example.invalid/x"}`, true},
-		{"server error", http.StatusInternalServerError, `{}`, false},
-		{"unavailable", http.StatusServiceUnavailable, `{}`, false},
+		{"not found", http.StatusNotFound, `{}`},
+		{"key required", http.StatusUnauthorized, `{}`},
+		{"rate limited", http.StatusTooManyRequests, `{}`},
+		{"empty field", http.StatusOK, `{"approval_url":""}`},
+		{"missing field", http.StatusOK, `{}`},
+		{"not json", http.StatusOK, `<html>`},
+		{"relative", http.StatusOK, `{"approval_url":"/cli/authorize"}`},
+		{"wrong scheme", http.StatusOK, `{"approval_url":"ftp://app.example.invalid/x"}`},
+		{"server error", http.StatusInternalServerError, `{}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -56,12 +54,8 @@ func TestApprovalURLClassifiesTheAnswer(t *testing.T) {
 				_, _ = w.Write([]byte(tc.body))
 			}))
 			defer srv.Close()
-			_, err := NewClient(srv.URL).ApprovalURL()
-			if err == nil {
-				t.Fatal("ApprovalURL returned no error")
-			}
-			if got := errors.Is(err, ErrNoApprovalPage); got != tc.wantNoPage {
-				t.Fatalf("errors.Is(err, ErrNoApprovalPage) = %v, want %v (err: %v)", got, tc.wantNoPage, err)
+			if got, err := NewClient(srv.URL).ApprovalURL(); err == nil {
+				t.Fatalf("ApprovalURL = %q, want an error", got)
 			}
 		})
 	}
