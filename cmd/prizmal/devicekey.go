@@ -36,7 +36,8 @@ func ensureDeviceKey(client *device.Client, out io.Writer) (*device.Key, bool, e
 	backup := true
 	if launcher.StdinIsTerminal() {
 		backup, err = launcher.ConfirmPromptWithOptions(
-			"Back up the revoked key before making a new one?", launcher.ConfirmOptions{})
+			"Back up the revoked key before making a new one?",
+			launcher.ConfirmOptions{Default: launcher.ConfirmDefaultYes})
 		if err != nil {
 			return nil, false, err
 		}

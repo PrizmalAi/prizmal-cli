@@ -301,7 +301,10 @@ There is no localhost listener, so this works over SSH: open the printed URL
 on any machine with a browser.
 
 Running login again re-approves the device key this machine already has, which
-is how a sign-in that expired is renewed. It never replaces the key.`,
+is how a sign-in that expired is renewed. It replaces the key only when the
+Switch reports that the device was revoked: it asks whether to back the key up
+(or backs it up without asking when there is no terminal), then makes a new key
+and approves that.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Args:          cobra.NoArgs,
