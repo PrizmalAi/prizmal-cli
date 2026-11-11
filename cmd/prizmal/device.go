@@ -229,6 +229,9 @@ func cmdAuthToken(cmd *cobra.Command, _ []string) error {
 		if errors.Is(err, device.ErrReauthRequired) {
 			return fmt.Errorf("run prizmal login")
 		}
+		if errors.Is(err, device.ErrDeviceRevoked) {
+			return fmt.Errorf("this device was revoked; run prizmal login to enroll a new key")
+		}
 		if errors.Is(err, device.ErrNotAuthorized) || errors.Is(err, device.ErrDeviceUnknown) {
 			return fmt.Errorf("device not authorized; run prizmal login")
 		}

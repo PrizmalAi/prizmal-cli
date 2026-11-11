@@ -97,3 +97,12 @@ func TestRetireKeyNeverOverwritesAnEarlierBackup(t *testing.T) {
 		t.Fatalf("both backups went to %q", first)
 	}
 }
+
+// A revocation that lands while a login waits for approval ends it with the
+// next step, not a bare error.
+func TestLoginErrorForRevokedDeviceSaysRunLogin(t *testing.T) {
+	err := loginError(ErrDeviceRevoked)
+	if !strings.Contains(err.Error(), "revoked") || !strings.Contains(err.Error(), "prizmal login") {
+		t.Fatalf("loginError(ErrDeviceRevoked) = %q, want the revocation and a login hint", err)
+	}
+}

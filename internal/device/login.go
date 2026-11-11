@@ -227,6 +227,8 @@ func loginError(err error) error {
 	switch {
 	case errors.Is(err, ErrNotAuthorized):
 		return fmt.Errorf("device not authorized; ask a tenant manager to approve this device, or run prizmal login again")
+	case errors.Is(err, ErrDeviceRevoked):
+		return fmt.Errorf("this device was revoked; run prizmal login again to enroll a new key")
 	case errors.Is(err, ErrUnavailable):
 		return fmt.Errorf("the token service is unavailable; try prizmal login again shortly")
 	default:
