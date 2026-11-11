@@ -23,9 +23,9 @@ const (
 // a real terminal, a real clock, and the default cadence. Tests supply a
 // fake sleep, clock and browser so the loop runs without waiting.
 type LoginOptions struct {
-	// AuthorizeBaseURL is the admin app the operator approves in, the
-	// origin of the /cli/authorize consent page.
-	AuthorizeBaseURL string
+	// ApprovalURL is the approval page the Switch reports (Client.ApprovalURL):
+	// the full URL the operator opens, before the CLI adds its query.
+	ApprovalURL string
 	// DeviceName is offered to the page as the default label. The page
 	// decides the name it enrolls; this is only a suggestion.
 	DeviceName string
@@ -75,22 +75,20 @@ func (o *LoginOptions) withDefaults() LoginOptions {
 	return *o
 }
 
-// AuthorizeURL builds the consent page URL: base + /cli/authorize with the
-// public key and the suggested device name. The page derives the device id and
-// fingerprint itself and trusts no other parameter.
-func AuthorizeURL(base string, key *Key, name string) string {
-	base = trimTrailingSlash(base)
-	q := url.Values{}
+// AuthorizeURL builds the URL the operator opens: the approval page the Switch
+// reports, with the public key and the suggested device name as its query. The
+// page derives the device id and fingerprint itself and trusts no other
+// parameter.
+func AuthorizeURL(approvalURL string, key *Key, name string) string {
+	u, err := url.Parse(approvalURL)
+	if err != nil {
+		return approvalURL
+	}
+	q := u.Query()
 	q.Set("pk", key.PublicB64())
 	q.Set("name", name)
-	return base + "/cli/authorize?" + q.Encode()
-}
-
-func trimTrailingSlash(s string) string {
-	for len(s) > 0 && s[len(s)-1] == '/' {
-		s = s[:len(s)-1]
-	}
-	return s
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 // Login enrolls (or re-approves) the device: it prints the consent URL and the
@@ -104,7 +102,7 @@ func trimTrailingSlash(s string) string {
 func Login(client *Client, key *Key, opts LoginOptions) (*Token, error) {
 	opts = opts.withDefaults()
 
-	authURL := AuthorizeURL(opts.AuthorizeBaseURL, key, opts.DeviceName)
+	authURL := AuthorizeURL(opts.ApprovalURL, key, opts.DeviceName)
 	// The URL and fingerprint come first, and the browser opens only after the
 	// operator presses Enter: they approve the fingerprint on the page, so they
 	// need to read it here before a window covers the terminal, and a browser
@@ -227,6 +225,8 @@ func loginError(err error) error {
 	switch {
 	case errors.Is(err, ErrNotAuthorized):
 		return fmt.Errorf("device not authorized; ask a tenant manager to approve this device, or run prizmal login again")
+	case errors.Is(err, ErrDeviceRevoked):
+		return fmt.Errorf("this device was revoked; run prizmal login again to enroll a new key")
 	case errors.Is(err, ErrUnavailable):
 		return fmt.Errorf("the token service is unavailable; try prizmal login again shortly")
 	default:

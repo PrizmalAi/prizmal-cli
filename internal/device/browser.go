@@ -20,11 +20,11 @@ const EnvTesting = "PRIZMAL_ENV"
 
 // TestingEnv returns the environment entries a test subprocess should carry so
 // an accidental sign-in cannot leave the machine: the testing marker that
-// disables the browser, and a consent-page origin at a non-routable host.
+// disables the browser. The approval page comes from the Switch the test
+// serves, so there is nothing else to pin.
 func TestingEnv() []string {
 	return []string{
 		EnvTesting + "=testing",
-		"PRIZMAL_APP_URL=http://127.0.0.1:0",
 	}
 }
 

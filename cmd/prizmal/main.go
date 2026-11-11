@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"slices"
 	"strings"
@@ -170,6 +171,7 @@ Examples:
 				}
 			}
 
+			publishClientVersion(version)
 			envconfig.SetBaseURL(url)
 			envconfig.SetAPIKey(apiKey)
 
@@ -429,23 +431,42 @@ func resolveLaunchModel(cfg *config.Config, harnessModel string, ask launcher.As
 // vocab's rows: the tier words of the harness it launches, or the router
 // configs alone for a harness without tier words.
 func resolveLaunchModelFor(cfg *config.Config, harnessModel string, ask launcher.Asking, headless bool, vocab tiers.Vocabulary) (string, []launcher.LaunchModel, error) {
+	choice, err := resolveLaunchChoice(cfg, harnessModel, ask, headless, vocab)
+	return choice.model, choice.catalog, err
+}
+
+// launchChoice is the model a launch runs, the catalog read for it, and
+// whether the picker chose it.
+type launchChoice struct {
+	model   string
+	catalog []launcher.LaunchModel
+	// picked says the CLI chose the name off the catalog. Every other source
+	// is a name the operator typed or saved: --model, a --model after the
+	// integration name, or default_model.
+	picked bool
+}
+
+// resolveLaunchChoice is resolveLaunchModelFor, and says whether the picker
+// chose the model. The launch checks a picked name against the catalog and
+// sends a typed one as it is.
+func resolveLaunchChoice(cfg *config.Config, harnessModel string, ask launcher.Asking, headless bool, vocab tiers.Vocabulary) (launchChoice, error) {
 	ctx := context.Background()
 
 	switch {
 	case model != "":
-		return model, launcher.BestEffortCatalog(ctx, os.Stderr), nil
+		return launchChoice{model: model, catalog: launcher.BestEffortCatalog(ctx, os.Stderr)}, nil
 
 	case harnessModel != "":
-		return harnessModel, launcher.BestEffortCatalog(ctx, os.Stderr), nil
+		return launchChoice{model: harnessModel, catalog: launcher.BestEffortCatalog(ctx, os.Stderr)}, nil
 
 	case cfg != nil && cfg.DefaultModel != "" && !pickFlag && !launcher.IsReservedModelName(cfg.DefaultModel):
-		return cfg.DefaultModel, launcher.BestEffortCatalog(ctx, os.Stderr), nil
+		return launchChoice{model: cfg.DefaultModel, catalog: launcher.BestEffortCatalog(ctx, os.Stderr)}, nil
 	}
 
 	// --pick is the operator asking for the menu, and nothing else can answer
 	// for them, so it is refused without a terminal.
 	if pickFlag && !ask.CanAsk() {
-		return "", nil, fmt.Errorf(
+		return launchChoice{}, fmt.Errorf(
 			"--pick needs an interactive terminal: pass --model MODEL instead, or run it on a terminal")
 	}
 
@@ -453,7 +474,7 @@ func resolveLaunchModelFor(cfg *config.Config, harnessModel string, ask launcher
 	// whose harness prints and exits, cannot open a menu, so it stops with the
 	// names it can choose from. A person at a terminal still gets the menu.
 	if !pickFlag && (headless || !ask.CanAsk()) {
-		return "", nil, noModelSelectedError(ctx)
+		return launchChoice{}, noModelSelectedError(ctx)
 	}
 
 	// The credential gate runs here, before the fetch, and launch() runs it
@@ -464,17 +485,17 @@ func resolveLaunchModelFor(cfg *config.Config, harnessModel string, ask launcher
 	// The launches that skip this point already have their model and never
 	// depend on the fetch, so they reach the gate at the end of launch().
 	if err := requireCredentialForRemote(); err != nil {
-		return "", nil, err
+		return launchChoice{}, err
 	}
 
 	catalog, err := launcher.FetchCatalog(ctx)
 	if err != nil {
-		return "", nil, launcher.CatalogError(err)
+		return launchChoice{}, launcher.CatalogError(err)
 	}
 
 	picked, err := ask.Pick(launcher.ModelRowsFor(catalog, vocab))
 	if err != nil {
-		return "", nil, err
+		return launchChoice{}, err
 	}
 
 	// A pick taken in a plain launch is for that launch only. It becomes the
@@ -482,10 +503,10 @@ func resolveLaunchModelFor(cfg *config.Config, harnessModel string, ask launcher
 	// shortcut.
 	if pickFlag || picked.Save {
 		if err := saveDefaultModel(cfg, picked.Model); err != nil {
-			return "", nil, err
+			return launchChoice{}, err
 		}
 	}
-	return picked.Model, catalog, nil
+	return launchChoice{model: picked.Model, catalog: catalog, picked: true}, nil
 }
 
 // saveDefaultModel writes model as the default. Without a loaded config it
@@ -820,10 +841,11 @@ func launch(name string, extraArgs []string, cfg *config.Config, ask launcher.As
 	// never asks, and a launch with no model stops with the names it can use.
 	headless := launcher.RunsHeadless(runner, extraArgs)
 	vocab := launcher.HarnessVocabulary(runner)
-	chosen, catalog, err := resolveLaunchModelFor(cfg, harnessModel, ask, headless, vocab)
+	choice, err := resolveLaunchChoice(cfg, harnessModel, ask, headless, vocab)
 	if err != nil {
 		return err
 	}
+	chosen, catalog := choice.model, choice.catalog
 
 	// A name copied off a picker row reads without the claude- prefix the
 	// row's label drops, and the catalog carries the prefixed name that
@@ -833,15 +855,31 @@ func launch(name string, extraArgs []string, cfg *config.Config, ask launcher.As
 	chosen = launcher.RouteNameFor(catalog, chosen, vocab)
 	subagentModel = launcher.RouteNameFor(catalog, subagentModel, vocab)
 
-	// A name the Switch does not route is refused here, with the way to list
-	// the names, instead of reaching the Switch as a request it answers with an
-	// error. The subagent model is a name the launch sends too.
+	// A name the operator typed or saved is sent to the Switch as it is,
+	// unless it is the `default` placeholder. GET /v1/models lists each config
+	// under its own name and never the aliases the Switch also routes to it,
+	// such as the legacy claude-tier-opus, so the catalog is no evidence
+	// against a typed name. A name the catalog does not place gets a warning,
+	// and the Switch answers one it does not route with its own error. The
+	// picker's choice came off the catalog, so it is checked against it.
 	tierWords := launcher.ResolvesTierWords(runner)
-	if err := launcher.CheckRoutable(chosen, catalog, tierWords); err != nil {
-		return err
+	if choice.picked {
+		if err := launcher.CheckRoutable(chosen, catalog, tierWords); err != nil {
+			return err
+		}
+	} else {
+		if err := launcher.CheckSendable(chosen); err != nil {
+			return err
+		}
+		if !launcher.Lists(chosen, catalog, tierWords) {
+			warnUnlisted(os.Stderr, "", chosen)
+		}
 	}
-	if err := launcher.CheckSubagentRoutable(subagentModel, catalog, tierWords); err != nil {
+	if err := launcher.CheckSendable(subagentModel); err != nil {
 		return fmt.Errorf("--subagent-model: %w", err)
+	}
+	if !launcher.ListsSubagent(subagentModel, catalog, tierWords) {
+		warnUnlisted(os.Stderr, "--subagent-model: ", subagentModel)
 	}
 
 	// Only the runners that show their own picker need the rest of the
@@ -908,6 +946,15 @@ func launch(name string, extraArgs []string, cfg *config.Config, ask launcher.As
 	}
 
 	return runner.Run(chosen, models, extraArgs)
+}
+
+// warnUnlisted says a typed model name is missing from the Switch's model
+// list, before the launch sends it anyway. The list carries each config once
+// and none of the aliases the Switch also routes, so the name may still route.
+func warnUnlisted(w io.Writer, flag, name string) {
+	_, _ = fmt.Fprintf(w, "%swarning: %smodel %q is not in the model list this Switch serves; "+
+		"sending it as given, because the Switch also routes aliases it does not list. "+
+		"Run `prizmal --list` for the listed names.%s\n", launcher.AnsiYellow, flag, name, launcher.AnsiReset)
 }
 
 func shouldUseRelay(integration string) bool {

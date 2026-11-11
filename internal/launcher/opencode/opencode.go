@@ -322,7 +322,10 @@ func buildInlineConfigFor(api string, primary launch.LaunchModel, models []launc
 		return "", fmt.Errorf("buildInlineConfig: primary and models are required")
 	}
 
-	options := map[string]any{"baseURL": envconfig.OpenAIBaseURL(false)}
+	options := map[string]any{
+		"baseURL": envconfig.OpenAIBaseURL(false),
+		"headers": map[string]any{envconfig.ClientVersionHeader: envconfig.ClientVersion()},
+	}
 	// A device-mode launch carries no key: the auth plugin sets the header from
 	// a fresh token for each request, and a static one would expire.
 	if !envconfig.DeviceMode() || envconfig.RelayMode() {

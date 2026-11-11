@@ -86,7 +86,6 @@ func TestSaveCreates0600AndRoundTrips(t *testing.T) {
 	c := &Config{
 		Version: 1,
 		BaseURL: "https://api.example.test",
-		AppURL:  "https://app.example.test",
 		APIKey:  NewPlainAPIKey("sk-roundtrip"),
 	}
 	if err := c.Save(); err != nil {
@@ -118,9 +117,6 @@ func TestSaveCreates0600AndRoundTrips(t *testing.T) {
 	}
 	if got.BaseURL != "https://api.example.test" {
 		t.Fatalf("base_url = %q", got.BaseURL)
-	}
-	if got.AppURL != "https://app.example.test" {
-		t.Fatalf("app_url = %q", got.AppURL)
 	}
 	if got.APIKey == nil || got.APIKey.Plain != "sk-roundtrip" {
 		t.Fatalf("api_key not round-tripped: %+v", got.APIKey)
@@ -446,5 +442,36 @@ func TestSavePreservesUnknownKeysAcrossSaves(t *testing.T) {
 	var v string
 	if err := json.Unmarshal(got["mystery_option"], &v); err != nil || v != "keep me" {
 		t.Errorf("mystery_option = %s, want \"keep me\"", got["mystery_option"])
+	}
+}
+
+// A config file written by an older CLI may still hold app_url. It loads
+// without a warning, the field changes nothing, and a later save drops it.
+func TestLoadIgnoresALegacyAppURL(t *testing.T) {
+	d := useTempHome(t)
+	dir := filepath.Join(d, PrizmalDir)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	legacy := `{"version":1,"base_url":"https://api.example.invalid","app_url":"https://app.example.invalid"}`
+	if err := os.WriteFile(filepath.Join(dir, PrizmalFileName), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.BaseURL != "https://api.example.invalid" {
+		t.Fatalf("base_url = %q, want it read", got.BaseURL)
+	}
+	if len(got.unknown) != 0 {
+		t.Fatalf("app_url was treated as an unrecognized option: %v", got.unknown)
+	}
+	if err := got.Save(); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, PrizmalFileName))
+	if strings.Contains(string(data), "app_url") {
+		t.Fatalf("a save wrote the legacy app_url back: %s", data)
 	}
 }

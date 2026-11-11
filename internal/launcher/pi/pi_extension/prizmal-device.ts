@@ -40,6 +40,7 @@ type PrizmalLaunchConfig = {
   providerID: string;
   providerName: string;
   baseURL: string;
+  headers?: Record<string, string>;
   models: PrizmalModel[];
 };
 
@@ -166,6 +167,8 @@ export default function (pi: ExtensionAPI) {
     // credential and reads a fresh device token from stdout, so a device token
     // that expires mid-session is replaced rather than sent again.
     apiKey: `!${command}`,
+    // The launch's headers, such as the CLI version the Switch records.
+    headers: config.headers,
     models: config.models.map(toModel),
   });
 }
@@ -180,6 +183,7 @@ function readLaunchConfig(path: string): PrizmalLaunchConfig | undefined {
       providerID: parsed.providerID,
       providerName: parsed.providerName ?? parsed.providerID,
       baseURL: parsed.baseURL,
+      headers: parsed.headers,
       models: parsed.models,
     };
   } catch {

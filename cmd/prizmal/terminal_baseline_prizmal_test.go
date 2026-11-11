@@ -15,11 +15,6 @@ import (
 // prizmal binary and the stub switch, with no harness involved.
 const prizmalBaselineDir = "testdata/terminal/prizmal"
 
-// nonRoutableAppURL is the consent-page origin a login case gets. A window
-// that opened it would reach nothing, and PRIZMAL_ENV=testing already
-// refuses to open a browser at all.
-const nonRoutableAppURL = "http://127.0.0.1:0"
-
 // The login and first-run screens carry values that change per run and per
 // machine, so the comparison replaces each with a placeholder. The values are
 // still drawn correctly; only the baseline is made stable.
@@ -42,7 +37,14 @@ var (
 	// the next line's text, because in the colour capture that line opens with a
 	// style escape the plain capture does not carry.
 	baselineConfigPathPattern = regexp.MustCompile(`(?s)(No configuration found at ).*?\.prizmal/config\.json`)
-	baselineFingerprint       = regexp.MustCompile(`Device fingerprint: [0-9a-f]{4}-[0-9a-f]{4}`)
+	// baselineBackupPath matches the path the revoked-key flow prints for the
+	// backup: a temp HOME plus a timestamp, both different on every run, and
+	// long enough to wrap, so the whole block up to the next stable line goes.
+	baselineBackupPath = regexp.MustCompile(`(?s)(Moved the revoked key to ).*?(\n\nSigning in with your browser)`)
+	// baselineSwitchURL matches the stub switch's address in an error line. The
+	// stub listens on a different port every run.
+	baselineSwitchURL   = regexp.MustCompile(`http://127\.0\.0\.1:[0-9]+`)
+	baselineFingerprint = regexp.MustCompile(`Device fingerprint: [0-9a-f]{4}-[0-9a-f]{4}`)
 	// baselineBrowserFailure matches the parenthetical reason the login prints
 	// when it cannot open a browser. In a baseline run the reason is always the
 	// testing guard, which is an artifact of the harness and differs on a real
@@ -56,6 +58,8 @@ var (
 func withStableDeviceValues(screen string) string {
 	screen = baselineConsentURLPattern.ReplaceAllString(screen, "${1}<consent-url>${2}")
 	screen = baselineConfigPathPattern.ReplaceAllString(screen, "${1}<config-path>${2}")
+	screen = baselineBackupPath.ReplaceAllString(screen, "${1}<backup-path>${2}")
+	screen = baselineSwitchURL.ReplaceAllString(screen, "<switch-url>")
 	screen = baselineFingerprint.ReplaceAllString(screen, "Device fingerprint: <fp>")
 	screen = baselineBrowserFailure.ReplaceAllString(screen, "Could not open a browser automatically.")
 	return screen
@@ -66,10 +70,10 @@ func withStableDeviceValues(screen string) string {
 // prizmal binary against the stub switch with no harness, so a stand-in claude
 // keeps the first-run case from offering an install.
 //
-// The login cases pin PRIZMAL_APP_URL to a non-routable host. PRIZMAL_ENV=testing
-// already refuses to open a browser, and the pinned URL keeps even a stray
-// window off the production consent page. The stub decides pending (404) versus
-// approved (200), so neither needs the polling loop to advance.
+// The stub reports a non-routable approval page, so even a stray window reaches
+// nothing, and PRIZMAL_ENV=testing already refuses to open a browser. The stub
+// decides pending (404) versus approved (200), so neither needs the polling loop
+// to advance.
 var prizmalBaselineCases = []baselineCase{
 	// The help screen, which is where an operator learns the config file holds
 	// anything beyond a key: it is the only screen that renders the per-harness
@@ -98,7 +102,6 @@ var prizmalBaselineCases = []baselineCase{
 	{
 		name: "login-pending-100x30", cols: 100, rows: 30,
 		args: []string{"login"},
-		env:  []string{"PRIZMAL_APP_URL=" + nonRoutableAppURL},
 		steps: []baselineStep{
 			{waitFor: "Press Enter to open the browser"},
 			{key: "Enter", waitFor: "Could not open a browser"},
@@ -111,7 +114,6 @@ var prizmalBaselineCases = []baselineCase{
 		name: "login-approved-100x30", cols: 100, rows: 30,
 		args:           []string{"login"},
 		deviceApproved: true,
-		env:            []string{"PRIZMAL_APP_URL=" + nonRoutableAppURL},
 		steps:          []baselineStep{{waitFor: "This device is approved"}},
 	},
 	// The operator presses Enter while the approval is still pending, then the
@@ -120,7 +122,6 @@ var prizmalBaselineCases = []baselineCase{
 		name: "login-enter-then-approved-100x30", cols: 100, rows: 30,
 		args:                []string{"login"},
 		deviceApprovedAfter: 4,
-		env:                 []string{"PRIZMAL_APP_URL=" + nonRoutableAppURL},
 		steps: []baselineStep{
 			{waitFor: "Press Enter to open the browser"},
 			{key: "Enter", waitFor: "This device is approved"},
@@ -133,7 +134,44 @@ var prizmalBaselineCases = []baselineCase{
 		args:           []string{"login"},
 		deviceKey:      true,
 		deviceApproved: true,
-		env:            []string{"PRIZMAL_APP_URL=" + nonRoutableAppURL},
+		steps:          []baselineStep{{waitFor: "This device is approved"}},
+	},
+	// A machine whose device key was revoked. The stub answers the first refresh
+	// as the Switch answers a revoked key; the login says so, asks about a
+	// backup, and goes on with a new key, which the next refresh approves. The
+	// baseline run has a terminal, so the prompt is drawn.
+	{
+		name: "login-revoked-backup-100x30", cols: 100, rows: 30,
+		args:               []string{"login"},
+		deviceKey:          true,
+		deviceApproved:     true,
+		deviceRevokedFirst: true,
+		steps: []baselineStep{
+			{waitFor: "Back up the revoked key"},
+			{key: "Enter", waitFor: "This device is approved"},
+		},
+	},
+	// The same login where the operator declines the backup: the key is replaced
+	// and no file is kept.
+	{
+		name: "login-revoked-replace-100x30", cols: 100, rows: 30,
+		args:               []string{"login"},
+		deviceKey:          true,
+		deviceApproved:     true,
+		deviceRevokedFirst: true,
+		steps: []baselineStep{
+			{waitFor: "Back up the revoked key"},
+			{key: "n"},
+			{key: "Enter", waitFor: "This device is approved"},
+		},
+	},
+	// A Switch that does not report an approval page. The login says it uses the
+	// default page and goes on to the same screen as any other login.
+	{
+		name: "login-approval-page-fallback-100x30", cols: 100, rows: 30,
+		args:           []string{"login"},
+		noApprovalPage: true,
+		deviceApproved: true,
 		steps:          []baselineStep{{waitFor: "This device is approved"}},
 	},
 	// Codex missing from PATH with npm present: the launch offers to install
@@ -143,6 +181,15 @@ var prizmalBaselineCases = []baselineCase{
 		args:     []string{"--model", "smart", "codex"},
 		standIns: []string{"npm"},
 		steps:    []baselineStep{{waitFor: "Install with npm?"}},
+	},
+	// A --model the tenant's list does not carry, such as the legacy
+	// claude-tier-opus alias of a config listed under its own name. The launch
+	// warns and then starts the harness with the name as given, because the
+	// Switch routes aliases its list leaves out.
+	{
+		name: "model-unlisted-warning-100x30", cols: 100, rows: 30,
+		args:  []string{"--model", "claude-tier-opus", "claude"},
+		steps: []baselineStep{stepPrizmalExit},
 	},
 	// `auth token` with no device key is the only screen it draws: its success
 	// path prints the token to stdout and nothing else.
