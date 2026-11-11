@@ -113,28 +113,6 @@ type ModelRow struct {
 	like string
 }
 
-// reservedModelNames are the placeholder rows a menu never offers and a launch
-// never sends.
-//
-// The switch publishes this row as `default`: GET /v1/models answers
-// {"id":"default[1m]","name":"default","owned_by":"prizmal.ai"}, so the name to
-// match is `default`, not the `prizmal/default` spelling this CLI used to send.
-// Both are listed because a tenant could carry either spelling during the
-// transition.
-//
-// A picker row exists to name a model that routes. This one is a placeholder,
-// not a model name, so offering it would offer a name every launch refuses.
-const (
-	reservedModelName       = "default"
-	reservedModelNameLegacy = "prizmal/default"
-)
-
-// IsReservedModelName reports whether a name is the `default` placeholder.
-// A launch never sends it, and no menu offers it.
-func IsReservedModelName(name string) bool {
-	return name == reservedModelName || name == reservedModelNameLegacy
-}
-
 // ModelRows builds the picker's rows from a switch catalog, with each generic
 // tier row labelled by the tier's own name. It is the rows of a pick that names
 // no harness.
@@ -148,9 +126,6 @@ func ModelRows(models []LaunchModel) []ModelRow {
 // model twice is not offered twice. Two distinct models whose labels collide
 // fall back to their full names, because two identical labels leave an
 // operator no way to tell the rows apart.
-//
-// The reserved placeholder is skipped: it is not a model name, so
-// offering it would offer a name every launch refuses.
 //
 // A generic tier row's model is the tier's alias, the name the Switch routes,
 // and its label is the harness's word for the tier: Opus in Claude Code, Sol in
@@ -174,7 +149,7 @@ func ModelRowsFor(models []LaunchModel, vocab tiers.Vocabulary) []ModelRow {
 	for _, m := range models {
 		name := ModelNameWithoutSuffix(m.Name)
 		generic := genericRowTier(m)
-		if name == "" || seen[name] || IsReservedModelName(name) {
+		if name == "" || seen[name] {
 			continue
 		}
 		// A harness without tier words shows the tenant's models and

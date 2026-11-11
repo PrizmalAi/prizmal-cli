@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
 
@@ -192,29 +191,9 @@ func TestDefaultModelIsUsedWhenNoFlagIsGiven(t *testing.T) {
 	}
 }
 
-// A saved default_model of `default` is a placeholder, not a model name, and the
-// CLI never sends it. A non-interactive launch that would fall back on it
-// stops, and the error names the models this key routes.
-func TestSavedDefaultOfDefaultIsNeverSent(t *testing.T) {
-	useStubSwitch(t)
-	cfg, _ := writeConfig(t, map[string]any{"version": 1, "default_model": "default"})
-	setModel(t, "")
-	setPick(t, false)
-
-	chosen, _, err := resolveLaunchModel(cfg, "", askNobody, false)
-	if err == nil {
-		t.Fatalf("resolved %q, want the launch to stop", chosen)
-	}
-	for _, want := range []string{"no model selected", "saved-model", "picked-model", "flag-model"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("the error does not name %q: %v", want, err)
-		}
-	}
-}
-
-// On a terminal the same saved default is ignored rather than sent: the
-// picker asks, and the choice replaces it.
-func TestSavedDefaultOfDefaultOpensThePicker(t *testing.T) {
+// A saved default_model of `default` names a model like any other: the launch
+// sends it, and the Switch answers it. default_model is the CLI's only default.
+func TestSavedDefaultModelNamedDefaultIsSent(t *testing.T) {
 	useStubSwitch(t)
 	cfg, home := writeConfig(t, map[string]any{"version": 1, "default_model": "default"})
 	setModel(t, "")
@@ -225,14 +204,14 @@ func TestSavedDefaultOfDefaultOpensThePicker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveLaunchModel: %v", err)
 	}
-	if chosen != "picked-model" {
-		t.Fatalf("resolved %q, want the picker's choice", chosen)
+	if chosen != "default" {
+		t.Fatalf("resolved %q, want the saved default_model", chosen)
 	}
-	if !slices.Contains(rows, "saved-model") {
-		t.Errorf("the picker offered %v, want the catalog's rows", rows)
+	if len(rows) != 0 {
+		t.Errorf("the picker opened with %v, want the saved default used", rows)
 	}
 	if got := readDefaultModel(t, home); got != "default" {
-		t.Errorf("default_model = %q, want the plain launch's pick left unsaved", got)
+		t.Errorf("default_model = %q, want it unchanged", got)
 	}
 }
 
@@ -610,19 +589,20 @@ func TestBareLaunchOnATerminalOpensThePicker(t *testing.T) {
 	}
 }
 
-// The reserved prizmal/default name is never resolved by any path: the switch
-// name is being sunset, so a launch must carry a real model or stop.
-func TestNoLaunchPathResolvesPrizmalDefault(t *testing.T) {
+// No launch path invents a model name: each resolves the flag, the saved
+// default_model or the picker's choice, and never a name of the CLI's own.
+func TestNoLaunchPathInventsAModelName(t *testing.T) {
 	useStubSwitch(t)
 
 	for _, tc := range []struct {
 		name  string
 		flag  string
 		saved string
+		want  string
 	}{
-		{name: "flag", flag: "flag-model"},
-		{name: "saved default", saved: "saved-model"},
-		{name: "picker", saved: ""},
+		{name: "flag", flag: "flag-model", want: "flag-model"},
+		{name: "saved default", saved: "saved-model", want: "saved-model"},
+		{name: "picker", saved: "", want: "picked-model"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg, _ := writeConfig(t, map[string]any{"version": 1, "default_model": tc.saved})
@@ -634,8 +614,8 @@ func TestNoLaunchPathResolvesPrizmalDefault(t *testing.T) {
 			if err != nil {
 				t.Fatalf("resolveLaunchModel: %v", err)
 			}
-			if strings.HasPrefix(chosen, "prizmal/") {
-				t.Fatalf("resolved %q; the reserved name must never be sent", chosen)
+			if chosen != tc.want {
+				t.Fatalf("resolved %q, want %q", chosen, tc.want)
 			}
 		})
 	}

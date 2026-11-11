@@ -20,11 +20,11 @@
 
 
 
-
   Select Model and Effort
 
 
 › 1. smart (current)
   2. flash
+  3. default
 
   enter select · esc back

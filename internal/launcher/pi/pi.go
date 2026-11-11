@@ -75,8 +75,7 @@ func piModelContextWindow(model launch.LaunchModel) int {
 
 // There is no pi default model. A launch resolves its model before it reaches
 // Pi — from --model, from the saved default, or from the picker — so Pi never
-// substitutes a name of its own. The reserved prizmal/default placeholder it
-// used to fall back on is sunset.
+// substitutes a name of its own.
 
 // SupportedAPIs reports that the launch configures Pi for chat completions.
 func (p *Pi) SupportedAPIs() []string { return []string{launch.APIChat} }

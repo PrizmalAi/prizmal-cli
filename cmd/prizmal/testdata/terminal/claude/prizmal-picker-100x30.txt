@@ -1,5 +1,6 @@
 Select a model
 ▸ smart
   flash
+  default
 
   ↑/k up • ↓/j down • / filter • ctrl+s save as default • esc quit without saving

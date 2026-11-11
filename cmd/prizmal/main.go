@@ -458,7 +458,7 @@ func resolveLaunchChoice(cfg *config.Config, harnessModel string, ask launcher.A
 	case harnessModel != "":
 		return launchChoice{model: harnessModel, catalog: launcher.BestEffortCatalog(ctx, os.Stderr)}, nil
 
-	case cfg != nil && cfg.DefaultModel != "" && !pickFlag && !launcher.IsReservedModelName(cfg.DefaultModel):
+	case cfg != nil && cfg.DefaultModel != "" && !pickFlag:
 		return launchChoice{model: cfg.DefaultModel, catalog: launcher.BestEffortCatalog(ctx, os.Stderr)}, nil
 	}
 
@@ -534,8 +534,9 @@ func saveDefaultModel(cfg *config.Config, model string) error {
 }
 
 // noModelSelectedError names the ways to give a launch a model, and the models
-// this key routes. The CLI never sends `default` placeholder, so a launch with nothing to run stops here instead. When the
-// list cannot be read, the error says where to read it.
+// this key routes. The CLI never invents a model name, so a launch with
+// nothing to run stops here instead. When the list cannot be read, the error
+// says where to read it.
 func noModelSelectedError(ctx context.Context) error {
 	msg := "no model selected: pass --model MODEL, run --pick to choose one, or set default_model in the config file"
 	catalog, err := launcher.FetchCatalog(ctx)
@@ -854,28 +855,20 @@ func launch(name string, extraArgs []string, cfg *config.Config, ask launcher.As
 	chosen = launcher.RouteNameFor(catalog, chosen, vocab)
 	subagentModel = launcher.RouteNameFor(catalog, subagentModel, vocab)
 
-	// A name the operator typed or saved is sent to the Switch as it is,
-	// unless it is the `default` placeholder. GET /v1/models lists each config
-	// under its own name and never the aliases the Switch also routes to it,
-	// such as the legacy claude-tier-opus, so the catalog is no evidence
-	// against a typed name. A name the catalog does not place gets a warning,
-	// and the Switch answers one it does not route with its own error. The
-	// picker's choice came off the catalog, so it is checked against it.
+	// A name the operator typed or saved is sent to the Switch as it is.
+	// GET /v1/models lists each config under its own name and never the
+	// aliases the Switch also routes to it, such as the legacy
+	// claude-tier-opus, so the catalog is no evidence against a typed name. A
+	// name the catalog does not place gets a warning, and the Switch answers
+	// one it does not route with its own error. The picker's choice came off
+	// the catalog, so it is checked against it.
 	tierWords := launcher.ResolvesTierWords(runner)
 	if choice.picked {
 		if err := launcher.CheckRoutable(chosen, catalog, tierWords); err != nil {
 			return err
 		}
-	} else {
-		if err := launcher.CheckSendable(chosen); err != nil {
-			return err
-		}
-		if !launcher.Lists(chosen, catalog, tierWords) {
-			warnUnlisted(os.Stderr, "", chosen)
-		}
-	}
-	if err := launcher.CheckSendable(subagentModel); err != nil {
-		return fmt.Errorf("--subagent-model: %w", err)
+	} else if !launcher.Lists(chosen, catalog, tierWords) {
+		warnUnlisted(os.Stderr, "", chosen)
 	}
 	if !launcher.ListsSubagent(subagentModel, catalog, tierWords) {
 		warnUnlisted(os.Stderr, "--subagent-model: ", subagentModel)
