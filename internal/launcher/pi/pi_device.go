@@ -103,10 +103,13 @@ type piDeviceModel struct {
 
 // piDeviceConfig is the sidecar config the extension reads.
 type piDeviceConfig struct {
-	ProviderID   string          `json:"providerID"`
-	ProviderName string          `json:"providerName"`
-	BaseURL      string          `json:"baseURL"`
-	Models       []piDeviceModel `json:"models"`
+	ProviderID   string `json:"providerID"`
+	ProviderName string `json:"providerName"`
+	BaseURL      string `json:"baseURL"`
+	// Headers go on every request. The sidecar lives for one launch, so it
+	// holds the running version itself rather than a variable reference.
+	Headers map[string]string `json:"headers"`
+	Models  []piDeviceModel   `json:"models"`
 }
 
 // piDeviceConfigJSON builds the sidecar config for a launch.
@@ -147,6 +150,7 @@ func piDeviceConfigJSON(model string, models []launch.LaunchModel) []byte {
 		ProviderID:   piProviderID,
 		ProviderName: "Prizmal",
 		BaseURL:      envconfig.Host().String() + "/v1",
+		Headers:      map[string]string{envconfig.ClientVersionHeader: envconfig.ClientVersion()},
 		Models:       rows,
 	}
 	data, err := json.MarshalIndent(config, "", "  ")

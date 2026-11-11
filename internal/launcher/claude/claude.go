@@ -274,6 +274,8 @@ func (c *Claude) envVars() []string {
 		// caller, and envconfig.UnversionedBaseURL explains what breaks if a
 		// base configured with the suffix keeps it.
 		"ANTHROPIC_BASE_URL=" + envconfig.UnversionedBaseURL(),
+		// Claude Code adds each line of this variable to every model request.
+		"ANTHROPIC_CUSTOM_HEADERS=" + customHeaders(os.Getenv("ANTHROPIC_CUSTOM_HEADERS")),
 	}
 	if !envconfig.DeviceMode() || envconfig.RelayMode() {
 		// The switch key travels as ANTHROPIC_AUTH_TOKEN, Claude Code's
@@ -747,3 +749,19 @@ func ClaudeInstallerCommand(goos string) (string, []string, error) {
 // claudeChildEnv sets two model variables: ANTHROPIC_DEFAULT_OPUS_MODEL, so
 // the /model picker's Default row shows the pinned model, and
 // CLAUDE_CODE_SUBAGENT_MODEL, when a subagent model was picked.
+
+// customHeaders is the value of ANTHROPIC_CUSTOM_HEADERS for a launch: the
+// operator's own lines, then the client-version line. Header names are
+// case-insensitive, so an inherited client-version line is dropped and the CLI's
+// is the only one sent.
+func customHeaders(inherited string) string {
+	var lines []string
+	for _, line := range strings.Split(inherited, "\n") {
+		name, _, _ := strings.Cut(line, ":")
+		if strings.TrimSpace(line) == "" || strings.EqualFold(strings.TrimSpace(name), envconfig.ClientVersionHeader) {
+			continue
+		}
+		lines = append(lines, strings.TrimRight(line, "\r"))
+	}
+	return strings.Join(append(lines, envconfig.ClientVersionHeader+": "+envconfig.ClientVersion()), "\n")
+}

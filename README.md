@@ -83,9 +83,9 @@ prizmal login
 
 `prizmal login` generates an ed25519 key pair at `~/.prizmal/device.key` (mode `0600`, in the `0700` directory), prints a URL and a fingerprint, opens your browser, and waits. On the consent page you confirm the fingerprint and pick a model. Then choose Allow. The CLI then polls until your tenant approves the device and stores the first device token in `~/.prizmal/token.json` (mode `0600`). There is no localhost listener, so this works over SSH: open the printed URL on any machine with a browser.
 
-Once your tenant approves a device, a launch uses it automatically. `prizmal claude` runs with an `apiKeyHelper` that refreshes the device token every few minutes, so a session keeps working across a laptop sleep and doesn't need a restart. `prizmal codex` does the same through a command-backed provider `auth`, and runs the helper again after a 401. A sign-in that a tenant's identity provider manages does not expire. Otherwise the device has a deadline, and `prizmal claude` and `prizmal codex` warn you under 24 hours before it, and `prizmal login` again re-approves the same device key.
+Once your tenant approves a device, a launch uses it automatically. `prizmal claude` runs with an `apiKeyHelper` that refreshes the device token every few minutes, so a session keeps working across a laptop sleep and doesn't need a restart. `prizmal codex` does the same through a command-backed provider `auth`, and runs the helper again after a 401. A sign-in that a tenant's identity provider manages does not expire. Otherwise the device has a deadline, and `prizmal claude` and `prizmal codex` warn you under 24 hours before it, and `prizmal login` again re-approves the same device key. A revoked device never works again. When `prizmal login` finds that its key was revoked, it asks whether to back the key up to a timestamped file next to it, then makes a new key and approves that. With no terminal, it backs the key up without asking and prints where it went.
 
-A device token is a bearer credential that expires 10 minutes after issue, and the Switch binds it to one tenant. The private key never leaves the machine. The next refresh stops once a tenant manager revokes the device or disables the tenant, or sets the member inactive.
+A device token is a bearer credential that expires 10 minutes after issue, and the Switch binds it to one tenant. The private key never leaves the machine. The next refresh stops once the device is revoked, the tenant is disabled, or the member is set inactive.
 
 Claude Code, Pi, Codex, OpenCode, Cline and Kilo Code can refresh a device token during a session, so all six run in device mode. Each does it through a mechanism its own docs describe, under [Supported integrations](#supported-integrations). Cline and Kilo Code always start the loopback relay, without `--relay`: Cline because its provider configuration takes a fixed key, Kilo Code so its inline config never holds a token that expires.
 
@@ -279,6 +279,13 @@ launches also take its tier words (`sonnet`, `opus`, `haiku`, `fable`, `best`,
 Sol, Terra, Luna and Astra, which the launch sends as the tier's alias. The
 Switch routes the alias only, so a Codex word typed outside `prizmal` routes
 nowhere.
+
+`--list` prints each of your models once, under its own name. An alias that
+routes to one of them, such as the legacy `claude-tier-opus`, is missing from
+the list and still works with `--model`. The launch prints a warning for a
+name missing from the list, then sends the name you pass. The Switch returns
+its own error for a name it does not route. The launch refuses only `default`
+before the harness starts, because it is not a model name.
 
 Backups of any modified config files are kept in `~/.prizmal/backup/`.
 Each launch, `--persist` and `--restore` deletes any backup there that

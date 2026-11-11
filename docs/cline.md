@@ -39,7 +39,7 @@ Cline also offers its own `fetch_web_content` tool in the `openai-compatible` se
 
 ## Loopback relay
 
-`prizmal cline` always starts a relay on an ephemeral `127.0.0.1` port, with a switch key or a device login, and without `--relay`. It points Cline's provider and mode base URLs at `http://127.0.0.1:<port>/v1` and sets `OPENAI_API_KEY` to a random placeholder. The relay accepts only that placeholder. It swaps in the launch's switch key, or a device token fetched for each request, and forwards the request to the Switch.
+`prizmal cline` always starts a relay on an ephemeral `127.0.0.1` port, with a switch key or a device login, and without `--relay`. It points Cline's provider and mode base URLs at `http://127.0.0.1:<port>/v1` and sets `OPENAI_API_KEY` to a random placeholder. The relay accepts only that placeholder. It swaps in the launch's switch key, or a device token fetched for each request, and forwards the request to the Switch. It also sets `x-prizmal-client-version` to the CLI's version on every request, so the Switch can tell which CLI build a request came from. Cline persists `providers.json`, so a header written there would go stale.
 
 Cline's `/model` picker sends `GET /v1/models` with no `Authorization` header, because Cline attaches one only from a key stored in its provider settings, and the launch keeps the key off disk. For that one request the relay skips the placeholder check and forwards it with the real credential, so the picker lists the names your key routes. Choosing one switches the live session's model. The next launch still starts on the model `--model` or the picker chose.
 
