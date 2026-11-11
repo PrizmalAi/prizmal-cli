@@ -32,7 +32,7 @@ func ensureDeviceKey(client *device.Client, out io.Writer) (*device.Key, bool, e
 		return key, false, nil
 	}
 
-	fmt.Fprintf(out, "\nThis device was revoked by a tenant manager, so its key can no longer sign in.\n")
+	_, _ = fmt.Fprintf(out, "\nThis device was revoked by a tenant manager, so its key can no longer sign in.\n")
 	backup := true
 	if launcher.StdinIsTerminal() {
 		backup, err = launcher.ConfirmPromptWithOptions(
@@ -46,9 +46,9 @@ func ensureDeviceKey(client *device.Client, out io.Writer) (*device.Key, bool, e
 		return nil, false, err
 	}
 	if path != "" {
-		fmt.Fprintf(out, "Moved the revoked key to %s\n", path)
+		_, _ = fmt.Fprintf(out, "Moved the revoked key to %s\n", path)
 	} else {
-		fmt.Fprintf(out, "Replaced the revoked key.\n")
+		_, _ = fmt.Fprintf(out, "Replaced the revoked key.\n")
 	}
 	return device.LoadOrCreateKey()
 }
