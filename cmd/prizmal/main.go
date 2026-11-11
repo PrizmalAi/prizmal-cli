@@ -171,6 +171,7 @@ Examples:
 				}
 			}
 
+			publishClientVersion(version)
 			envconfig.SetBaseURL(url)
 			envconfig.SetAPIKey(apiKey)
 

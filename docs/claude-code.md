@@ -11,7 +11,7 @@
 | Model, tier remaps, `/model` rows | the inline `--settings` JSON |
 | Device login | an `apiKeyHelper` in the same settings JSON |
 
-`ANTHROPIC_API_KEY` is emptied so that an Anthropic key exported in your shell stays out of Switch requests. The launch also sets `ENABLE_TOOL_SEARCH=true`, hides the claude.ai connector warning, and turns off the attribution header and error reporting.
+The launch also sends the CLI's version in an `x-prizmal-client-version` header on every request, so the Switch can tell which CLI build a request came from. A release sends its version, such as `1.4.2`, and a development build sends `dev-<short commit>`. Without the CLI, nothing sends the header, and the Switch counts that as an unknown version. Claude Code takes it from `ANTHROPIC_CUSTOM_HEADERS`, and the launch keeps any lines you already export there. `ANTHROPIC_API_KEY` is emptied so that an Anthropic key exported in your shell stays out of Switch requests. The launch also sets `ENABLE_TOOL_SEARCH=true`, hides the claude.ai connector warning, and turns off the attribution header and error reporting.
 
 A launch with no model from `--model` or a saved default, and no terminal to ask on, stops with an error that lists the names `--list` prints. `claude -p` is such a run even at a terminal: it prints its answer and exits, so the launch skips the picker and fails rather than starting on a guessed model.
 

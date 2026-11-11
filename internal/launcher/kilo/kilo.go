@@ -187,6 +187,7 @@ func buildInlineConfigFor(api, model string, catalog []launch.LaunchModel) (stri
 				"options": map[string]any{
 					"baseURL": envconfig.OpenAIBaseURL(false),
 					"apiKey":  envconfig.APIKey(),
+					"headers": map[string]any{envconfig.ClientVersionHeader: envconfig.ClientVersion()},
 				},
 				"models": modelEntries(models),
 			},
