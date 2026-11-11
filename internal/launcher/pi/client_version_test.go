@@ -68,7 +68,10 @@ func TestPiDeviceLaunchSendsTheClientVersion(t *testing.T) {
 	launchtest.WithDeviceMode(t)
 	envconfig.SetBaseURL("https://switch.test")
 	envconfig.SetClientVersion("1.4.2")
-	t.Cleanup(func() { envconfig.SetClientVersion("") })
+	t.Cleanup(func() {
+		envconfig.SetBaseURL("")
+		envconfig.SetClientVersion("")
+	})
 
 	l, err := piDeviceLaunchFor("probe-model", []launch.LaunchModel{{Name: "probe-model"}})
 	if err != nil {
@@ -115,5 +118,15 @@ func TestPiEditKeepsOtherProviderHeaders(t *testing.T) {
 	want := map[string]any{"X-Team": "blue", "x-prizmal-client-version": wantVersionRef}
 	if len(headers) != len(want) || headers["X-Team"] != "blue" || headers["x-prizmal-client-version"] != wantVersionRef {
 		t.Errorf("headers = %v, want %v", headers, want)
+	}
+}
+
+// The device-launch test overrides the process-wide Switch URL, so it must put
+// the URL back for every test that runs after it.
+func TestPiDeviceLaunchTestRestoresTheBaseURL(t *testing.T) {
+	before := envconfig.BaseURL()
+	t.Run("device launch", TestPiDeviceLaunchSendsTheClientVersion)
+	if after := envconfig.BaseURL(); after != before {
+		t.Errorf("base URL after the test = %q, want %q", after, before)
 	}
 }

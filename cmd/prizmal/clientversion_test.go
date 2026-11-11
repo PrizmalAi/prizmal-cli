@@ -26,6 +26,8 @@ func TestClientVersion(t *testing.T) {
 		{name: "checkout build reports the short commit", injected: "dev", bi: true, revision: full, want: "dev-01fff91"},
 		{name: "go install of a tag is a release", injected: "dev", bi: true, main: "v1.4.2", want: "1.4.2"},
 		{name: "go install of a pseudo-version is a development build", injected: "dev", bi: true, main: pseudo, want: "dev-01fff91"},
+		{name: "a commit after a tag is a development build", injected: "dev", bi: true, main: "v1.4.3-0.20260910222028-01fff91317fc", want: "dev-01fff91"},
+		{name: "a commit after a pre-release tag is a development build", injected: "dev", bi: true, main: "v1.4.3-rc.1.0.20260910222028-01fff91317fc", want: "dev-01fff91"},
 		{name: "no commit at all", injected: "dev", bi: true, want: "dev-unknown"},
 		{name: "no build info", injected: "dev", want: "dev-unknown"},
 		{name: "empty injection", injected: "", want: "dev-unknown"},

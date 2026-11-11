@@ -8,9 +8,12 @@ import (
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 )
 
-// pseudoVersionHash picks the commit out of a module pseudo-version such as
-// v0.0.0-20260910222028-01fff91317fc, which `go install module@commit` records.
-var pseudoVersionHash = regexp.MustCompile(`-\d{14}-([0-9a-f]{12})$`)
+// pseudoVersionHash picks the commit out of a module pseudo-version, which
+// `go install module@commit` records. Three shapes exist: v0.0.0-<ts>-<hash>
+// (no tag), vX.Y.Z-pre.0.<ts>-<hash> (after a pre-release tag) and
+// vX.Y.(Z+1)-0.<ts>-<hash> (after a release tag). The timestamp follows a
+// hyphen in the first and a dot in the others.
+var pseudoVersionHash = regexp.MustCompile(`[-.]\d{14}-([0-9a-f]{12})$`)
 
 // shortCommitLen is how much of a commit id a development build reports.
 const shortCommitLen = 7
