@@ -222,6 +222,7 @@ func TestRefreshStatusCodeMapping(t *testing.T) {
 		{"404 pending", http.StatusNotFound, `{"error":{"code":"NOT_FOUND"}}`, ErrDeviceUnknown},
 		{"401 generic", http.StatusUnauthorized, `{"error":{"code":"UNAUTHORIZED"}}`, ErrNotAuthorized},
 		{"401 reauth", http.StatusUnauthorized, `{"error":{"code":"REAUTH_REQUIRED"}}`, ErrReauthRequired},
+		{"401 revoked", http.StatusUnauthorized, `{"error":{"code":"DEVICE_REVOKED"}}`, ErrDeviceRevoked},
 		{"429 throttle", http.StatusTooManyRequests, `{"error":{"code":"CONFLICT"}}`, ErrRateLimited},
 		{"503 unavailable", http.StatusServiceUnavailable, `{"error":{"code":"UNAVAILABLE"}}`, ErrUnavailable},
 	}

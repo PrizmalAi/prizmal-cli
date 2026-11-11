@@ -26,7 +26,7 @@ const refreshTimeout = 15 * time.Second
 var ErrDeviceUnknown = errors.New("device not enrolled")
 
 // ErrNotAuthorized means the switch answered 401 with no more specific code:
-// a bad signature, a stale ts, a revoked device, an inactive member, an
+// a bad signature, a stale ts, an inactive member, an
 // inactive WorkOS membership, or a disabled tenant. The switch says nothing
 // about which, and neither does this.
 var ErrNotAuthorized = errors.New("device not authorized")
@@ -36,6 +36,13 @@ var ErrNotAuthorized = errors.New("device not authorized")
 // the developer signs in again in the browser, which re-approves the same
 // device key — so it is a distinct error the CLI maps to "run prizmal login".
 var ErrReauthRequired = errors.New("device sign-in deadline passed")
+
+// ErrDeviceRevoked means the switch answered 401 DEVICE_REVOKED: a tenant
+// manager revoked this device, and the request's signature verified, so the
+// key is the enrolled one. A revoked device never works again, so the fix is
+// a new key, which prizmal login makes. The switch answers this only to the
+// holder of the key; every other 401 stays ErrNotAuthorized.
+var ErrDeviceRevoked = errors.New("device revoked")
 
 // ErrRateLimited means the switch answered 429: a refresh arrived within 30
 // seconds of the previous one. The remedy is to wait one second and re-read
@@ -152,8 +159,11 @@ func (c *Client) Refresh(key *Key, now time.Time) (*Token, error) {
 		return nil, ErrUnavailable
 
 	case http.StatusUnauthorized:
-		if codeOf(data) == "REAUTH_REQUIRED" {
+		switch codeOf(data) {
+		case "REAUTH_REQUIRED":
 			return nil, ErrReauthRequired
+		case "DEVICE_REVOKED":
+			return nil, ErrDeviceRevoked
 		}
 		return nil, ErrNotAuthorized
 

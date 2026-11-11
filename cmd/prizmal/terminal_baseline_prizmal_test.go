@@ -42,7 +42,11 @@ var (
 	// the next line's text, because in the colour capture that line opens with a
 	// style escape the plain capture does not carry.
 	baselineConfigPathPattern = regexp.MustCompile(`(?s)(No configuration found at ).*?\.prizmal/config\.json`)
-	baselineFingerprint       = regexp.MustCompile(`Device fingerprint: [0-9a-f]{4}-[0-9a-f]{4}`)
+	// baselineBackupPath matches the path the revoked-key flow prints for the
+	// backup: a temp HOME plus a timestamp, both different on every run, and
+	// long enough to wrap, so the whole block up to the next stable line goes.
+	baselineBackupPath  = regexp.MustCompile(`(?s)(Moved the revoked key to ).*?(\n\nSigning in with your browser)`)
+	baselineFingerprint = regexp.MustCompile(`Device fingerprint: [0-9a-f]{4}-[0-9a-f]{4}`)
 	// baselineBrowserFailure matches the parenthetical reason the login prints
 	// when it cannot open a browser. In a baseline run the reason is always the
 	// testing guard, which is an artifact of the harness and differs on a real
@@ -56,6 +60,7 @@ var (
 func withStableDeviceValues(screen string) string {
 	screen = baselineConsentURLPattern.ReplaceAllString(screen, "${1}<consent-url>${2}")
 	screen = baselineConfigPathPattern.ReplaceAllString(screen, "${1}<config-path>${2}")
+	screen = baselineBackupPath.ReplaceAllString(screen, "${1}<backup-path>${2}")
 	screen = baselineFingerprint.ReplaceAllString(screen, "Device fingerprint: <fp>")
 	screen = baselineBrowserFailure.ReplaceAllString(screen, "Could not open a browser automatically.")
 	return screen
@@ -135,6 +140,37 @@ var prizmalBaselineCases = []baselineCase{
 		deviceApproved: true,
 		env:            []string{"PRIZMAL_APP_URL=" + nonRoutableAppURL},
 		steps:          []baselineStep{{waitFor: "This device is approved"}},
+	},
+	// A machine whose device key was revoked. The stub answers the first refresh
+	// as the Switch answers a revoked key; the login says so, asks about a
+	// backup, and goes on with a new key, which the next refresh approves. The
+	// baseline run has a terminal, so the prompt is drawn.
+	{
+		name: "login-revoked-backup-100x30", cols: 100, rows: 30,
+		args:               []string{"login"},
+		deviceKey:          true,
+		deviceApproved:     true,
+		deviceRevokedFirst: true,
+		env:                []string{"PRIZMAL_APP_URL=" + nonRoutableAppURL},
+		steps: []baselineStep{
+			{waitFor: "Back up the revoked key"},
+			{key: "Enter", waitFor: "This device is approved"},
+		},
+	},
+	// The same login where the operator declines the backup: the key is replaced
+	// and no file is kept.
+	{
+		name: "login-revoked-replace-100x30", cols: 100, rows: 30,
+		args:               []string{"login"},
+		deviceKey:          true,
+		deviceApproved:     true,
+		deviceRevokedFirst: true,
+		env:                []string{"PRIZMAL_APP_URL=" + nonRoutableAppURL},
+		steps: []baselineStep{
+			{waitFor: "Back up the revoked key"},
+			{key: "n"},
+			{key: "Enter", waitFor: "This device is approved"},
+		},
 	},
 	// Codex missing from PATH with npm present: the launch offers to install
 	// it, as it does for the other npm-installed harnesses.

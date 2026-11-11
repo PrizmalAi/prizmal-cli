@@ -116,6 +116,9 @@ func enterDeviceMode() error {
 		if errors.Is(err, device.ErrReauthRequired) {
 			return fmt.Errorf("this device's sign-in expired; run prizmal login to re-approve it")
 		}
+		if errors.Is(err, device.ErrDeviceRevoked) {
+			return fmt.Errorf("this device was revoked; run prizmal login to enroll a new key")
+		}
 		if errors.Is(err, device.ErrNotAuthorized) || errors.Is(err, device.ErrDeviceUnknown) {
 			return fmt.Errorf("device not authorized; run prizmal login to re-approve this device")
 		}
@@ -147,7 +150,9 @@ func loadCachedToken() *device.CachedToken {
 // machine that has one reuses it, so the Config API updates the same device
 // row the tenant already trusts and the device id does not change. Minting a
 // new key here would silently orphan the old enrollment and leave the operator
-// comparing a fingerprint against a device the browser page never showed.
+// comparing a fingerprint against a device the browser page never showed. The
+// one exception is a revoked device, which the Switch refuses for good:
+// ensureDeviceKey replaces that key.
 func cmdLogin(cmd *cobra.Command, _ []string) error {
 	flagURL, _ := cmd.Flags().GetString("url")
 	flagKey, _ := cmd.Flags().GetString("api-key")
@@ -162,7 +167,8 @@ func cmdLogin(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	key, created, err := device.LoadOrCreateKey()
+	client := device.NewClient(envconfig.BaseURL())
+	key, created, err := ensureDeviceKey(client, os.Stderr)
 	if err != nil {
 		return err
 	}
@@ -174,7 +180,6 @@ func cmdLogin(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintf(os.Stderr, "Re-approving the device key already on this machine.\n")
 	}
 
-	client := device.NewClient(envconfig.BaseURL())
 	token, err := device.Login(client, key, device.LoginOptions{
 		AuthorizeBaseURL: appURL,
 		DeviceName:       deviceName(),
