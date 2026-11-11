@@ -141,9 +141,14 @@ type serverConfig struct {
 	deviceApproved bool
 	// approveAfter, when above zero, keeps the device pending until that many
 	// refresh requests have arrived. refreshes counts them.
-	approveAfter        int32
-	refreshes           atomic.Int32
-	deviceOnly          bool
+	approveAfter int32
+	refreshes    atomic.Int32
+	deviceOnly   bool
+	// revokeFirst answers the first refresh with 401 DEVICE_REVOKED, the one
+	// answer the Switch gives a revoked device's key, then follows the
+	// approval options. revoked records that the first answer went out.
+	revokeFirst         bool
+	revoked             atomic.Bool
 	issuer              *DeviceTokenIssuer
 	toolLoop            *toolScript
 	usagePlan           *UsagePlan
@@ -444,6 +449,14 @@ func WithDeviceApproval() ServerOption {
 	return func(c *serverConfig) { c.deviceApproved = true }
 }
 
+// WithDeviceRevokedFirst makes the first POST /v1/cli/token answer 401
+// DEVICE_REVOKED, as the Switch does for a revoked device's key, and every
+// later one follow the approval options. A login then meets a revoked key and,
+// once it makes a new one, the approval it asks for.
+func WithDeviceRevokedFirst() ServerOption {
+	return func(c *serverConfig) { c.revokeFirst = true }
+}
+
 // WithDeviceApprovalAfter approves the device on the nth refresh request and
 // answers 404 before it. It gives a login time to show its pending screen and
 // take a keypress before the approval lands.
@@ -730,6 +743,12 @@ func handler(c *serverConfig) http.HandlerFunc {
 // short-lived tokens, otherwise a fresh short-lived one. The 600-second expiry
 // and fixed reauth_by mirror the shape the Switch forwards from the Config API.
 func handleCLIToken(w http.ResponseWriter, c *serverConfig) {
+	if c.revokeFirst && c.revoked.CompareAndSwap(false, true) {
+		writeJSON(w, http.StatusUnauthorized, map[string]any{
+			"error": map[string]any{"code": "DEVICE_REVOKED", "message": "device revoked"},
+		})
+		return
+	}
 	if !c.deviceApproved || (c.approveAfter > 0 && c.refreshes.Add(1) < c.approveAfter) {
 		writeJSON(w, http.StatusNotFound, map[string]any{
 			"error": map[string]any{"code": "NOT_FOUND", "message": "unknown device"},

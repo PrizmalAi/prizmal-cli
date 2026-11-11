@@ -143,6 +143,24 @@ func TestAuthTokenReauthRequiredSaysRunLogin(t *testing.T) {
 	}
 }
 
+// A revoked device's helper run ends with the same next step as every other
+// refusal the CLI can fix: run prizmal login, which makes a new key.
+func TestAuthTokenRevokedDeviceSaysRunLogin(t *testing.T) {
+	home := useTempHome(t)
+	writeDeviceKey(t, home)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"code":"DEVICE_REVOKED"}}`))
+	}))
+	defer srv.Close()
+
+	_, err := runAuthToken(t, srv.URL)
+	if err == nil || !strings.Contains(err.Error(), "revoked") || !strings.Contains(err.Error(), "prizmal login") {
+		t.Fatalf("error = %v, want it to say the device was revoked and to run prizmal login", err)
+	}
+}
+
 // resetAppURLState clears the envconfig URL fields appBaseURL reads, so a
 // config URL one test loads cannot leak into the next.
 func resetAppURLState(t *testing.T) {

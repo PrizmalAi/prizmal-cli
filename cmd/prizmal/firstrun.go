@@ -248,14 +248,14 @@ func runBrowserSignIn() error {
 	if err != nil {
 		return err
 	}
-	key, created, err := device.LoadOrCreateKey()
+	client := device.NewClient(envconfig.BaseURL())
+	key, created, err := ensureDeviceKey(client, os.Stderr)
 	if err != nil {
 		return err
 	}
 	if created {
 		fmt.Fprintf(os.Stderr, "Generated a device key at ~/.prizmal/%s\n", device.KeyFileName)
 	}
-	client := device.NewClient(envconfig.BaseURL())
 	token, err := device.Login(client, key, device.LoginOptions{
 		AuthorizeBaseURL: appURL,
 		DeviceName:       deviceName(),
