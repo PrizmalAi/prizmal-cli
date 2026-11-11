@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -97,6 +98,10 @@ func TestLoginBacksUpRevokedKeyWhenAsked(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "revoked") || !strings.Contains(out.String(), backups[0]) {
 		t.Fatalf("output %q must say the device was revoked and where the backup went", out.String())
+	}
+	// The message states the fact and names no one who caused it.
+	if !slices.Contains(strings.Split(out.String(), "\n"), "This device was revoked.") {
+		t.Fatalf("output %q must hold the line \"This device was revoked.\" and nothing about who revoked it", out.String())
 	}
 	if !strings.Contains(strings.ToLower(prompts.String()), "back up") {
 		t.Fatalf("the operator was not asked about a backup: %q", prompts.String())

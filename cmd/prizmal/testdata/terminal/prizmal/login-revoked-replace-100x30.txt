@@ -1,5 +1,5 @@
 
-This device was revoked by a tenant manager, so its key can no longer sign in.
+This device was revoked.
 Back up the revoked key before making a new one? (Y/n) n
 Replaced the revoked key.
 

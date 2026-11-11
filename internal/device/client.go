@@ -37,8 +37,8 @@ var ErrNotAuthorized = errors.New("device not authorized")
 // device key — so it is a distinct error the CLI maps to "run prizmal login".
 var ErrReauthRequired = errors.New("device sign-in deadline passed")
 
-// ErrDeviceRevoked means the switch answered 401 DEVICE_REVOKED: a tenant
-// manager revoked this device, and the request's signature verified, so the
+// ErrDeviceRevoked means the switch answered 401 DEVICE_REVOKED: the
+// device was revoked, and the request's signature verified, so the
 // key is the enrolled one. A revoked device never works again, so the fix is
 // a new key, which prizmal login makes. The switch answers this only to the
 // holder of the key; every other 401 stays ErrNotAuthorized.

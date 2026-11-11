@@ -32,7 +32,7 @@ func ensureDeviceKey(client *device.Client, out io.Writer) (*device.Key, bool, e
 		return key, false, nil
 	}
 
-	_, _ = fmt.Fprintf(out, "\nThis device was revoked by a tenant manager, so its key can no longer sign in.\n")
+	_, _ = fmt.Fprintf(out, "\nThis device was revoked.\n")
 	backup := true
 	if launcher.StdinIsTerminal() {
 		backup, err = launcher.ConfirmPromptWithOptions(
