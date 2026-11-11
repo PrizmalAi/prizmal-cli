@@ -40,6 +40,12 @@ const piProviderID = "prizmal"
 // so models.json names the variable and never holds the key itself.
 const piAPIKeyReference = "$" + envconfig.KeyEnvVar
 
+// piClientVersionReference is the header value Edit writes into the provider
+// entry. models.json persists across upgrades, so it names the variable and
+// every launch exports the running version. pi refuses a request whose
+// referenced variable is unset or empty, so the launch never leaves it so.
+const piClientVersionReference = "$" + envconfig.ClientVersionEnvVar
+
 // piRestoredProviderID aliases piProviderID for Restore; keeping one name
 // makes a rename of either a compile error rather than a silent split.
 const piRestoredProviderID = piProviderID
@@ -187,12 +193,14 @@ func (p *Pi) childEnv(extension *piDeviceLaunch) []string {
 }
 
 func (p *Pi) envVars(extension *piDeviceLaunch) []string {
+	version := envconfig.ClientVersionEnvVar + "=" + envconfig.ClientVersion()
 	if extension == nil {
-		return []string{envconfig.KeyEnvVar + "=" + envconfig.APIKey()}
+		return []string{envconfig.KeyEnvVar + "=" + envconfig.APIKey(), version}
 	}
 	return claude.EnsureHelperBaseURL([]string{
 		piCredentialCommandEnv + "=" + piCredentialCommand(),
 		piDeviceConfigEnv + "=" + extension.configPath,
+		version,
 	}, envconfig.BaseURL())
 }
 
@@ -671,6 +679,7 @@ func (p *Pi) Edit(models []launch.LaunchModel) error {
 			"baseUrl": envconfig.OpenAIBaseURL(false),
 			"api":     "openai-completions",
 			"apiKey":  piAPIKeyReference,
+			"headers": map[string]any{envconfig.ClientVersionHeader: piClientVersionReference},
 		}
 	} else {
 		// Re-assert the current endpoint and key reference, so a provider
@@ -678,6 +687,7 @@ func (p *Pi) Edit(models []launch.LaunchModel) error {
 		piProvider["baseUrl"] = envconfig.OpenAIBaseURL(false)
 		piProvider["api"] = "openai-completions"
 		piProvider["apiKey"] = piAPIKeyReference
+		piProvider["headers"] = withClientVersionHeader(piProvider["headers"])
 	}
 
 	existingModels, ok := piProvider["models"].([]any)
@@ -909,4 +919,19 @@ func createConfig(model launch.LaunchModel) map[string]any {
 	cfg["maxTokens"] = piFallbackMaxOutputTokens
 
 	return cfg
+}
+
+// withClientVersionHeader keeps the operator's other provider headers and
+// replaces any client-version entry with the variable reference.
+func withClientVersionHeader(existing any) map[string]any {
+	headers := map[string]any{}
+	if current, ok := existing.(map[string]any); ok {
+		for name, value := range current {
+			if !strings.EqualFold(name, envconfig.ClientVersionHeader) {
+				headers[name] = value
+			}
+		}
+	}
+	headers[envconfig.ClientVersionHeader] = piClientVersionReference
+	return headers
 }

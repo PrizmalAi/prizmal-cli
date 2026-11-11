@@ -525,6 +525,7 @@ func codexManagedConfigOverrides(modelCatalogPath string) ([]string, error) {
 		fmt.Sprintf("model_providers.%s.name=%q", codexProfileName, codexProviderName),
 		fmt.Sprintf("model_providers.%s.base_url=%q", codexProfileName, codexBaseURL()),
 		fmt.Sprintf("model_providers.%s.wire_api=%q", codexProfileName, "responses"),
+		fmt.Sprintf("model_providers.%s.http_headers={%q=%q}", codexProfileName, envconfig.ClientVersionHeader, envconfig.ClientVersion()),
 	}
 	for _, setting := range settings {
 		overrides = append(overrides, "model_providers."+codexProfileName+"."+setting.key+"="+setting.value)
