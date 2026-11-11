@@ -161,173 +161,16 @@ func TestAuthTokenRevokedDeviceSaysRunLogin(t *testing.T) {
 	}
 }
 
-// resetAppURLState clears the envconfig URL fields appBaseURL reads, so a
-// config URL one test loads cannot leak into the next.
+// resetAppURLState clears the envconfig URL fields a login reads, so a config
+// URL one test loads cannot leak into the next.
 func resetAppURLState(t *testing.T) {
 	t.Helper()
 	envconfig.SetBaseURL("")
 	envconfig.SetConfigBaseURL("")
-	envconfig.SetConfigAppURL("")
 	t.Cleanup(func() {
 		envconfig.SetBaseURL("")
 		envconfig.SetConfigBaseURL("")
-		envconfig.SetConfigAppURL("")
 	})
-}
-
-// The consent URL comes from $PRIZMAL_APP_URL, then the config file's app_url,
-// then the production app. Only the production switch has a default; the app
-// origin cannot be derived from any other switch host.
-func TestAppBaseURL(t *testing.T) {
-	t.Setenv("PRIZMAL_SWITCH_URL", "")
-	t.Setenv("PRIZMAL_APP_URL", "")
-	resetAppURLState(t)
-
-	envconfig.SetBaseURL("https://api.prizmal.ai")
-	got, err := appBaseURL()
-	if err != nil || got != "https://app.prizmal.ai" {
-		t.Fatalf("appBaseURL(production) = %q, %v; want the production app", got, err)
-	}
-
-	envconfig.SetConfigBaseURL("https://api.example.test")
-	envconfig.SetConfigAppURL("https://app.example.test/")
-	envconfig.SetBaseURL("https://api.example.test")
-	got, err = appBaseURL()
-	if err != nil || got != "https://app.example.test" {
-		t.Fatalf("appBaseURL(config app_url) = %q, %v; want the config app", got, err)
-	}
-
-	// A capitalised production host still reaches the production app.
-	envconfig.SetBaseURL("https://API.prizmal.ai")
-	got, err = appBaseURL()
-	if err != nil || got != "https://app.prizmal.ai" {
-		t.Fatalf("appBaseURL(capitalised production) = %q, %v; want the production app", got, err)
-	}
-
-	// Relay mode changes the URL a launch uses, not the switch the config names,
-	// so the paired app still answers.
-	envconfig.SetRelay("http://127.0.0.1:54321", "placeholder")
-	t.Cleanup(envconfig.ClearRelay)
-	envconfig.SetConfigBaseURL("https://api.example.test")
-	envconfig.SetConfigAppURL("https://app.example.test")
-	envconfig.SetBaseURL("https://api.example.test")
-	got, err = appBaseURL()
-	if err != nil || got != "https://app.example.test" {
-		t.Fatalf("appBaseURL(relay mode) = %q, %v; want the paired config app", got, err)
-	}
-
-	t.Setenv("PRIZMAL_APP_URL", "https://app.example.invalid/")
-	got, err = appBaseURL()
-	if err != nil || got != "https://app.example.invalid" {
-		t.Fatalf("appBaseURL($PRIZMAL_APP_URL) = %q, %v; want the environment app", got, err)
-	}
-}
-
-// A non-production switch with no app URL must stop the login and name the
-// setting, not approve the device on the production page.
-func TestAppBaseURLRequiresAppURLForNonProductionSwitch(t *testing.T) {
-	t.Setenv("PRIZMAL_SWITCH_URL", "")
-	t.Setenv("PRIZMAL_APP_URL", "")
-	resetAppURLState(t)
-	envconfig.SetBaseURL("https://api.example.test")
-
-	got, err := appBaseURL()
-	if err == nil {
-		t.Fatalf("appBaseURL = %q, want an error for a non-production switch with no app URL", got)
-	}
-	for _, want := range []string{"app_url", "$PRIZMAL_APP_URL"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("error = %q, want it to name %s", err, want)
-		}
-	}
-}
-
-// A --url or $PRIZMAL_SWITCH_URL override replaces the configured switch, so
-// the configured consent app no longer belongs to it. Login must stop instead of
-// pointing the override's operator at the configured app.
-func TestAppBaseURLIgnoresConfigAppForAnOverriddenSwitch(t *testing.T) {
-	t.Setenv(envconfig.EnvVar, "")
-	t.Setenv("PRIZMAL_APP_URL", "")
-	resetAppURLState(t)
-	envconfig.SetConfigBaseURL("https://api.example.test")
-	envconfig.SetConfigAppURL("https://app.example.test")
-	envconfig.SetBaseURL("https://api.other.example")
-
-	if _, err := appBaseURL(); err == nil {
-		t.Fatal("appBaseURL used the configured app for a switch the override replaced")
-	}
-
-	// The pairing needs a switch in the config file. An app_url on its own is
-	// still not a pairing for a switch that another source resolved.
-	resetAppURLState(t)
-	envconfig.SetConfigAppURL("https://app.example.test")
-	envconfig.SetBaseURL("https://api.example.test")
-	if _, err := appBaseURL(); err == nil {
-		t.Fatal("appBaseURL used an app_url with no config base_url for an overridden switch")
-	}
-
-	// The same holds when $PRIZMAL_SWITCH_URL is the source that chose the
-	// switch.
-	resetAppURLState(t)
-	envconfig.SetConfigAppURL("https://app.example.test")
-	t.Setenv(envconfig.EnvVar, "https://api.example.test")
-	if _, err := appBaseURL(); err == nil {
-		t.Fatal("appBaseURL used the configured app for a switch the environment replaced")
-	}
-}
-
-// The config file's app_url drives the consent page, so a non-production machine
-// configured only through ~/.prizmal/config.json signs in on its app.
-func TestLoginConsentAppFollowsConfigAppURL(t *testing.T) {
-	home := useTempHome(t)
-	t.Setenv(envconfig.EnvVar, "")
-	t.Setenv("PRIZMAL_APP_URL", "")
-	resetAppURLState(t)
-
-	dir := filepath.Join(home, ".prizmal")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	writeJSONFile(t, filepath.Join(dir, "config.json"), map[string]any{
-		"version":  1,
-		"base_url": "https://api.example.test",
-		"app_url":  "https://app.example.test",
-	})
-
-	if err := applyURLPrecedence("", ""); err != nil {
-		t.Fatalf("applyURLPrecedence: %v", err)
-	}
-	if got := envconfig.BaseURL(); got != "https://api.example.test" {
-		t.Fatalf("BaseURL() = %q, want the config file's switch URL", got)
-	}
-	got, err := appBaseURL()
-	if err != nil || got != "https://app.example.test" {
-		t.Fatalf("appBaseURL() = %q, %v; want the config file's app_url", got, err)
-	}
-}
-
-// A config file naming a non-production switch and no app URL reaches the same
-// error, so the login names what the file is missing instead of guessing.
-func TestLoginRequiresAppURLForConfiguredNonProductionSwitch(t *testing.T) {
-	home := useTempHome(t)
-	t.Setenv(envconfig.EnvVar, "")
-	t.Setenv("PRIZMAL_APP_URL", "")
-	resetAppURLState(t)
-
-	dir := filepath.Join(home, ".prizmal")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	writeJSONFile(t, filepath.Join(dir, "config.json"), map[string]any{
-		"version": 1, "base_url": "https://api.example.test",
-	})
-
-	if err := applyURLPrecedence("", ""); err != nil {
-		t.Fatalf("applyURLPrecedence: %v", err)
-	}
-	if _, err := appBaseURL(); err == nil {
-		t.Fatal("appBaseURL found an app URL for a non-production switch with none configured")
-	}
 }
 
 // A config file that exists but cannot be parsed must stop the login rather
@@ -336,7 +179,6 @@ func TestLoginRequiresAppURLForConfiguredNonProductionSwitch(t *testing.T) {
 func TestLoginRefusesUnreadableConfig(t *testing.T) {
 	home := useTempHome(t)
 	t.Setenv(envconfig.EnvVar, "")
-	t.Setenv("PRIZMAL_APP_URL", "")
 	resetAppURLState(t)
 
 	dir := filepath.Join(home, ".prizmal")

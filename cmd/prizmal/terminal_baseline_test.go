@@ -129,6 +129,9 @@ type baselineCase struct {
 	deviceApprovedAfter int
 	// deviceRevokedFirst makes the stub answer the first refresh as a revoked
 	// device's key, so a login with a key on disk meets the revoked-key flow.
+	// noApprovalPage makes the stub answer the approval-page route as a Switch
+	// that predates it, so a login stops with the error for a missing page.
+	noApprovalPage     bool
 	deviceRevokedFirst bool
 	// deviceKey writes a device.key into HOME before the launch. It is how a
 	// case reaches the re-approve line (key present) or the no-key error
@@ -347,6 +350,9 @@ func renderBaseline(t *testing.T, tmuxPath, prizmalBin, claudeDir string, tc bas
 	}
 	if tc.deviceApprovedAfter > 0 {
 		opts = append(opts, stubserver.WithDeviceApprovalAfter(tc.deviceApprovedAfter))
+	}
+	if tc.noApprovalPage {
+		opts = append(opts, stubserver.WithoutApprovalPage())
 	}
 	if tc.deviceRevokedFirst {
 		opts = append(opts, stubserver.WithDeviceRevokedFirst())

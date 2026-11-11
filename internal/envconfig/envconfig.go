@@ -27,7 +27,6 @@ var (
 	mu          sync.RWMutex
 	override    string
 	configURL   string
-	configApp   string
 	keyOverride string
 	configKey   string
 	deviceToken string
@@ -119,45 +118,12 @@ func SetConfigBaseURL(u string) {
 	configURL = strings.TrimRight(strings.TrimSpace(u), "/")
 }
 
-// SetConfigAppURL records the consent app URL read from the config file. It
-// sits below $PRIZMAL_APP_URL and above the production default.
-func SetConfigAppURL(u string) {
-	mu.Lock()
-	defer mu.Unlock()
-	configApp = strings.TrimRight(strings.TrimSpace(u), "/")
-}
-
 // ConfigBaseURL returns the switch URL the config file names, empty when it
 // names none.
 func ConfigBaseURL() string {
 	mu.RLock()
 	defer mu.RUnlock()
 	return configURL
-}
-
-// PairedAppURL returns the config file's app_url when the app belongs to the
-// switch that resolved. That holds when the config file also names that switch,
-// or when the config names no switch and no flag or $PRIZMAL_SWITCH_URL chose
-// one either. An override names another switch, for which the config app is the
-// wrong page, so an override must name its own app with $PRIZMAL_APP_URL.
-func PairedAppURL() string {
-	envURL := strings.TrimRight(strings.TrimSpace(os.Getenv(EnvVar)), "/")
-	mu.RLock()
-	app, cfg, flagURL := configApp, configURL, override
-	mu.RUnlock()
-	if app == "" {
-		return ""
-	}
-	if cfg != "" {
-		if UpstreamBaseURL() != cfg {
-			return ""
-		}
-		return app
-	}
-	if flagURL != "" || envURL != "" {
-		return ""
-	}
-	return app
 }
 
 // SetAPIKey sets the process-wide provider API key (used by the --api-key flag).

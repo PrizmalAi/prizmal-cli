@@ -3,10 +3,9 @@ package main
 import (
 	"errors"
 	"fmt"
-	neturl "net/url"
+	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/config"
@@ -17,36 +16,34 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// appBaseURL is the admin app that serves the /cli/authorize consent page. An
-// explicit $PRIZMAL_APP_URL wins, then the config file's app_url, then the
-// production app — but only for the production switch. The consent page lives
-// on another environment's host, so any other switch needs an app URL; guessing
-// one would send the operator to a host that is not the switch's.
-//
-// The config file's app_url belongs to the base_url in the same file. When a
-// flag or $PRIZMAL_SWITCH_URL names a different switch, the config app is the
-// wrong page for it and is ignored, which leaves the override to name its own
-// app with $PRIZMAL_APP_URL.
-func appBaseURL() (string, error) {
-	if v := strings.TrimSpace(os.Getenv("PRIZMAL_APP_URL")); v != "" {
-		return strings.TrimRight(v, "/"), nil
+// approvalURL asks the Switch where a person approves a device. The page
+// belongs to the same deployment as the Switch, so the Switch reports it and
+// the CLI holds no list of hosts, no environment setting and no default. A
+// Switch that reports none stops the login: there is no other page to send the
+// operator to.
+func approvalURL(client *device.Client) (string, error) {
+	url, err := client.ApprovalURL()
+	if errors.Is(err, device.ErrNoApprovalPage) {
+		return "", fmt.Errorf(
+			"the Switch at %s doesn't report an approval page, so prizmal login can't tell where to approve this device; the CLI or the Switch needs updating",
+			client.BaseURL)
 	}
-	if app := envconfig.PairedAppURL(); app != "" {
-		return app, nil
-	}
-	if isDefaultSwitch() {
-		return "https://app.prizmal.ai", nil
-	}
-	return "", fmt.Errorf(
-		"no consent app for switch %s: set $PRIZMAL_APP_URL or the matching app_url in the config file",
-		envconfig.BaseURL())
+	return url, err
 }
 
-// isDefaultSwitch reports whether the resolved switch is the production API,
-// the one host whose consent app is known without configuration.
-func isDefaultSwitch() bool {
-	u, err := neturl.Parse(envconfig.BaseURL())
-	return err == nil && strings.EqualFold(u.Hostname(), "api.prizmal.ai")
+// prepareLogin does what a login needs before it prints a URL: it asks the
+// Switch for the approval page, then settles the device key. The page comes
+// first, so a Switch that reports none leaves no new key behind.
+func prepareLogin(client *device.Client, out io.Writer) (string, *device.Key, bool, error) {
+	appURL, err := approvalURL(client)
+	if err != nil {
+		return "", nil, false, err
+	}
+	key, created, err := ensureDeviceKey(client, out)
+	if err != nil {
+		return "", nil, false, err
+	}
+	return appURL, key, created, nil
 }
 
 // deviceKeyExists reports whether this machine has an enrolled (or
@@ -160,15 +157,10 @@ func cmdLogin(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// Resolve the consent page before creating a key: a login that cannot tell
-	// which app to approve on must not leave a new device key behind.
-	appURL, err := appBaseURL()
-	if err != nil {
-		return err
-	}
-
+	// Ask the Switch for the approval page before making a key: a login that
+	// cannot tell where to approve must not leave a new device key behind.
 	client := device.NewClient(envconfig.BaseURL())
-	key, created, err := ensureDeviceKey(client, os.Stderr)
+	appURL, key, created, err := prepareLogin(client, os.Stderr)
 	if err != nil {
 		return err
 	}
@@ -181,9 +173,9 @@ func cmdLogin(cmd *cobra.Command, _ []string) error {
 	}
 
 	token, err := device.Login(client, key, device.LoginOptions{
-		AuthorizeBaseURL: appURL,
-		DeviceName:       deviceName(),
-		Out:              os.Stderr,
+		ApprovalURL: appURL,
+		DeviceName:  deviceName(),
+		Out:         os.Stderr,
 	})
 	if err != nil {
 		return err
@@ -269,7 +261,6 @@ func applyURLPrecedence(flagURL, flagKey string) error {
 	if cfg.BaseURL != "" {
 		envconfig.SetConfigBaseURL(cfg.BaseURL)
 	}
-	envconfig.SetConfigAppURL(cfg.AppURL)
 	if flagKey == "" && envconfig.EnvAPIKey() == "" && cfg.APIKey != nil {
 		if resolved, err := cfg.APIKey.Resolve(); err == nil {
 			envconfig.SetConfigAPIKey(resolved)

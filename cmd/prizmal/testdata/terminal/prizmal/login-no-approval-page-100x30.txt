@@ -1,0 +1,3 @@
+error: the Switch at <switch-url> doesn't report an approval page, so prizmal login can't
+tell where to approve this device; the CLI or the Switch needs updating
+[prizmal exited 1]
