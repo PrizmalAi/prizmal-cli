@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/config"
@@ -14,17 +15,25 @@ import (
 )
 
 // configStub answers GET /v1/cli/config with the given status and body, and
-// records every request path it sees.
-func configStub(t *testing.T, status int, body string) (*httptest.Server, *[]string) {
+// records every request it sees. The returned function reads the log under the
+// lock the handler writes it with.
+func configStub(t *testing.T, status int, body string) (*httptest.Server, func() []string) {
 	t.Helper()
+	var mu sync.Mutex
 	var paths []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
 		paths = append(paths, r.Method+" "+r.URL.Path)
+		mu.Unlock()
 		w.WriteHeader(status)
 		_, _ = w.Write([]byte(body))
 	}))
 	t.Cleanup(srv.Close)
-	return srv, &paths
+	return srv, func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), paths...)
+	}
 }
 
 // The approval page comes from the Switch, so the CLI holds no environment
@@ -37,8 +46,8 @@ func TestLoginAsksTheSwitchForTheApprovalPage(t *testing.T) {
 	if got != "https://app.example.invalid/cli/authorize" {
 		t.Fatalf("approvalURL = %q; want the Switch's approval_url", got)
 	}
-	if len(*paths) != 1 || (*paths)[0] != "GET /v1/cli/config" {
-		t.Fatalf("requests = %v, want one GET /v1/cli/config", *paths)
+	if got := paths(); len(got) != 1 || got[0] != "GET /v1/cli/config" {
+		t.Fatalf("requests = %v, want one GET /v1/cli/config", got)
 	}
 }
 
