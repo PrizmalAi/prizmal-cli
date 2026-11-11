@@ -2,6 +2,7 @@ Select a model
 ▸ Opus            smart · Everyday coding
   Sonnet          smart · Everyday coding
   Haiku           quick · Quick answers
+  default
   sample-model-a
 
   ↑/k up • ↓/j down • / filter • ctrl+s save as default • esc quit without saving

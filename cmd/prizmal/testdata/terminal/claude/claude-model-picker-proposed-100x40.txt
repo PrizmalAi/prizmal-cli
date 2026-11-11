@@ -21,7 +21,6 @@
 
 
 
-
 ▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔ ● high · /effort ▔
    Select model
    Switch between Claude models. Your pick becomes the default for new sessions. For
@@ -32,8 +31,9 @@
      3. tier-sonnet            balanced · Balanced cost and speed
      4. tier-haiku             flash · Quick answers
      5. tier-fable             deep · Long, hard tasks
-     6. experimental           Custom model (experimental[1m])
-     7. team-opus-blend        Team blend for refactors
+     6. default                Custom model (default[1m])
+     7. experimental           Custom model (experimental[1m])
+     8. team-opus-blend        Team blend for refactors
 
    ● High effort (default) ←/→ to adjust
 

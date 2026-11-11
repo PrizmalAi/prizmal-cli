@@ -26,10 +26,10 @@ func TestCheckRoutableAcceptsWhatTheSwitchResolves(t *testing.T) {
 		tierWords bool
 		wantErr   string
 	}{
-		// `default` is a placeholder, not a model name, and the CLI never sends it.
-		{name: "default", model: "default", wantErr: "is not a name the Switch accepts"},
-		{name: "default decorated", model: "default[1m]", wantErr: "is not a name the Switch accepts"},
-		{name: "the legacy default spelling", model: "prizmal/default", wantErr: "is not a name the Switch accepts"},
+		// `default` is a name like any other: listed here, so it routes.
+		{name: "a listed default", model: "default"},
+		{name: "a listed default decorated", model: "default[1m]"},
+		{name: "an unlisted prizmal/default", model: "prizmal/default", wantErr: "is not a name this Switch routes"},
 
 		// A name the tenant holds, with or without one [1m].
 		{name: "a listed config", model: "frontier"},
@@ -74,49 +74,29 @@ func TestCheckRoutableAcceptsWhatTheSwitchResolves(t *testing.T) {
 	}
 }
 
-// A catalog that lists `default` does not make it launchable: it is a
-// placeholder, not a model name.
-func TestCheckRoutableRefusesDefaultEvenWhenTheCatalogListsIt(t *testing.T) {
+// A listed `default` is a name like any other: it routes when the catalog
+// lists it.
+func TestCheckRoutableAcceptsAListedDefault(t *testing.T) {
 	catalog := withClaudeTiers([]LaunchModel{{Name: "default"}, {Name: "frontier"}})
-	if err := CheckRoutable("default", catalog, false); err == nil {
-		t.Fatal("CheckRoutable(default) = nil, want a refusal")
+	if err := CheckRoutable("default", catalog, false); err != nil {
+		t.Fatalf("CheckRoutable(default) = %v, want nil", err)
 	}
 }
 
-// The names a listing prints are the names a launch can send, so the
-// `default` placeholder is not one of them.
-func TestLaunchableNamesDropTheDefaultPlaceholder(t *testing.T) {
+// The names a listing prints are every named entry the Switch lists,
+// `default` included. Only an entry without a name is left out.
+func TestLaunchableNamesKeepEveryNamedEntry(t *testing.T) {
 	catalog := withClaudeTiers([]LaunchModel{{Name: "default"}, {Name: "prizmal/default"}, {Name: "frontier"}, {Name: ""}})
-	if got, want := LaunchableNames(catalog), []string{"frontier"}; !slices.Equal(got, want) {
+	if got, want := LaunchableNames(catalog), []string{"default", "prizmal/default", "frontier"}; !slices.Equal(got, want) {
 		t.Fatalf("LaunchableNames = %v, want %v", got, want)
 	}
 }
 
-// An unread catalog is no evidence about a name, except for the `default`
-// placeholder, which no catalogue makes launchable.
+// An unread catalog is no evidence about any name.
 func TestCheckRoutablePassesEverythingWithoutACatalog(t *testing.T) {
-	if err := CheckRoutable("gpt-5.6-luna", nil, false); err != nil {
-		t.Fatalf("CheckRoutable with no catalog = %v, want nil", err)
-	}
-	if err := CheckRoutable("default", nil, false); err == nil {
-		t.Fatal("CheckRoutable(default) with no catalog = nil, want a refusal")
-	}
-}
-
-// A name the operator types reaches the Switch unless it is the `default`
-// placeholder. The catalog lists configs, never the aliases that route to
-// them, so the legacy claude-tier-opus alias, a tier word and a name the CLI
-// cannot place all pass.
-func TestCheckSendableRefusesOnlyThePlaceholder(t *testing.T) {
-	for _, name := range []string{"claude-tier-opus", "claude-tier-opus[1m]", "frontier", "sonnet", "gpt-5.6-luna", "claude-fable-5-1", ""} {
-		if err := CheckSendable(name); err != nil {
-			t.Errorf("CheckSendable(%q) = %v, want nil", name, err)
-		}
-	}
-	for _, name := range []string{"default", "default[1m]", "prizmal/default"} {
-		err := CheckSendable(name)
-		if err == nil || !strings.Contains(err.Error(), "is not a name the Switch accepts") {
-			t.Errorf("CheckSendable(%q) = %v, want the placeholder refusal", name, err)
+	for _, name := range []string{"gpt-5.6-luna", "default"} {
+		if err := CheckRoutable(name, nil, false); err != nil {
+			t.Fatalf("CheckRoutable(%q) with no catalog = %v, want nil", name, err)
 		}
 	}
 }
