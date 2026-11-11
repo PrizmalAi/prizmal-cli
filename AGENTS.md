@@ -231,6 +231,11 @@ in its config file, and exports nothing:
 {"version": 1, "base_url": "https://api.example.test", "app_url": "https://app.example.test"}
 ```
 
+A login also refuses a consent app and a switch whose hosts have different
+parent domains, where the parent is the host without its first DNS label
+(`api.X` and `app.X` both give `X`), or the whole host when it has two labels.
+It names both hosts and the setting to fix. A host with no parent, such as `localhost` or an IP address, passes.
+
 The device token's environment label is server-side: the switch already knows
 which deployment it is, and the CLI neither sends nor names it. A login needs
 only `base_url` and `app_url`.

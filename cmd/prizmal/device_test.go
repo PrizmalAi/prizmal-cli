@@ -552,3 +552,121 @@ func TestEnterDeviceModeSucceedsSetsDeviceMode(t *testing.T) {
 		t.Fatalf("APIKey() = %q, want the fresh device token", got)
 	}
 }
+
+// The approval page and the switch must share a parent domain. An approval
+// recorded on one deployment's page never reaches a switch checking another, so
+// the login would only time out. The parent is the host without its first label.
+func TestAppBaseURLRefusesDifferentParentDomains(t *testing.T) {
+	t.Setenv("PRIZMAL_SWITCH_URL", "")
+	t.Setenv("PRIZMAL_APP_URL", "")
+	resetAppURLState(t)
+
+	// A matching pair passes.
+	envconfig.SetConfigBaseURL("https://api.one.example.invalid")
+	envconfig.SetConfigAppURL("https://app.one.example.invalid")
+	envconfig.SetBaseURL("https://api.one.example.invalid")
+	if got, err := appBaseURL(); err != nil || got != "https://app.one.example.invalid" {
+		t.Fatalf("appBaseURL(matching pair) = %q, %v; want the app", got, err)
+	}
+
+	// A stale $PRIZMAL_APP_URL fails and names both hosts and the variable.
+	envconfig.SetConfigBaseURL("")
+	envconfig.SetConfigAppURL("")
+	envconfig.SetBaseURL("https://api.one.example.invalid")
+	t.Setenv("PRIZMAL_APP_URL", "https://app.two.example.invalid")
+	_, err := appBaseURL()
+	if err == nil {
+		t.Fatal("appBaseURL(app on another parent domain) returned no error")
+	}
+	errorMentions(t, err, "app.two.example.invalid", "api.one.example.invalid", "$PRIZMAL_APP_URL")
+
+	// The same mismatch from the config file names app_url instead.
+	t.Setenv("PRIZMAL_APP_URL", "")
+	envconfig.SetConfigBaseURL("https://api.one.example.invalid")
+	envconfig.SetConfigAppURL("https://app.two.example.invalid")
+	envconfig.SetBaseURL("https://api.one.example.invalid")
+	_, err = appBaseURL()
+	if err == nil {
+		t.Fatal("appBaseURL(config app_url on another parent domain) returned no error")
+	}
+	errorMentions(t, err, "app.two.example.invalid", "api.one.example.invalid", "app_url")
+	if strings.Contains(err.Error(), "$PRIZMAL_APP_URL") {
+		t.Errorf("error %q blames $PRIZMAL_APP_URL, which is unset", err)
+	}
+
+	// Two-label hosts under one top-level domain are different deployments.
+	envconfig.SetConfigBaseURL("")
+	envconfig.SetConfigAppURL("")
+	envconfig.SetBaseURL("https://one.invalid")
+	t.Setenv("PRIZMAL_APP_URL", "https://two.invalid")
+	if _, err := appBaseURL(); err == nil {
+		t.Fatal("appBaseURL(two-label hosts under one top-level domain) returned no error")
+	}
+	// A two-label switch still pairs with an app one label below it.
+	t.Setenv("PRIZMAL_APP_URL", "https://app.one.invalid")
+	if _, err := appBaseURL(); err != nil {
+		t.Fatalf("appBaseURL(two-label switch, app below it) = %v; want it to pass", err)
+	}
+
+	// A host one level deeper has a different parent, so it is refused too.
+	envconfig.SetConfigBaseURL("")
+	envconfig.SetConfigAppURL("")
+	envconfig.SetBaseURL("https://api.one.example.invalid")
+	t.Setenv("PRIZMAL_APP_URL", "https://app.sub.one.example.invalid")
+	if _, err := appBaseURL(); err == nil {
+		t.Fatal("appBaseURL(app one level deeper) returned no error")
+	}
+}
+
+// A local or bare switch has no parent domain to compare, so it passes with any
+// app and local development keeps working.
+func TestAppBaseURLAcceptsHostsWithoutAParentDomain(t *testing.T) {
+	t.Setenv("PRIZMAL_SWITCH_URL", "")
+	resetAppURLState(t)
+	for _, sw := range []string{"http://127.0.0.1:8080", "http://localhost:8080", "http://[::1]:8080", "http://switch:8080"} {
+		envconfig.SetBaseURL(sw)
+		for _, app := range []string{"https://app.one.example.invalid", "http://localhost:3000"} {
+			t.Setenv("PRIZMAL_APP_URL", app)
+			if got, err := appBaseURL(); err != nil || got != app {
+				t.Errorf("appBaseURL(switch %s, app %s) = %q, %v; want it to pass", sw, app, got, err)
+			}
+		}
+	}
+	// And a bare or local app passes against a switch with a parent domain.
+	envconfig.SetBaseURL("https://api.one.example.invalid")
+	t.Setenv("PRIZMAL_APP_URL", "http://localhost:3000")
+	if _, err := appBaseURL(); err != nil {
+		t.Errorf("appBaseURL(local app) = %v; want it to pass", err)
+	}
+}
+
+// A host written as a fully qualified name, with a trailing dot, is the same
+// host, so it cannot slip past the check.
+func TestParentDomainIgnoresTrailingDotAndCase(t *testing.T) {
+	cases := map[string]string{
+		"https://app.two.example.invalid./": "two.example.invalid",
+		"https://API.One.Example.Invalid":   "one.example.invalid",
+		"http://localhost:3000":             "",
+		"http://127.0.0.1:8080":             "",
+		"http://[::1]:8080":                 "",
+		"http://switch":                     "",
+		// A two-label host is its own parent: its real parent is the bare
+		// top-level domain, which every such host shares.
+		"https://one.invalid": "one.invalid",
+	}
+	for url, want := range cases {
+		if got := parentDomain(url); got != want {
+			t.Errorf("parentDomain(%q) = %q, want %q", url, got, want)
+		}
+	}
+}
+
+// errorMentions fails the test when err's text lacks any of the given parts.
+func errorMentions(t *testing.T, err error, parts ...string) {
+	t.Helper()
+	for _, want := range parts {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
+	}
+}

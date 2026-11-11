@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"net/netip"
 	neturl "net/url"
 	"os"
 	"path/filepath"
@@ -27,19 +28,87 @@ import (
 // flag or $PRIZMAL_SWITCH_URL names a different switch, the config app is the
 // wrong page for it and is ignored, which leaves the override to name its own
 // app with $PRIZMAL_APP_URL.
+//
+// The app and the switch must share a parent domain (the host without its first
+// label): an approval recorded on one deployment's page never reaches a switch
+// checking another, and the login would only time out. A pair on different
+// parent domains is refused. A host with no parent, such as localhost, passes.
 func appBaseURL() (string, error) {
+	app, setting, err := resolveAppURL()
+	if err != nil {
+		return "", err
+	}
+	if err := checkSameParentDomain(app, setting, envconfig.BaseURL()); err != nil {
+		return "", err
+	}
+	return app, nil
+}
+
+// resolveAppURL picks the consent app and names the setting that supplied it.
+func resolveAppURL() (app, setting string, err error) {
 	if v := strings.TrimSpace(os.Getenv("PRIZMAL_APP_URL")); v != "" {
-		return strings.TrimRight(v, "/"), nil
+		return strings.TrimRight(v, "/"), "$PRIZMAL_APP_URL", nil
 	}
 	if app := envconfig.PairedAppURL(); app != "" {
-		return app, nil
+		return app, "app_url in the config file", nil
 	}
 	if isDefaultSwitch() {
-		return "https://app.prizmal.ai", nil
+		return "https://app.prizmal.ai", "", nil
 	}
-	return "", fmt.Errorf(
+	return "", "", fmt.Errorf(
 		"no consent app for switch %s: set $PRIZMAL_APP_URL or the matching app_url in the config file",
 		envconfig.BaseURL())
+}
+
+// parentDomain returns a URL's host without its first DNS label, so api.X and
+// app.X both give X, and a two-label host gives itself. A host with no parent,
+// such as localhost, a single-label name or an IP address, gives "". The comparison ignores case and a trailing
+// dot, which names the same host.
+func parentDomain(rawURL string) string {
+	u, err := neturl.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	host := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
+	if _, err := netip.ParseAddr(host); err == nil {
+		return ""
+	}
+	_, parent, found := strings.Cut(host, ".")
+	if !found {
+		return ""
+	}
+	// A two-label host is its own parent: dropping its first label leaves the
+	// bare top-level domain, which every such host shares, so two different
+	// deployments would compare equal.
+	if !strings.Contains(parent, ".") {
+		return host
+	}
+	return parent
+}
+
+// checkSameParentDomain refuses an approval page and a switch whose hosts have
+// different parent domains. setting names where the app URL came from, and is
+// empty for the built-in default, which pairs with its own switch.
+func checkSameParentDomain(appURL, setting, switchURL string) error {
+	appParent, switchParent := parentDomain(appURL), parentDomain(switchURL)
+	if appParent == "" || switchParent == "" || appParent == switchParent {
+		return nil
+	}
+	if setting == "" {
+		setting = "$PRIZMAL_APP_URL or app_url in the config file"
+	}
+	return fmt.Errorf(
+		"the approval page %s and the switch %s are on different parent domains (%s and %s), so an approval there would never reach this switch; fix %s so the page and the switch share a parent domain",
+		hostOf(appURL), hostOf(switchURL), appParent, switchParent, setting)
+}
+
+// hostOf returns a URL's host for an error message, the whole string when it
+// does not parse.
+func hostOf(rawURL string) string {
+	if u, err := neturl.Parse(rawURL); err == nil && u.Host != "" {
+		return u.Host
+	}
+	return rawURL
 }
 
 // isDefaultSwitch reports whether the resolved switch is the production API,
