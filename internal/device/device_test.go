@@ -245,8 +245,8 @@ func TestRefreshStatusCodeMapping(t *testing.T) {
 
 func TestAuthorizeURLCarriesPublicKeyAndName(t *testing.T) {
 	key, _ := GenerateKey()
-	u := AuthorizeURL("https://app.prizmal.ai/", key, "Nicolas's MacBook")
-	if u[:len("https://app.prizmal.ai/cli/authorize?")] != "https://app.prizmal.ai/cli/authorize?" {
+	u := AuthorizeURL("https://app.example.invalid/cli/authorize", key, "Nicolas's MacBook")
+	if u[:len("https://app.example.invalid/cli/authorize?")] != "https://app.example.invalid/cli/authorize?" {
 		t.Fatalf("URL = %q", u)
 	}
 	if !contains(u, "pk="+key.PublicB64()) {

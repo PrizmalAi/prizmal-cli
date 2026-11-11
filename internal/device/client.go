@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -53,6 +54,10 @@ var ErrRateLimited = errors.New("device refresh too soon")
 // no verdict, retryable. The CLI prints a still-valid cached token rather than
 // failing.
 var ErrUnavailable = errors.New("device token service unavailable")
+
+// configPath is the route that reports the approval page, appended to the
+// configured Switch host. It needs no credential.
+const configPath = "/v1/cli/config"
 
 // Client issues device tokens against one Switch host.
 type Client struct {
@@ -180,4 +185,42 @@ func codeOf(data []byte) string {
 		return ""
 	}
 	return env.Error.Code
+}
+
+// ApprovalURL asks the Switch where a person approves a device: the full URL of
+// the approval page, before any query. The request is a GET with no credential.
+// A Switch that has no such route, answers with nothing usable, fails or cannot
+// be reached gives an error, and the caller decides what to use instead.
+func (c *Client) ApprovalURL() (string, error) {
+	req, err := http.NewRequest(http.MethodGet, c.BaseURL+configPath, nil)
+	if err != nil {
+		return "", err
+	}
+	client := c.HTTP
+	if client == nil {
+		client = &http.Client{Timeout: refreshTimeout}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("ask the Switch for its approval page: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	if err != nil {
+		return "", fmt.Errorf("ask the Switch for its approval page: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("ask the Switch for its approval page: switch answered %s", resp.Status)
+	}
+	var body struct {
+		ApprovalURL string `json:"approval_url"`
+	}
+	if err := json.Unmarshal(data, &body); err != nil {
+		return "", fmt.Errorf("ask the Switch for its approval page: %w", err)
+	}
+	u, err := url.Parse(strings.TrimSpace(body.ApprovalURL))
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return "", fmt.Errorf("ask the Switch for its approval page: the answer holds no usable URL")
+	}
+	return u.String(), nil
 }

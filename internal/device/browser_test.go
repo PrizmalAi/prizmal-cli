@@ -19,13 +19,14 @@ func TestBestEffortOpenBrowserRefusesInTestingProcess(t *testing.T) {
 	}
 }
 
-// TestingEnv must carry the testing marker and a non-routable consent origin.
-func TestTestingEnvPinsNonRoutableAppURL(t *testing.T) {
+// TestingEnv carries the testing marker that refuses a browser. It names no
+// approval page: the CLI asks the Switch, and a test serves its own.
+func TestTestingEnvMarksATestProcess(t *testing.T) {
 	joined := strings.Join(TestingEnv(), "\n")
 	if !strings.Contains(joined, EnvTesting+"=testing") {
 		t.Errorf("TestingEnv does not set %s=testing: %v", EnvTesting, TestingEnv())
 	}
-	if !strings.Contains(joined, "PRIZMAL_APP_URL=http://127.0.0.1:0") {
-		t.Errorf("TestingEnv does not pin the app URL: %v", TestingEnv())
+	if strings.Contains(joined, "PRIZMAL_APP_URL") {
+		t.Errorf("TestingEnv still sets an approval page: %v", TestingEnv())
 	}
 }
