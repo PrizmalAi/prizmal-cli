@@ -391,7 +391,27 @@ func HoldsTier(catalog []LaunchModel, tier claudecode.Tier) bool {
 	})
 }
 
-// CheckRoutable refuses a model name the Switch would refuse. The catalog is
+// CheckSendable refuses the names no Switch routes: `default` and its legacy
+// `prizmal/default` spelling, with or without a suffix. They are placeholders,
+// not model names, so no catalogue, read or unread, makes them right.
+//
+// It is the whole check on a name the operator typed: a --model, a
+// --subagent-model or a saved default. GET /v1/models lists each config once,
+// under its own name, and never the aliases the Switch also routes to it, so
+// the CLI cannot tell an alias from a typo. The Switch is the authority on
+// names and answers one it does not route with its own error.
+func CheckSendable(name string) error {
+	if IsReservedModelName(ModelNameWithoutSuffix(name)) {
+		return fmt.Errorf("model %q is not a name the Switch accepts; "+
+			"run `prizmal --list` for the names it routes", name)
+	}
+	return nil
+}
+
+// CheckRoutable refuses a model name the Switch would refuse, for a name the
+// CLI chose itself off the catalog: the picker's choice. A name the operator
+// typed gets CheckSendable instead, because the catalog does not list every
+// alias the Switch routes. The catalog is
 // the list of names the key routes, the tier aliases the tenant holds among
 // them, so a name outside it is a model the tenant has no copy of, and
 // the Switch answers it with an error instead of a model.
@@ -413,8 +433,7 @@ func HoldsTier(catalog []LaunchModel, tier claudecode.Tier) bool {
 // mapping points the word at the launch model, which is the word itself.
 //
 // `default` and its legacy `prizmal/default` spelling are refused whatever the
-// catalogue lists. They are placeholders, not model names, and a launch never
-// sends them.
+// catalogue lists, as CheckSendable refuses them.
 //
 // An unread catalog passes everything. The launch path reads the catalog on a
 // best effort, and an endpoint that serves no model list is a supported target,
@@ -423,13 +442,10 @@ func CheckRoutable(name string, catalog []LaunchModel, tierWords bool) error {
 	if name == "" {
 		return nil
 	}
-	// The `default` placeholder is refused whatever the catalogue says,
-	// including when it could not be read: no catalogue makes the name right.
-	bare := ModelNameWithoutSuffix(name)
-	if IsReservedModelName(bare) {
-		return fmt.Errorf("model %q is not a name the Switch accepts; "+
-			"run `prizmal --list` for the names it routes", name)
+	if err := CheckSendable(name); err != nil {
+		return err
 	}
+	bare := ModelNameWithoutSuffix(name)
 	if len(catalog) == 0 {
 		return nil
 	}
@@ -458,22 +474,30 @@ func CheckRoutable(name string, catalog []LaunchModel, tierWords bool) error {
 	return fmt.Errorf("model %q is not a name this Switch routes; run `prizmal --list` for the names it does", name)
 }
 
+// Lists reports whether the catalog places a name the operator typed, by the
+// rule CheckRoutable applies. A launch still sends a name the catalog does not
+// place, because the listing never carries the aliases the Switch also routes,
+// and it warns first, so a typo is visible before the Switch's error. An
+// unread catalog places every name: it is no evidence about any of them.
+func Lists(name string, catalog []LaunchModel, tierWords bool) bool {
+	return CheckRoutable(name, catalog, tierWords) == nil
+}
+
+// ListsSubagent is Lists for a subagent model. A tier word is always placed:
+// it resolves through the same chain as the launch model, and an unheld
+// tier's word lands on the launch model.
+func ListsSubagent(name string, catalog []LaunchModel, tierWords bool) bool {
+	if tierWords {
+		if _, ok := claudecode.TierWord(ModelNameWithoutSuffix(name)); ok {
+			return true
+		}
+	}
+	return Lists(name, catalog, tierWords)
+}
+
 // TierKnown reports whether this CLI carries the tier a Switch family names.
 func TierKnown(family string) bool {
 	return slices.Contains(claudecode.Tiers, claudecode.Tier(family))
-}
-
-// CheckSubagentRoutable is CheckRoutable for a subagent model. A tier word is
-// always a name the launch can send: it resolves through the same chain, and
-// an unheld tier's word lands on the launch model, which the launch check
-// already accepted.
-func CheckSubagentRoutable(name string, catalog []LaunchModel, tierWords bool) error {
-	if tierWords {
-		if _, ok := claudecode.TierWord(ModelNameWithoutSuffix(name)); ok {
-			return nil
-		}
-	}
-	return CheckRoutable(name, catalog, tierWords)
 }
 
 // FindCatalogModel looks a model name up in a list of catalog entries, using

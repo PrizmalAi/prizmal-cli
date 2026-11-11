@@ -144,6 +144,15 @@ var prizmalBaselineCases = []baselineCase{
 		standIns: []string{"npm"},
 		steps:    []baselineStep{{waitFor: "Install with npm?"}},
 	},
+	// A --model the tenant's list does not carry, such as the legacy
+	// claude-tier-opus alias of a config listed under its own name. The launch
+	// warns and then starts the harness with the name as given, because the
+	// Switch routes aliases its list leaves out.
+	{
+		name: "model-unlisted-warning-100x30", cols: 100, rows: 30,
+		args:  []string{"--model", "claude-tier-opus", "claude"},
+		steps: []baselineStep{stepPrizmalExit},
+	},
 	// `auth token` with no device key is the only screen it draws: its success
 	// path prints the token to stdout and nothing else.
 	{

@@ -280,6 +280,13 @@ Sol, Terra, Luna and Astra, which the launch sends as the tier's alias. The
 Switch routes the alias only, so a Codex word typed outside `prizmal` routes
 nowhere.
 
+`--list` prints each of your models once, under its own name. An alias that
+routes to one of them, such as the legacy `claude-tier-opus`, is missing from
+the list and still works with `--model`. The launch prints a warning for a
+name missing from the list, then sends the name you pass. The Switch returns
+its own error for a name it does not route. The launch refuses only `default`
+before the harness starts, because it is not a model name.
+
 Backups of any modified config files are kept in `~/.prizmal/backup/`.
 Each launch, `--persist` and `--restore` deletes any backup there that
 has a Switch key in it, and prints the path of each file it deletes. A
