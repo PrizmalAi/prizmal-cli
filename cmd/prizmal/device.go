@@ -58,9 +58,41 @@ func reportAlreadyApproved(out io.Writer, token *device.Token) {
 	if token.ReauthBy != nil {
 		_, _ = fmt.Fprintf(out, "%sThis device is already approved until %s.%s\n",
 			launcher.AnsiGreen, token.ReauthBy.Format(time.RFC3339), launcher.AnsiReset)
+		_, _ = fmt.Fprintf(out, "Run prizmal login --reapprove to extend it now.\n")
 		return
 	}
 	_, _ = fmt.Fprintf(out, "%sThis device is already approved.%s\n", launcher.AnsiGreen, launcher.AnsiReset)
+}
+
+// approvedLoginAction is what a login does when its key is still approved.
+type approvedLoginAction int
+
+const (
+	// actionReportApproved says the device is already approved and stops.
+	actionReportApproved approvedLoginAction = iota
+	// actionReapprove shows the approval link and waits for a later deadline.
+	actionReapprove
+	// actionNoDeadline says a --reapprove has nothing to extend and stops.
+	actionNoDeadline
+)
+
+// planApprovedLogin decides what a login does with a key that is still
+// approved. --reapprove always re-approves, unless the key has no deadline
+// (Directory Sync manages it), where there is nothing to extend. Without the
+// flag a login re-approves on its own once the deadline is within
+// device.WarnReauthWindow, the same window the launch warning uses, and
+// otherwise reports the device approved.
+func planApprovedLogin(token *device.Token, reapprove bool, now time.Time) approvedLoginAction {
+	if token.ReauthBy == nil {
+		if reapprove {
+			return actionNoDeadline
+		}
+		return actionReportApproved
+	}
+	if reapprove || token.ReauthBy.Sub(now) <= device.WarnReauthWindow {
+		return actionReapprove
+	}
+	return actionReportApproved
 }
 
 // deviceKeyExists reports whether this machine has an enrolled (or
@@ -174,19 +206,30 @@ func cmdLogin(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
+	reapprove, _ := cmd.Flags().GetBool("reapprove")
+
 	client := device.NewClient(envconfig.BaseURL())
 	appURL, key, created, approved, err := prepareLogin(client, os.Stderr)
 	if err != nil {
 		return err
 	}
+	var reapproveFrom *time.Time
 	if approved != nil {
-		// A key still inside its approval: nothing to approve, so no link and no
-		// wait. Keep the fresh token and finish.
+		// A key still inside its approval. Keep the fresh token, then either
+		// finish or extend the approval.
 		if err := (&device.CachedToken{Token: approved.Value, Expiry: approved.Expiry, ReauthBy: approved.ReauthBy}).Save(); err != nil {
 			return err
 		}
-		reportAlreadyApproved(os.Stderr, approved)
-		return nil
+		switch planApprovedLogin(approved, reapprove, time.Now()) {
+		case actionNoDeadline:
+			fmt.Fprintf(os.Stderr, "This device has no sign-in deadline to extend.\n")
+			return nil
+		case actionReportApproved:
+			reportAlreadyApproved(os.Stderr, approved)
+			return nil
+		}
+		appURL = approvalURL(client, os.Stderr)
+		reapproveFrom = approved.ReauthBy
 	}
 
 	fmt.Fprintf(os.Stderr, "\nSigning in with your browser...\n")
@@ -199,6 +242,7 @@ func cmdLogin(cmd *cobra.Command, _ []string) error {
 	token, err := device.Login(client, key, device.LoginOptions{
 		ApprovalURL: appURL,
 		DeviceName:  deviceName(),
+		Reapprove:   reapproveFrom,
 		Out:         os.Stderr,
 	})
 	if err != nil {
@@ -319,7 +363,10 @@ There is no localhost listener, so this works over SSH: open the printed URL
 on any machine with a browser.
 
 Running login again re-approves the device key this machine already has, which
-is how a sign-in that expired is renewed. It replaces the key only when the
+is how a sign-in that expired is renewed. A device that is still approved has a
+sign-in deadline, and login re-approves it on its own once under 24 hours
+remain. With --reapprove it does so at any time, and waits until the deadline
+has moved, to push it back a full term before it runs out. It replaces the key only when the
 Switch reports that the device was revoked: it asks whether to back the key up
 (or backs it up without asking when there is no terminal), then makes a new key
 and approves that.`,
@@ -328,6 +375,7 @@ and approves that.`,
 		Args:          cobra.NoArgs,
 		RunE:          cmdLogin,
 	}
+	login.Flags().Bool("reapprove", false, "approve again now, even while the device is still approved, to push its sign-in deadline back")
 	login.Flags().String("url", "", "provider base URL (or $"+envconfig.EnvVar+")")
 	login.Flags().String("api-key", "", "provider API key (or $"+envconfig.KeyEnvVar+")")
 	auth := &cobra.Command{

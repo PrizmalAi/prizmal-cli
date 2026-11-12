@@ -154,7 +154,17 @@ type serverConfig struct {
 	// reauthFirst answers the first refresh with 401 REAUTH_REQUIRED, as the
 	// Switch does for a key whose sign-in deadline passed, then follows the
 	// approval options. reauthSent records that the first answer went out.
-	reauthFirst         bool
+	reauthFirst bool
+	// reauthBy overrides DeviceReauthBy as the sign-in deadline an approved
+	// refresh reports; reauthBySet records that it was given, and an empty
+	// value then omits the field, as for a Directory Sync-managed member.
+	reauthBy    string
+	reauthBySet bool
+	// laterAfter, when above zero, makes the nth approved refresh and every
+	// later one report a deadline a week past reauthBy, as the Switch does once
+	// the device is approved again. approvals counts approved refreshes.
+	laterAfter          int32
+	approvals           atomic.Int32
 	reauthSent          atomic.Bool
 	revoked             atomic.Bool
 	issuer              *DeviceTokenIssuer
@@ -469,6 +479,24 @@ func WithoutApprovalPage() ServerOption {
 // expired key, shows the approval link, and waits for the approval it asks for.
 func WithDeviceReauthFirst() ServerOption {
 	return func(c *serverConfig) { c.reauthFirst = true }
+}
+
+// WithDeviceReauthBy sets the sign-in deadline an approved refresh reports, an
+// RFC 3339 time, in place of DeviceReauthBy. An empty value omits the field,
+// the answer for a member whose directory manages the sign-in.
+func WithDeviceReauthBy(deadline string) ServerOption {
+	return func(c *serverConfig) {
+		c.reauthBy = deadline
+		c.reauthBySet = true
+	}
+}
+
+// WithDeviceReapprovalAfter makes the nth approved refresh, and each one after
+// it, report a deadline a week later than the earlier ones. A device that is
+// still approved refreshes successfully all along, so a re-approval is seen
+// only as that later deadline.
+func WithDeviceReapprovalAfter(n int) ServerOption {
+	return func(c *serverConfig) { c.laterAfter = int32(n) }
 }
 
 // WithDeviceRevokedFirst makes the first POST /v1/cli/token answer 401
@@ -806,19 +834,32 @@ func handleCLIToken(w http.ResponseWriter, c *serverConfig) {
 		})
 		return
 	}
+	body := map[string]any{"device_token": DeviceToken, "expires_in": 600}
 	if c.issuer != nil {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"device_token": c.issuer.Token(time.Now()),
-			"expires_in":   int(c.issuer.ttl / time.Second),
-			"reauth_by":    DeviceReauthBy,
-		})
-		return
+		body["device_token"] = c.issuer.Token(time.Now())
+		body["expires_in"] = int(c.issuer.ttl / time.Second)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"device_token": DeviceToken,
-		"expires_in":   600,
-		"reauth_by":    DeviceReauthBy,
-	})
+	if deadline := deviceDeadline(c); deadline != "" {
+		body["reauth_by"] = deadline
+	}
+	writeJSON(w, http.StatusOK, body)
+}
+
+// deviceDeadline is the reauth_by an approved refresh reports, and counts the
+// refresh: the configured deadline, or a week past it from the refresh a
+// re-approval option names.
+func deviceDeadline(c *serverConfig) string {
+	deadline := DeviceReauthBy
+	if c.reauthBySet {
+		deadline = c.reauthBy
+	}
+	n := c.approvals.Add(1)
+	if c.laterAfter > 0 && n >= c.laterAfter && deadline != "" {
+		if t, err := time.Parse(time.RFC3339, deadline); err == nil {
+			deadline = t.Add(7 * 24 * time.Hour).Format(time.RFC3339)
+		}
+	}
+	return deadline
 }
 
 func hasAuth(r *http.Request) bool {

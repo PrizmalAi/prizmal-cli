@@ -127,14 +127,49 @@ var prizmalBaselineCases = []baselineCase{
 			{key: "Enter", waitFor: "This device is approved"},
 		},
 	},
-	// A key that is still inside its approval. The first refresh succeeds, so the
-	// login says so, prints no link and exits 0.
+	// A key that is still inside its approval with more than a day left. The
+	// first refresh succeeds, so the login says so, prints no link, names
+	// --reapprove and exits 0.
 	{
 		name: "login-already-approved-100x30", cols: 100, rows: 30,
 		args:           []string{"login"},
 		deviceKey:      true,
 		deviceApproved: true,
-		steps:          []baselineStep{{waitFor: "already approved"}},
+		deviceReauthBy: "2099-01-08T00:00:00Z",
+		steps:          []baselineStep{{waitFor: "--reapprove"}},
+	},
+	// --reapprove on a key that is still approved: the link prints anyway, the
+	// refreshes keep succeeding with the old deadline, and the wait ends when one
+	// reports a later deadline.
+	{
+		name: "login-reapprove-flag-100x30", cols: 100, rows: 30,
+		args:                  []string{"login", "--reapprove"},
+		deviceKey:             true,
+		deviceApproved:        true,
+		deviceReauthBy:        "2099-01-08T00:00:00Z",
+		deviceReapprovalAfter: 3,
+		steps:                 []baselineStep{{waitFor: "This device is approved"}},
+	},
+	// A plain login on a key with under a day left re-approves on its own. The
+	// stub's default deadline is already past, which is as far under a day as a
+	// fixed text can say.
+	{
+		name: "login-reapprove-automatic-100x30", cols: 100, rows: 30,
+		args:                  []string{"login"},
+		deviceKey:             true,
+		deviceApproved:        true,
+		deviceReapprovalAfter: 3,
+		steps:                 []baselineStep{{waitFor: "This device is approved"}},
+	},
+	// --reapprove on a key whose directory manages the sign-in: no deadline, so
+	// nothing to extend.
+	{
+		name: "login-reapprove-no-deadline-100x30", cols: 100, rows: 30,
+		args:           []string{"login", "--reapprove"},
+		deviceKey:      true,
+		deviceApproved: true,
+		deviceReauthBy: "none",
+		steps:          []baselineStep{{waitFor: "no sign-in deadline"}},
 	},
 	// A key whose sign-in expired: the first refresh is refused, so the login
 	// re-approves the same key, shows the link, waits, and then the approval
