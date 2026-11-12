@@ -70,29 +70,27 @@ type approvedLoginAction int
 const (
 	// actionReportApproved says the device is already approved and stops.
 	actionReportApproved approvedLoginAction = iota
-	// actionReapprove shows the approval link and waits for a later deadline.
+	// actionReapprove shows the approval link and waits for a later deadline. It
+	// follows only from --reapprove.
 	actionReapprove
 	// actionNoDeadline says a --reapprove has nothing to extend and stops.
 	actionNoDeadline
 )
 
 // planApprovedLogin decides what a login does with a key that is still
-// approved. --reapprove always re-approves, unless the key has no deadline
-// (Directory Sync manages it), where there is nothing to extend. Without the
-// flag a login re-approves on its own once the deadline is within
-// device.WarnReauthWindow, the same window the launch warning uses, and
-// otherwise reports the device approved.
-func planApprovedLogin(token *device.Token, reapprove bool, now time.Time) approvedLoginAction {
-	if token.ReauthBy == nil {
-		if reapprove {
-			return actionNoDeadline
-		}
+// approved. Only --reapprove opens the approval flow, and a key with no
+// deadline (Directory Sync manages it) has nothing to extend. A plain login
+// never starts an approval on its own, whatever time is left: it reports the
+// device approved and names --reapprove.
+func planApprovedLogin(token *device.Token, reapprove bool) approvedLoginAction {
+	switch {
+	case !reapprove:
 		return actionReportApproved
-	}
-	if reapprove || token.ReauthBy.Sub(now) <= device.WarnReauthWindow {
+	case token.ReauthBy == nil:
+		return actionNoDeadline
+	default:
 		return actionReapprove
 	}
-	return actionReportApproved
 }
 
 // deviceKeyExists reports whether this machine has an enrolled (or
@@ -220,7 +218,7 @@ func cmdLogin(cmd *cobra.Command, _ []string) error {
 		if err := (&device.CachedToken{Token: approved.Value, Expiry: approved.Expiry, ReauthBy: approved.ReauthBy}).Save(); err != nil {
 			return err
 		}
-		switch planApprovedLogin(approved, reapprove, time.Now()) {
+		switch planApprovedLogin(approved, reapprove) {
 		case actionNoDeadline:
 			fmt.Fprintf(os.Stderr, "This device has no sign-in deadline to extend.\n")
 			return nil
@@ -363,10 +361,10 @@ There is no localhost listener, so this works over SSH: open the printed URL
 on any machine with a browser.
 
 Running login again re-approves the device key this machine already has, which
-is how a sign-in that expired is renewed. A device that is still approved has a
-sign-in deadline, and login re-approves it on its own once under 24 hours
-remain. With --reapprove it does so at any time, and waits until the deadline
-has moved, to push it back a full term before it runs out. It replaces the key only when the
+is how a sign-in that expired is renewed. A device that is still approved is
+reported as such, with its sign-in deadline. With --reapprove, login prints the
+approval link anyway and waits until the deadline has moved, to push it back a
+full term before it runs out. It replaces the key only when the
 Switch reports that the device was revoked: it asks whether to back the key up
 (or backs it up without asking when there is no terminal), then makes a new key
 and approves that.`,

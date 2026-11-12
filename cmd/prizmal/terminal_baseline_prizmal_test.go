@@ -127,7 +127,7 @@ var prizmalBaselineCases = []baselineCase{
 			{key: "Enter", waitFor: "This device is approved"},
 		},
 	},
-	// A key that is still inside its approval with more than a day left. The
+	// A key that is still inside its approval. The
 	// first refresh succeeds, so the login says so, prints no link, names
 	// --reapprove and exits 0.
 	{
@@ -150,16 +150,16 @@ var prizmalBaselineCases = []baselineCase{
 		deviceReapprovalAfter: 3,
 		steps:                 []baselineStep{{waitFor: "This device is approved"}},
 	},
-	// A plain login on a key with under a day left re-approves on its own. The
-	// stub's default deadline is already past, which is as far under a day as a
-	// fixed text can say.
+	// A plain login on a key with an hour left still only reports the device
+	// approved and names --reapprove: it prints no link and opens no flow. The
+	// stub's default deadline is already past, as far under a day as fixed text
+	// can say.
 	{
-		name: "login-reapprove-automatic-100x30", cols: 100, rows: 30,
-		args:                  []string{"login"},
-		deviceKey:             true,
-		deviceApproved:        true,
-		deviceReapprovalAfter: 3,
-		steps:                 []baselineStep{{waitFor: "This device is approved"}},
+		name: "login-already-approved-soon-100x30", cols: 100, rows: 30,
+		args:           []string{"login"},
+		deviceKey:      true,
+		deviceApproved: true,
+		steps:          []baselineStep{{waitFor: "--reapprove"}},
 	},
 	// --reapprove on a key whose directory manages the sign-in: no deadline, so
 	// nothing to extend.
