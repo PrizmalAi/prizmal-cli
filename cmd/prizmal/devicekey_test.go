@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/device"
 	launcher "github.com/PrizmalAi/prizmal-cli/internal/launcher"
@@ -81,7 +82,7 @@ func TestLoginBacksUpRevokedKeyWhenAsked(t *testing.T) {
 	client, _ := refreshStub(t, http.StatusUnauthorized, "DEVICE_REVOKED")
 	var out bytes.Buffer
 
-	key, created, err := ensureDeviceKey(client, &out)
+	key, created, _, err := ensureDeviceKey(client, &out)
 	if err != nil {
 		t.Fatalf("ensureDeviceKey: %v", err)
 	}
@@ -115,7 +116,7 @@ func TestLoginReplacesRevokedKeyWhenBackupDeclined(t *testing.T) {
 	answerPrompts(t, true, "n\n")
 	client, _ := refreshStub(t, http.StatusUnauthorized, "DEVICE_REVOKED")
 
-	key, created, err := ensureDeviceKey(client, &bytes.Buffer{})
+	key, created, _, err := ensureDeviceKey(client, &bytes.Buffer{})
 	if err != nil {
 		t.Fatalf("ensureDeviceKey: %v", err)
 	}
@@ -140,7 +141,7 @@ func TestLoginBacksUpRevokedKeyWithoutATerminal(t *testing.T) {
 	client, _ := refreshStub(t, http.StatusUnauthorized, "DEVICE_REVOKED")
 	var out bytes.Buffer
 
-	key, created, err := ensureDeviceKey(client, &out)
+	key, created, _, err := ensureDeviceKey(client, &out)
 	if err != nil {
 		t.Fatalf("ensureDeviceKey: %v", err)
 	}
@@ -179,7 +180,7 @@ func TestLoginReusesKeyUnlessRevoked(t *testing.T) {
 			prompts := answerPrompts(t, true, "y\n")
 			client, calls := refreshStub(t, tc.status, tc.code)
 
-			key, created, err := ensureDeviceKey(client, &bytes.Buffer{})
+			key, created, _, err := ensureDeviceKey(client, &bytes.Buffer{})
 			if err != nil {
 				t.Fatalf("ensureDeviceKey: %v", err)
 			}
@@ -202,7 +203,7 @@ func TestLoginMakesAKeyWhenNoneExists(t *testing.T) {
 	answerPrompts(t, true, "")
 	client, calls := refreshStub(t, http.StatusUnauthorized, "DEVICE_REVOKED")
 
-	_, created, err := ensureDeviceKey(client, &bytes.Buffer{})
+	_, created, _, err := ensureDeviceKey(client, &bytes.Buffer{})
 	if err != nil || !created {
 		t.Fatalf("created = %v, err = %v; want a new key", created, err)
 	}
@@ -220,7 +221,7 @@ func TestLoginRevokedOutputNeverPrintsKeyMaterial(t *testing.T) {
 	client, _ := refreshStub(t, http.StatusUnauthorized, "DEVICE_REVOKED")
 	var out bytes.Buffer
 
-	if _, _, err := ensureDeviceKey(client, &out); err != nil {
+	if _, _, _, err := ensureDeviceKey(client, &out); err != nil {
 		t.Fatal(err)
 	}
 	seed := old.Priv.Seed()
@@ -233,5 +234,95 @@ func TestLoginRevokedOutputNeverPrintsKeyMaterial(t *testing.T) {
 		if strings.Contains(text, s) {
 			t.Fatalf("output printed key material %q", s)
 		}
+	}
+}
+
+// refreshAnswering serves both routes a login uses: the refresh answers 200
+// with a token and a deadline, or the given error, and the config route counts
+// how often the CLI asks for an approval page.
+func refreshAnswering(t *testing.T, status int, code string) (*device.Client, *int) {
+	t.Helper()
+	configAsks := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/cli/config":
+			configAsks++
+			_, _ = w.Write([]byte(`{"approval_url":"https://app.example.invalid/cli/authorize"}`))
+		case "/v1/cli/token":
+			if status == http.StatusOK {
+				_, _ = w.Write([]byte(`{"device_token":"pz-d-dt-token","expires_in":600,"reauth_by":"2026-11-18T18:53:19Z"}`))
+				return
+			}
+			w.WriteHeader(status)
+			_, _ = w.Write([]byte(`{"error":{"code":"` + code + `"}}`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return device.NewClient(srv.URL), &configAsks
+}
+
+// A key that is still approved needs no approval: the first refresh succeeds,
+// so the login hands back that token and asks the Switch for no approval page,
+// so it can print no link.
+func TestLoginWithAnApprovedKeyNeedsNoApprovalPage(t *testing.T) {
+	useTempHome(t)
+	old, _ := enrolledKey(t)
+	answerPrompts(t, false, "")
+	client, configAsks := refreshAnswering(t, http.StatusOK, "")
+
+	appURL, key, created, approved, err := prepareLogin(client, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("prepareLogin: %v", err)
+	}
+	if approved == nil || approved.Value != "pz-d-dt-token" {
+		t.Fatalf("approved = %+v, want the token the first refresh returned", approved)
+	}
+	if created || key.ID() != old.ID() || appURL != "" || *configAsks != 0 {
+		t.Fatalf("created=%v sameKey=%v appURL=%q configAsks=%d; want the key reused and no approval page asked",
+			created, key.ID() == old.ID(), appURL, *configAsks)
+	}
+}
+
+// A key whose sign-in expired, or whose device is not enrolled yet, still goes
+// the approval way: it asks for the page and returns no token.
+func TestLoginWithAnExpiredKeyStillAsksForTheApprovalPage(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		code   string
+	}{
+		{"sign-in expired", http.StatusUnauthorized, "REAUTH_REQUIRED"},
+		{"not enrolled", http.StatusNotFound, "NOT_FOUND"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			useTempHome(t)
+			enrolledKey(t)
+			answerPrompts(t, false, "")
+			client, configAsks := refreshAnswering(t, tc.status, tc.code)
+
+			appURL, _, _, approved, err := prepareLogin(client, &bytes.Buffer{})
+			if err != nil || approved != nil || appURL == "" || *configAsks != 1 {
+				t.Fatalf("appURL=%q approved=%v configAsks=%d err=%v; want the approval path", appURL, approved != nil, *configAsks, err)
+			}
+		})
+	}
+}
+
+// The message for a device that is already approved names the deadline when
+// there is one, and prints no link.
+func TestReportAlreadyApproved(t *testing.T) {
+	deadline := time.Date(2026, 11, 18, 18, 53, 19, 0, time.UTC)
+	var out bytes.Buffer
+	reportAlreadyApproved(&out, &device.Token{ReauthBy: &deadline})
+	if got := out.String(); !strings.Contains(got, "This device is already approved until 2026-11-18T18:53:19Z.") {
+		t.Fatalf("output = %q, want the deadline", got)
+	}
+	out.Reset()
+	reportAlreadyApproved(&out, &device.Token{})
+	if got := out.String(); !strings.Contains(got, "This device is already approved.") || strings.Contains(got, "until") {
+		t.Fatalf("output = %q, want the plain line with no deadline", got)
+	}
+	if strings.Contains(out.String(), "http") {
+		t.Fatalf("output %q holds a link", out.String())
 	}
 }

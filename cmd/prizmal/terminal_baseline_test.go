@@ -131,8 +131,17 @@ type baselineCase struct {
 	// device's key, so a login with a key on disk meets the revoked-key flow.
 	// noApprovalPage makes the stub answer the approval-page route as a Switch
 	// that predates it, so a login stops with the error for a missing page.
-	noApprovalPage     bool
+	noApprovalPage bool
+	// deviceReauthFirst makes the stub answer the first refresh as a key whose
+	// sign-in expired, so a login with a key on disk shows the approval link.
+	deviceReauthFirst  bool
 	deviceRevokedFirst bool
+	// deviceReauthBy sets the deadline an approved refresh reports; "none"
+	// omits it, as for a Directory Sync-managed member.
+	deviceReauthBy string
+	// deviceReapprovalAfter makes the approved refresh with that number, and
+	// every later one, report a deadline a week later.
+	deviceReapprovalAfter int
 	// deviceKey writes a device.key into HOME before the launch. It is how a
 	// case reaches the re-approve line (key present) or the no-key error
 	// (auth token with no key).
@@ -353,6 +362,17 @@ func renderBaseline(t *testing.T, tmuxPath, prizmalBin, claudeDir string, tc bas
 	}
 	if tc.noApprovalPage {
 		opts = append(opts, stubserver.WithoutApprovalPage())
+	}
+	if tc.deviceReauthBy == "none" {
+		opts = append(opts, stubserver.WithDeviceReauthBy(""))
+	} else if tc.deviceReauthBy != "" {
+		opts = append(opts, stubserver.WithDeviceReauthBy(tc.deviceReauthBy))
+	}
+	if tc.deviceReapprovalAfter > 0 {
+		opts = append(opts, stubserver.WithDeviceReapprovalAfter(tc.deviceReapprovalAfter))
+	}
+	if tc.deviceReauthFirst {
+		opts = append(opts, stubserver.WithDeviceReauthFirst())
 	}
 	if tc.deviceRevokedFirst {
 		opts = append(opts, stubserver.WithDeviceRevokedFirst())

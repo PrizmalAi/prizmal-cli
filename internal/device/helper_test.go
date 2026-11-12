@@ -177,3 +177,12 @@ func TestReauthWarning(t *testing.T) {
 }
 
 func ptr(t time.Time) *time.Time { return &t }
+
+func TestReauthWarningNamesReapprove(t *testing.T) {
+	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
+	for _, deadline := range []time.Time{now.Add(20 * time.Hour), now.Add(-time.Hour)} {
+		if got := ReauthWarning(ptr(deadline), now); !strings.Contains(got, "prizmal login --reapprove") {
+			t.Fatalf("warning for %v does not name prizmal login --reapprove: %q", deadline, got)
+		}
+	}
+}

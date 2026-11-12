@@ -23,13 +23,19 @@ import (
 // On a terminal the operator chooses between a backup and a plain replacement.
 // With no terminal nobody can answer, so the key is backed up and out says
 // where it went. Neither the prompt nor the messages print key material.
-func ensureDeviceKey(client *device.Client, out io.Writer) (*device.Key, bool, error) {
+func ensureDeviceKey(client *device.Client, out io.Writer) (*device.Key, bool, *device.Token, error) {
 	key, created, err := device.LoadOrCreateKey()
 	if err != nil || created {
-		return key, created, err
+		return key, created, nil, err
 	}
-	if _, err := client.Refresh(key, time.Now()); !errors.Is(err, device.ErrDeviceRevoked) {
-		return key, false, nil
+	token, err := client.Refresh(key, time.Now())
+	if err == nil {
+		// The probe succeeded, so the device is already approved. The caller
+		// gets the token and prints no approval link.
+		return key, false, token, nil
+	}
+	if !errors.Is(err, device.ErrDeviceRevoked) {
+		return key, false, nil, nil
 	}
 
 	_, _ = fmt.Fprintf(out, "\nThis device was revoked.\n")
@@ -39,17 +45,18 @@ func ensureDeviceKey(client *device.Client, out io.Writer) (*device.Key, bool, e
 			"Back up the revoked key before making a new one?",
 			launcher.ConfirmOptions{Default: launcher.ConfirmDefaultYes})
 		if err != nil {
-			return nil, false, err
+			return nil, false, nil, err
 		}
 	}
 	path, err := device.RetireKey(backup, time.Now())
 	if err != nil {
-		return nil, false, err
+		return nil, false, nil, err
 	}
 	if path != "" {
 		_, _ = fmt.Fprintf(out, "Moved the revoked key to %s\n", path)
 	} else {
 		_, _ = fmt.Fprintf(out, "Replaced the revoked key.\n")
 	}
-	return device.LoadOrCreateKey()
+	key, created, err = device.LoadOrCreateKey()
+	return key, created, nil, err
 }
