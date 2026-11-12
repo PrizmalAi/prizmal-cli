@@ -46,6 +46,11 @@ type LoginOptions struct {
 	// once done closes, which happens when the approval lands first. Nil means
 	// a real terminal read (readConfirm).
 	Confirm func(done <-chan struct{}) (bool, error)
+	// Reapprove, when set, makes Login extend an approval that still works. It
+	// holds the sign-in deadline the device has now. A key that is approved
+	// refreshes successfully the whole time, so a success proves nothing: the
+	// wait ends on a refresh whose deadline is later than this one.
+	Reapprove *time.Time
 	// Out receives the URL, fingerprint and progress, os.Stderr when nil.
 	Out io.Writer
 }
@@ -161,6 +166,11 @@ func Login(client *Client, key *Key, opts LoginOptions) (*Token, error) {
 	// in your browser" would be false.
 	waited := false
 	deadline := opts.Now().Add(opts.Timeout)
+	if opts.Reapprove != nil {
+		// The probe that found the key approved stamped the Switch's refresh
+		// throttle, so the first refresh waits instead of asking at once.
+		opts.Sleep(opts.Interval)
+	}
 	for {
 		select {
 		case err := <-enterErr:
@@ -171,12 +181,15 @@ func Login(client *Client, key *Key, opts LoginOptions) (*Token, error) {
 
 		tok, err := client.Refresh(key, opts.Now())
 		switch {
+		case err == nil && !laterDeadline(tok, opts.Reapprove):
+			// Re-approval only: the key still works, but the deadline has not
+			// moved, so nobody has approved yet.
 		case err == nil:
 			stop()
 			if !answered {
 				// The prompt is still on screen: take it off the line.
 				clearPrompt(out, opts.Out)
-				if waited {
+				if waited || opts.Reapprove != nil {
 					_, _ = fmt.Fprintf(out, "Approved in your browser.\n")
 				}
 			}
@@ -201,6 +214,16 @@ func Login(client *Client, key *Key, opts LoginOptions) (*Token, error) {
 		}
 		opts.Sleep(opts.Interval)
 	}
+}
+
+// laterDeadline reports whether tok ends a re-approval wait: always for a plain
+// login (previous is nil), and for a re-approval only when the Switch moved the
+// sign-in deadline past the one the wait started from.
+func laterDeadline(tok *Token, previous *time.Time) bool {
+	if previous == nil {
+		return true
+	}
+	return tok.ReauthBy != nil && tok.ReauthBy.After(*previous)
 }
 
 // clearPrompt removes the unanswered Enter prompt. On a terminal it erases the
