@@ -245,9 +245,13 @@ func configFromPastedKey(read keyReader) (*config.Config, error) {
 // machine the way `prizmal login` does, reusing the same key and loop.
 func runBrowserSignIn() error {
 	client := device.NewClient(envconfig.BaseURL())
-	appURL, key, created, err := prepareLogin(client, os.Stderr)
+	appURL, key, created, approved, err := prepareLogin(client, os.Stderr)
 	if err != nil {
 		return err
+	}
+	if approved != nil {
+		reportAlreadyApproved(os.Stderr, approved)
+		return (&device.CachedToken{Token: approved.Value, Expiry: approved.Expiry, ReauthBy: approved.ReauthBy}).Save()
 	}
 	if created {
 		fmt.Fprintf(os.Stderr, "Generated a device key at ~/.prizmal/%s\n", device.KeyFileName)

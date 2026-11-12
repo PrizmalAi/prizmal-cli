@@ -112,9 +112,9 @@ var prizmalBaselineCases = []baselineCase{
 	// prompt off the screen and shows the success line and the deadline.
 	{
 		name: "login-approved-100x30", cols: 100, rows: 30,
-		args:           []string{"login"},
-		deviceApproved: true,
-		steps:          []baselineStep{{waitFor: "This device is approved"}},
+		args:                []string{"login"},
+		deviceApprovedAfter: 2,
+		steps:               []baselineStep{{waitFor: "This device is approved"}},
 	},
 	// The operator presses Enter while the approval is still pending, then the
 	// approval lands: the screen keeps the browser line Enter produced.
@@ -127,14 +127,25 @@ var prizmalBaselineCases = []baselineCase{
 			{key: "Enter", waitFor: "This device is approved"},
 		},
 	},
-	// Re-approving a machine that already has a device key: the same screen with
-	// the re-approve line instead of "Generated a new device key".
+	// A key that is still inside its approval. The first refresh succeeds, so the
+	// login says so, prints no link and exits 0.
 	{
-		name: "login-reapprove-100x30", cols: 100, rows: 30,
+		name: "login-already-approved-100x30", cols: 100, rows: 30,
 		args:           []string{"login"},
 		deviceKey:      true,
 		deviceApproved: true,
-		steps:          []baselineStep{{waitFor: "This device is approved"}},
+		steps:          []baselineStep{{waitFor: "already approved"}},
+	},
+	// A key whose sign-in expired: the first refresh is refused, so the login
+	// re-approves the same key, shows the link, waits, and then the approval
+	// lands.
+	{
+		name: "login-reapprove-100x30", cols: 100, rows: 30,
+		args:                []string{"login"},
+		deviceKey:           true,
+		deviceReauthFirst:   true,
+		deviceApprovedAfter: 2,
+		steps:               []baselineStep{{waitFor: "This device is approved"}},
 	},
 	// A machine whose device key was revoked. The stub answers the first refresh
 	// as the Switch answers a revoked key; the login says so, asks about a
@@ -142,10 +153,10 @@ var prizmalBaselineCases = []baselineCase{
 	// baseline run has a terminal, so the prompt is drawn.
 	{
 		name: "login-revoked-backup-100x30", cols: 100, rows: 30,
-		args:               []string{"login"},
-		deviceKey:          true,
-		deviceApproved:     true,
-		deviceRevokedFirst: true,
+		args:                []string{"login"},
+		deviceKey:           true,
+		deviceApprovedAfter: 2,
+		deviceRevokedFirst:  true,
 		steps: []baselineStep{
 			{waitFor: "Back up the revoked key"},
 			{key: "Enter", waitFor: "This device is approved"},
@@ -155,10 +166,10 @@ var prizmalBaselineCases = []baselineCase{
 	// and no file is kept.
 	{
 		name: "login-revoked-replace-100x30", cols: 100, rows: 30,
-		args:               []string{"login"},
-		deviceKey:          true,
-		deviceApproved:     true,
-		deviceRevokedFirst: true,
+		args:                []string{"login"},
+		deviceKey:           true,
+		deviceApprovedAfter: 2,
+		deviceRevokedFirst:  true,
 		steps: []baselineStep{
 			{waitFor: "Back up the revoked key"},
 			{key: "n"},
@@ -169,10 +180,10 @@ var prizmalBaselineCases = []baselineCase{
 	// default page and goes on to the same screen as any other login.
 	{
 		name: "login-approval-page-fallback-100x30", cols: 100, rows: 30,
-		args:           []string{"login"},
-		noApprovalPage: true,
-		deviceApproved: true,
-		steps:          []baselineStep{{waitFor: "This device is approved"}},
+		args:                []string{"login"},
+		noApprovalPage:      true,
+		deviceApprovedAfter: 2,
+		steps:               []baselineStep{{waitFor: "This device is approved"}},
 	},
 	// Codex missing from PATH with npm present: the launch offers to install
 	// it, as it does for the other npm-installed harnesses.

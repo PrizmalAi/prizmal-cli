@@ -155,6 +155,11 @@ func Login(client *Client, key *Key, opts LoginOptions) (*Token, error) {
 		<-finished
 	}
 
+	// waited records that a refresh came back not approved yet. Only then does
+	// a later success mean someone approved during this wait; a first refresh
+	// that succeeds means the device was already approved, and saying "approved
+	// in your browser" would be false.
+	waited := false
 	deadline := opts.Now().Add(opts.Timeout)
 	for {
 		select {
@@ -171,12 +176,15 @@ func Login(client *Client, key *Key, opts LoginOptions) (*Token, error) {
 			if !answered {
 				// The prompt is still on screen: take it off the line.
 				clearPrompt(out, opts.Out)
-				_, _ = fmt.Fprintf(out, "Approved in your browser.\n")
+				if waited {
+					_, _ = fmt.Fprintf(out, "Approved in your browser.\n")
+				}
 			}
 			return tok, nil
 		case errors.Is(err, ErrDeviceUnknown), errors.Is(err, ErrReauthRequired):
 			// Not approved yet. An expired sign-in answers REAUTH_REQUIRED
 			// until the browser approval resets its re-auth deadline.
+			waited = true
 		case errors.Is(err, ErrRateLimited):
 			// A parallel helper refreshed first; wait out the throttle and
 			// try again.
