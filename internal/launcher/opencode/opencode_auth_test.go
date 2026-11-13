@@ -43,6 +43,9 @@ func TestOpenCodeDeviceLaunchWritesAuthPlugin(t *testing.T) {
 	home := sandboxedHome(t)
 	launchtest.WithDeviceMode(t)
 
+	if err := prepareAuthPlugin(); err != nil {
+		t.Fatalf("prepareAuthPlugin: %v", err)
+	}
 	env := (&OpenCode{}).envVars("wire-test-model", wireKeyTestModel())
 
 	dir, ok := envLookup(env, "OPENCODE_CONFIG_DIR")
@@ -97,6 +100,9 @@ func TestOpenCodeSwitchKeyLaunchWritesNoAuthPlugin(t *testing.T) {
 	sandboxedHome(t)
 	o := &OpenCode{}
 	dirEnv := func() string {
+		if err := prepareAuthPlugin(); err != nil {
+			t.Fatalf("prepareAuthPlugin: %v", err)
+		}
 		d, _ := envLookup(o.envVars("wire-test-model", wireKeyTestModel()), "OPENCODE_CONFIG_DIR")
 		return d
 	}

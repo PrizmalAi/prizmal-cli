@@ -2,9 +2,12 @@ package opencode
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 )
 
 // A device token expires ten minutes after issue, and opencode reads a static
@@ -23,6 +26,30 @@ const (
 	// prizmal started by path still finds itself when it is not on PATH.
 	openCodeAuthBinEnv = "PRIZMAL_OPENCODE_AUTH_BIN"
 )
+
+// prepareAuthPlugin is the only place the auth plugin is written or removed,
+// and Run calls it before the launch environment is built. A device-mode launch
+// has no key in its config, so the plugin is its credential and a launch that
+// cannot write it fails here rather than start a session every request of which
+// would be refused. Any other launch removes a plugin an earlier device launch
+// left behind, so a static-key launch never runs the command.
+func prepareAuthPlugin() error {
+	dir, err := openCodeSearchDir()
+	deviceAuth := envconfig.DeviceMode() && !envconfig.RelayMode()
+	if err != nil {
+		if deviceAuth {
+			return fmt.Errorf("find the directory for OpenCode's auth plugin: %w", err)
+		}
+		return nil
+	}
+	err = syncOpenCodeAuthPlugin(dir, deviceAuth)
+	if err != nil && deviceAuth {
+		return fmt.Errorf("write OpenCode's auth plugin: %w", err)
+	}
+	// A plugin that cannot be removed on a static-key launch is not a reason to
+	// stop it, as before.
+	return nil
+}
 
 // syncOpenCodeAuthPlugin makes dir match the launch: the plugin is written on a
 // device-mode launch and removed on any other, so a static-key launch never
