@@ -203,22 +203,23 @@ func TestSwitch401RetriesOnceWithNoCredential(t *testing.T) {
 	}
 }
 
-// A second 401 reads as an unavailable route (an older Switch refuses a
-// keyless request before it routes), so the check falls back, and it retries
-// no more than once.
-func TestSwitch401TwiceFallsBackAfterOneRetry(t *testing.T) {
+// A 401 that survives the retry proves the Switch HAS the route and refused
+// this caller, so the check must not fall back to the public release list: that
+// would announce a release the Switch never activated. It retries no more than
+// once, and offers nothing.
+func TestSwitch401TwiceOffersNothingAndDoesNotReadTheList(t *testing.T) {
 	setHome(t, t.TempDir())
 	list := releaseList(t, "v0.3.0")
-	sw := newSwitchStub(t, answers(401, `{"error":{"message":"API key is required."}}`))
+	sw := newSwitchStub(t, answers(401, `{"error":{"message":"Invalid API key."}}`))
 	o := check(now, archInst, stateStore{dir: t.TempDir()}, LatestFor(archInst, withSwitch(sw, func() string { return "pz-test-credential" })))
-	if o.Action != Warn || o.Latest != "v0.3.0" {
-		t.Fatalf("outcome = %+v, want Warn v0.3.0 from the list", o)
+	if o.Action != None {
+		t.Fatalf("outcome = %+v, want no offer", o)
 	}
 	if got := sw.requests(); len(got) != 2 {
 		t.Errorf("Switch requests = %d, want 2 (the credential, then none)", len(got))
 	}
-	if *list != 1 {
-		t.Errorf("release list reads = %d, want 1", *list)
+	if *list != 0 {
+		t.Errorf("release list reads = %d, want 0: a refused Switch is not a Switch without the route", *list)
 	}
 }
 

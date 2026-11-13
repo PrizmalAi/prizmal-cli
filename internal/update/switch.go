@@ -33,15 +33,22 @@ const latestPath = "/v1/cli/releases/latest"
 // such route, or it could not be reached.
 var errSwitchUnanswered = errors.New("the Switch gave no release answer")
 
+// errSwitchRefused means the Switch has the route and refused this caller, its
+// own credential and then the anonymous one. A 401 therefore proves the route
+// exists, so it must not be read as a Switch without it: falling back to the
+// public release list there would announce a release this Switch never
+// activated.
+var errSwitchRefused = errors.New("the Switch refused this credential")
+
 // askSwitch reads the newest release the Switch offers this caller.
 //
 // A 200 is the answer, and an empty version is an answer too: nothing is
 // announced yet. A refused credential gets one retry with none, and the
 // anonymous answer counts. It returns errSwitchUnanswered when the Switch has
-// no such route (404, or a 401 that survives the retry, which is how an older
-// Switch refuses a keyless request before it routes) or cannot be reached. Any
-// other status means a Switch that has the route and cannot answer, and that is
-// an error of its own.
+// no such route (a 404) or cannot be reached, which is the only case the
+// caller falls back on, and errSwitchRefused when a 401 survives the retry.
+// Any other status means a Switch that has the route and cannot answer, and
+// that is an error of its own.
 func askSwitch(sw Switch) (string, error) {
 	if switchBase(sw.BaseURL) == "" {
 		return "", fmt.Errorf("%w: no Switch to ask", errSwitchUnanswered)
@@ -61,8 +68,10 @@ func askSwitch(sw Switch) (string, error) {
 		return "", err
 	case status == http.StatusOK:
 		return normalizeTag(version), nil
-	case status == http.StatusNotFound, status == http.StatusUnauthorized:
+	case status == http.StatusNotFound:
 		return "", fmt.Errorf("%w: HTTP %d", errSwitchUnanswered, status)
+	case status == http.StatusUnauthorized:
+		return "", fmt.Errorf("%w: HTTP %d", errSwitchRefused, status)
 	default:
 		return "", fmt.Errorf("release check: Switch answered HTTP %d", status)
 	}
