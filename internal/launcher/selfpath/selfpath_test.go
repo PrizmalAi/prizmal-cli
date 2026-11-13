@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -68,6 +69,12 @@ func TestPathAbsolutizesATypedRelativePath(t *testing.T) {
 // itself, and that stable path is what gets recorded rather than the
 // symlink's target.
 func TestPathReturnsThePATHSymlinkNotItsTarget(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// Windows symlinks need a privilege a test machine may not hold, and
+		// exec.LookPath appends PATHEXT, so a bare "prizmal" link is not the
+		// shape it matches. The POSIX legs cover this resolution.
+		t.Skip("symlink resolution is POSIX-shaped; covered on darwin and linux")
+	}
 	dir := t.TempDir()
 	target := filepath.Join(dir, "Caskroom", "prizmal", "0.3.2", "prizmal")
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
