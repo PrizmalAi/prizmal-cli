@@ -44,6 +44,14 @@ func (s *switchStub) requests() []string {
 	return append([]string(nil), s.auths...)
 }
 
+// requestedPaths copies the request log under the same lock the handler appends
+// with, so a test reading it never races the handler goroutine.
+func (s *switchStub) requestedPaths() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.paths...)
+}
+
 func answers(status int, body string) func(string, int) (int, string) {
 	return func(string, int) (int, string) { return status, body }
 }
@@ -93,7 +101,7 @@ func TestSwitchAnswerNewerThanInstalledOffersTheUpgrade(t *testing.T) {
 	if o.Action != offerFor(goInst) || o.Latest != "v0.2.0" {
 		t.Fatalf("outcome = %+v, want %v v0.2.0", o, offerFor(goInst))
 	}
-	if got := sw.paths; len(got) != 1 || got[0] != switchRoute {
+	if got := sw.requestedPaths(); len(got) != 1 || got[0] != switchRoute {
 		t.Errorf("Switch requests = %v, want one %q", got, switchRoute)
 	}
 	if *list != 0 {
