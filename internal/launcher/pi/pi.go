@@ -15,6 +15,7 @@ import (
 	"github.com/PrizmalAi/prizmal-cli/internal/fileutil"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher/claude"
+	"github.com/PrizmalAi/prizmal-cli/internal/launcher/selfpath"
 	"golang.org/x/mod/semver"
 )
 
@@ -238,12 +239,19 @@ func piLaunchArgs(model string, extension *piDeviceLaunch, extra []string) []str
 	return append(args, extra...)
 }
 
+// piExecutablePath resolves the prizmal path a launch records. It is
+// selfpath.Path, held in a variable so a test can drive what the command
+// carries. selfpath records the path the operator typed, or the PATH symlink,
+// rather than os.Executable's resolved target, so a package upgrade that
+// replaces the target directory does not break a live session.
+var piExecutablePath = selfpath.Path
+
 // piCredentialCommand is the command the device extension runs for each
 // credential: the quoted path of the running prizmal binary followed by its
 // device-token helper. The path is quoted because pi runs the string through a
 // shell, and an install path with a space would otherwise split into two words.
 func piCredentialCommand() string {
-	exe, err := os.Executable()
+	exe, err := piExecutablePath()
 	if err != nil {
 		return ""
 	}

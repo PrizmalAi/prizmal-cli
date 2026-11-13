@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher/launchtest"
+	"github.com/PrizmalAi/prizmal-cli/internal/launcher/selfpath"
 )
 
 func TestOpenCodeSupportsDeviceMode(t *testing.T) {
@@ -140,6 +142,33 @@ func TestOpenCodeDeviceLaunchPutsNoTokenInTheSearchEnv(t *testing.T) {
 	}
 	if bin, _ := envLookup(env, openCodeAuthBinEnv); bin == "" {
 		t.Fatalf("%s unset; the search tool cannot run the auth command", openCodeAuthBinEnv)
+	}
+}
+
+// TestOpenCodeAuthBinPathDefaultsToSelfpath is the regression guard: the auth
+// bin must record selfpath.Path's answer, not os.Executable's resolved target.
+// A revert to os.Executable here would restore the bug this change fixes.
+func TestOpenCodeAuthBinPathDefaultsToSelfpath(t *testing.T) {
+	if reflect.ValueOf(openCodeExecutablePath).Pointer() != reflect.ValueOf(selfpath.Path).Pointer() {
+		t.Error("openCodeExecutablePath does not default to selfpath.Path; a launch would record os.Executable's resolved target")
+	}
+}
+
+// TestOpenCodeAuthBinCarriesTheTypedPath pins the wiring: the auth bin env var
+// is exactly the resolver's path, so the plugin runs the binary the launch came
+// from rather than its resolved target. The plugin reads the value as one word,
+// so it is passed verbatim, with no shell quoting.
+func TestOpenCodeAuthBinCarriesTheTypedPath(t *testing.T) {
+	sandboxedHome(t)
+	launchtest.WithDeviceMode(t)
+	typed := "/opt/chain home/prizmal"
+	previous := openCodeExecutablePath
+	openCodeExecutablePath = func() (string, error) { return typed, nil }
+	t.Cleanup(func() { openCodeExecutablePath = previous })
+
+	env := (&OpenCode{}).envVars("wire-test-model", wireKeyTestModel())
+	if got, _ := envLookup(env, openCodeAuthBinEnv); got != typed {
+		t.Errorf("%s = %q, want the typed path %q", openCodeAuthBinEnv, got, typed)
 	}
 }
 
