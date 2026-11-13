@@ -841,7 +841,7 @@ func buildCodexModelEntry(launchModel launch.LaunchModel) map[string]any {
 	// The declared input modalities come from the capability vocabulary, so
 	// codex learns "image" from the Switch's "image" modality instead of
 	// carrying its own list.
-	modalities := launch.DeclaredInputs(launchModel, launch.HarnessCodex)
+	modalities := launch.DeclaredInputs(launchModel, Inputs)
 
 	return map[string]any{
 		"slug":                    modelName,

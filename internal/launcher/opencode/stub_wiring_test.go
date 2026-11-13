@@ -76,7 +76,7 @@ func TestStubServerCapabilityWiring(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s is missing from the stub catalog: %v", tc.name, launch.LaunchModelNames(catalog))
 		}
-		if got := launch.DeclaredInputs(model, launch.HarnessOpenCode); !slices.Equal(got, tc.want) {
+		if got := launch.DeclaredInputs(model, Inputs); !slices.Equal(got, tc.want) {
 			t.Fatalf("opencode input modalities for %q = %v, want %v", tc.name, got, tc.want)
 		}
 	}

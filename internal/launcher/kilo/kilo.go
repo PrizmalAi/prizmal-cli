@@ -229,7 +229,7 @@ func modelEntries(models []launch.LaunchModel) map[string]any {
 		delete(entry, "options")
 		// OpenCode declared its own list; Kilo asks for its own.
 		entry["modalities"] = map[string]any{
-			"input":  launch.DeclaredInputs(m, launch.HarnessKilo),
+			"input":  launch.DeclaredInputs(m, Inputs),
 			"output": []string{"text"},
 		}
 	}
