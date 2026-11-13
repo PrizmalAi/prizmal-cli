@@ -33,16 +33,24 @@ var (
 //   - An argv0 with a path separator is what the operator typed, made
 //     absolute when it is relative: it names the entry point the launch
 //     came from, stable or not, and it wins over any PATH match.
-//   - A bare argv0 (a PATH launch) resolves through exec.LookPath, which
-//     answers with the matched path itself and never resolves symlinks: a
-//     Homebrew launch records .../bin/prizmal, not the Caskroom target.
-//   - With no prizmal on PATH either, the resolved executable is the only
-//     path left, so an os.Executable failure there is the caller's error.
+//   - A bare argv0 (a PATH launch) resolves through exec.LookPath under the
+//     name the operator ran, which answers with the matched path itself and
+//     never resolves symlinks: a Homebrew launch records .../bin/prizmal, not
+//     the Caskroom target, and a launch through a renamed symlink records
+//     that symlink rather than a different install of the standard name.
+//   - With no match on PATH at all, the resolved executable is the only path
+//     left, so an os.Executable failure there is the caller's error.
 func Path() (string, error) {
-	if typed := argv0(); hasSeparator(typed) {
+	typed := argv0()
+	if hasSeparator(typed) {
 		return filepath.Abs(typed)
 	}
-	if path, err := lookPath("prizmal"); err == nil {
+	// Look up the name the operator ran, never a fixed "prizmal": an
+	// invocation through a renamed symlink on PATH (pz) must record that
+	// symlink. Searching for "prizmal" would find a different install or
+	// nothing, and the latter falls through to the symlink-resolving
+	// os.Executable this package exists to avoid.
+	if path, err := lookPath(filepath.Base(typed)); err == nil {
 		return path, nil
 	}
 	return executable()

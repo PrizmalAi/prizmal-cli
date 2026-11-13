@@ -104,6 +104,56 @@ func TestPathReturnsThePATHSymlinkNotItsTarget(t *testing.T) {
 	}
 }
 
+// A renamed symlink on PATH records itself. The lookup must use the name the
+// operator ran, not the fixed name "prizmal": the decoy below shows what a
+// fixed-name lookup would pick instead, and a lookup that found nothing would
+// fall through to the symlink-resolving executable.
+func TestPathResolvesARenamedInvocationByName(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// Windows symlinks need a privilege a test machine may not hold, and
+		// exec.LookPath appends PATHEXT, so a bare "pz" link is not the shape
+		// it matches. The POSIX legs cover this resolution.
+		t.Skip("symlink resolution is POSIX-shaped; covered on darwin and linux")
+	}
+	dir := t.TempDir()
+	newInstall := func(name, version string) string {
+		path := filepath.Join(dir, "releases", name, version, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	bin := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	renamedTarget := newInstall("pz", "0.4.0")
+	standardTarget := newInstall("prizmal", "9.9.9")
+	renamed := filepath.Join(bin, "pz")
+	standard := filepath.Join(bin, "prizmal")
+	if err := os.Symlink(renamedTarget, renamed); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(standardTarget, standard); err != nil {
+		t.Fatal(err)
+	}
+
+	stubArgv0(t, "pz")
+	t.Setenv("PATH", bin)
+	stubExecutable(t, func() (string, error) { return renamedTarget, nil })
+
+	got, err := Path()
+	if err != nil {
+		t.Fatalf("Path: %v", err)
+	}
+	if got != renamed {
+		t.Errorf("Path = %q, want the renamed symlink %q (not the decoy %q or the target %q)", got, renamed, standard, renamedTarget)
+	}
+}
+
 // With no prizmal on PATH and no typed path, the resolved executable is all
 // that is left.
 func TestPathFallsBackToTheExecutable(t *testing.T) {
