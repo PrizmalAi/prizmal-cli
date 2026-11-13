@@ -53,7 +53,7 @@ On first run, `prizmal` offers two ways to sign in: approve this machine in your
 
 ## Updates
 
-Before a launch, `prizmal` checks once a day for a newer release. In a terminal, a menu offers to upgrade through the tool that installed it, Homebrew or `go install`. From a script, or with `--yes`, `prizmal` prints a warning and continues. A copy built from source or unpacked from an archive prints a warning, then a menu to continue or exit.
+Before a launch, `prizmal` checks once a day for a newer release. It asks the Switch you use which release your account may be offered, and sends your switch key or device token when it holds one. In a terminal, a menu offers to upgrade through the tool that installed it, Homebrew or `go install`. From a script, or with `--yes`, `prizmal` prints a warning and continues. A copy built from source or unpacked from an archive prints a warning, then a menu to continue or exit.
 
 To turn the check off, set `"check_updates": false` in `~/.prizmal/config.json`, or export `PRIZMAL_NO_UPDATE_CHECK=1`.
 

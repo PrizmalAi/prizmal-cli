@@ -9,6 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PrizmalAi/prizmal-cli/internal/config"
+	"github.com/PrizmalAi/prizmal-cli/internal/device"
+	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	launcher "github.com/PrizmalAi/prizmal-cli/internal/launcher"
 	"github.com/PrizmalAi/prizmal-cli/internal/update"
 	"golang.org/x/term"
@@ -29,7 +32,7 @@ type updateUI struct {
 // checkForUpdate runs before a launch. It never fails the launch: only the
 // operator choosing Exit ends it.
 func checkForUpdate() error {
-	o := update.RunCheck(time.Now(), update.Current(version))
+	o := update.RunCheck(time.Now(), update.Current(version), updateSwitch())
 	if o.Action == update.None {
 		return nil
 	}
@@ -45,6 +48,89 @@ func checkForUpdate() error {
 		args:     os.Args[1:],
 	}
 	return ui.handle(o)
+}
+
+// updateSwitch is the Switch the check asks which release this install may be
+// offered, and the credential it sends. The check runs before the launch loads
+// its config, so this resolves the URL the way the launch will: the flag, then
+// $PRIZMAL_SWITCH_URL, then the config file, then the default. It never prompts
+// and never fails the launch.
+//
+// The credential is the device token this machine mints from its device key,
+// else a switch key from the flag, the environment or the config file. It is
+// looked up only when the check is due, so a day's second launch reads neither
+// a config command nor the Switch. With neither a device nor a key, the check
+// asks as an anonymous caller.
+func updateSwitch() update.Switch {
+	// The launch sets the same URL moments later, so setting it here changes
+	// nothing it reads. The check asks the Switch itself, so it reads the
+	// upstream URL: a relay's loopback address is never where it asks.
+	envconfig.SetBaseURL(url)
+	cfg, err := config.Load()
+	if err != nil {
+		cfg = nil
+	}
+	if cfg != nil && cfg.BaseURL != "" {
+		envconfig.SetConfigBaseURL(cfg.BaseURL)
+	}
+	base := envconfig.UpstreamBaseURL()
+	return update.Switch{
+		BaseURL: base,
+		Credential: func() string {
+			return updateCredential(cfg, base)
+		},
+	}
+}
+
+// updateCredential returns the credential for the update check, or "" for none.
+//
+// It follows a launch. A machine with a device key signs in as that device, and
+// the device token outranks every switch key, so the switch key never leaves a
+// machine whose device can speak for it. A device that cannot refresh leaves the
+// switch key in place, as a launch falls back to it.
+//
+// It reads each switch key source itself and never calls envconfig.APIKey. That
+// function answers a device-mode or loopback-relay placeholder first, and a
+// placeholder is not a credential the Switch accepts.
+func updateCredential(cfg *config.Config, base string) string {
+	if token := updateDeviceToken(base); token != "" {
+		return token
+	}
+	if key := strings.TrimSpace(apiKey); key != "" {
+		return key
+	}
+	if key := envconfig.EnvAPIKey(); key != "" {
+		return key
+	}
+	if cfg != nil && cfg.APIKey != nil {
+		if key, err := cfg.APIKey.Resolve(); err == nil && strings.TrimSpace(key) != "" {
+			return key
+		}
+	}
+	return ""
+}
+
+// updateDeviceToken mints, or reuses from the cache, the device token for this
+// machine's device key. It returns "" when there is no device key or the device
+// cannot refresh.
+func updateDeviceToken(base string) string {
+	if !deviceKeyExists() {
+		return ""
+	}
+	key, err := device.LoadKey()
+	if err != nil {
+		return ""
+	}
+	token, cached, err := device.HelperToken(device.NewClient(base), key, time.Now(), loadCachedToken, time.Sleep)
+	if err != nil {
+		return ""
+	}
+	if cached != nil {
+		// The launch that follows reads this cache instead of refreshing again
+		// inside the Switch's refresh throttle.
+		_ = cached.Save()
+	}
+	return token
 }
 
 // updateTerminal reports whether prizmal can ask: a person on stdin, and a

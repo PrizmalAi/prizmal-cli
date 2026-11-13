@@ -96,12 +96,46 @@ func latestCask() (string, error) {
 	return normalizeTag(string(m[1])), nil
 }
 
-// LatestFor is the version query that matches how inst was installed.
-func LatestFor(inst Install) func() (string, error) {
-	if inst.Method == Homebrew {
-		return latestCask
+// LatestFor is the version query for inst: it asks the Switch which release
+// this install may be offered, and reads the release list that matches how inst
+// was installed only when the Switch has no answer about releases.
+//
+// An empty version from the Switch is an answer, so it does not fall back: the
+// Switch is authoritative, and a release on the public list stays unannounced
+// until the Switch activates it.
+func LatestFor(inst Install, sw Switch) func() (string, error) {
+	list := releaseListFor(inst)
+	if sw.BaseURL == "" {
+		return list
 	}
-	return latestTag
+	return func() (string, error) {
+		version, err := askSwitch(sw)
+		if errors.Is(err, errSwitchUnanswered) {
+			// This fallback exists for a Switch that does not have the
+			// route yet, or for a machine that cannot reach one. Delete it
+			// once every deployment serves the route.
+			return list()
+		}
+		return version, err
+	}
+}
+
+// releaseListFor is the public release list that matches how inst was
+// installed.
+func releaseListFor(inst Install) func() (string, error) {
+	read := latestTag
+	if inst.Method == Homebrew {
+		read = latestCask
+	}
+	return func() (string, error) {
+		if underTest() && baseURL("") == "" {
+			// A testing process names the release host it may read. With none
+			// named it reads no list, so a test that names only a Switch
+			// cannot fall through to the real one.
+			return "", errors.New("release list: no host named in a testing process")
+		}
+		return read()
+	}
 }
 
 var tagPattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`)

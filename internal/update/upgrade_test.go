@@ -150,7 +150,7 @@ func TestLatestForFollowsTheInstallMethod(t *testing.T) {
 		_, _ = w.Write([]byte("  version \"0.2.0\"\n"))
 	})
 	for method, want := range map[Method]string{Homebrew: "v0.2.0", GoInstall: "v0.3.0", Archive: "v0.3.0", Source: "v0.3.0"} {
-		got, err := LatestFor(Install{Method: method})()
+		got, err := LatestFor(Install{Method: method}, Switch{})()
 		if err != nil || got != want {
 			t.Errorf("%s: latest = %q, %v; want %q", method, got, err, want)
 		}
