@@ -126,3 +126,82 @@ func TestUpdateSwitchCredentialIsNoneWhenTheDeviceCannotRefresh(t *testing.T) {
 		t.Errorf("credential = %q, want none", got)
 	}
 }
+
+// A device-mode placeholder or a loopback-relay placeholder is not a credential
+// the Switch accepts. The check sends the switch key the CLI holds, or mints a
+// device token, and never the placeholder envconfig resolves in those modes.
+func TestUpdateSwitchCredentialIgnoresAPlaceholder(t *testing.T) {
+	useTempHome(t)
+	resetUpdateSwitchState(t)
+	t.Setenv(envconfig.EnvVar, "")
+	envconfig.SetDeviceMode(true)
+	envconfig.SetDeviceToken("pz-test-placeholder")
+	t.Setenv(envconfig.KeyEnvVar, "pz-test-env-key")
+	if got := updateSwitch().Credential(); got != "pz-test-env-key" {
+		t.Errorf("device mode with a key held: credential = %q, want the switch key", got)
+	}
+
+	t.Setenv(envconfig.KeyEnvVar, "")
+	envconfig.SetDeviceMode(false)
+	envconfig.SetDeviceToken("")
+	envconfig.SetRelay("http://127.0.0.1:1", "pz-test-relay-placeholder")
+	if got := updateSwitch().Credential(); got != "" {
+		t.Errorf("relay mode with nothing held: credential = %q, want none", got)
+	}
+	if got := updateSwitch().BaseURL; got == "http://127.0.0.1:1" {
+		t.Errorf("BaseURL = the relay's address; the check asks the Switch, not the relay")
+	}
+}
+
+func TestUpdateSwitchCredentialMintsTheDeviceTokenInDeviceMode(t *testing.T) {
+	useTempHome(t)
+	resetUpdateSwitchState(t)
+	sw := stubserver.NewServer(stubserver.WithDeviceApproval())
+	t.Cleanup(sw.Close)
+	t.Setenv(envconfig.EnvVar, sw.URL)
+	if _, _, err := device.LoadOrCreateKey(); err != nil {
+		t.Fatal(err)
+	}
+	envconfig.SetDeviceMode(true)
+	envconfig.SetDeviceToken("pz-test-placeholder")
+	if got := updateSwitch().Credential(); got != stubserver.DeviceToken {
+		t.Errorf("credential = %q, want the minted device token and not the placeholder", got)
+	}
+}
+
+// A machine with a device key signs in as that device, and the device token
+// outranks every switch key, as it does for a launch: the switch key never
+// leaves the machine while the device can speak for it.
+func TestUpdateSwitchCredentialPrefersTheDeviceTokenOverASwitchKey(t *testing.T) {
+	home := useTempHome(t)
+	resetUpdateSwitchState(t)
+	sw := stubserver.NewServer(stubserver.WithDeviceApproval())
+	t.Cleanup(sw.Close)
+	t.Setenv(envconfig.EnvVar, sw.URL)
+	writeUpdateConfig(t, home, map[string]any{"version": 1, "api_key": "pz-test-config-key"})
+	t.Setenv(envconfig.KeyEnvVar, "pz-test-env-key")
+	apiKey = "pz-test-flag-key"
+	if _, _, err := device.LoadOrCreateKey(); err != nil {
+		t.Fatal(err)
+	}
+	if got := updateSwitch().Credential(); got != stubserver.DeviceToken {
+		t.Errorf("credential = %q, want the device token ahead of every switch key", got)
+	}
+}
+
+// A device that cannot refresh leaves the switch key in place, as a launch
+// falls back to it.
+func TestUpdateSwitchCredentialFallsBackToTheSwitchKeyWhenTheDeviceCannotRefresh(t *testing.T) {
+	useTempHome(t)
+	resetUpdateSwitchState(t)
+	sw := stubserver.NewServer() // an unapproved device: the refresh answers 404
+	t.Cleanup(sw.Close)
+	t.Setenv(envconfig.EnvVar, sw.URL)
+	t.Setenv(envconfig.KeyEnvVar, "pz-test-env-key")
+	if _, _, err := device.LoadOrCreateKey(); err != nil {
+		t.Fatal(err)
+	}
+	if got := updateSwitch().Credential(); got != "pz-test-env-key" {
+		t.Errorf("credential = %q, want the switch key", got)
+	}
+}

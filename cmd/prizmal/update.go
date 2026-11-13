@@ -56,16 +56,16 @@ func checkForUpdate() error {
 // $PRIZMAL_SWITCH_URL, then the config file, then the default. It never prompts
 // and never fails the launch.
 //
-// The credential is a switch key from the flag, the environment or the config
-// file, and otherwise the device token this machine mints from its device key.
-// It is looked up only when the check is due, so a day's second launch reads
-// neither a config command nor the Switch. With neither a key nor a device, the
-// check asks as an anonymous caller.
+// The credential is the device token this machine mints from its device key,
+// else a switch key from the flag, the environment or the config file. It is
+// looked up only when the check is due, so a day's second launch reads neither
+// a config command nor the Switch. With neither a device nor a key, the check
+// asks as an anonymous caller.
 func updateSwitch() update.Switch {
-	// The launch sets the same values moments later, so setting them here
-	// changes nothing it reads.
+	// The launch sets the same URL moments later, so setting it here changes
+	// nothing it reads. The check asks the Switch itself, so it reads the
+	// upstream URL: a relay's loopback address is never where it asks.
 	envconfig.SetBaseURL(url)
-	envconfig.SetAPIKey(apiKey)
 	cfg, err := config.Load()
 	if err != nil {
 		cfg = nil
@@ -73,7 +73,7 @@ func updateSwitch() update.Switch {
 	if cfg != nil && cfg.BaseURL != "" {
 		envconfig.SetConfigBaseURL(cfg.BaseURL)
 	}
-	base := envconfig.BaseURL()
+	base := envconfig.UpstreamBaseURL()
 	return update.Switch{
 		BaseURL: base,
 		Credential: func() string {
@@ -83,8 +83,23 @@ func updateSwitch() update.Switch {
 }
 
 // updateCredential returns the credential for the update check, or "" for none.
+//
+// It follows a launch. A machine with a device key signs in as that device, and
+// the device token outranks every switch key, so the switch key never leaves a
+// machine whose device can speak for it. A device that cannot refresh leaves the
+// switch key in place, as a launch falls back to it.
+//
+// It reads each switch key source itself and never calls envconfig.APIKey. That
+// function answers a device-mode or loopback-relay placeholder first, and a
+// placeholder is not a credential the Switch accepts.
 func updateCredential(cfg *config.Config, base string) string {
-	if key := envconfig.APIKey(); key != "" {
+	if token := updateDeviceToken(base); token != "" {
+		return token
+	}
+	if key := strings.TrimSpace(apiKey); key != "" {
+		return key
+	}
+	if key := envconfig.EnvAPIKey(); key != "" {
 		return key
 	}
 	if cfg != nil && cfg.APIKey != nil {
@@ -92,6 +107,13 @@ func updateCredential(cfg *config.Config, base string) string {
 			return key
 		}
 	}
+	return ""
+}
+
+// updateDeviceToken mints, or reuses from the cache, the device token for this
+// machine's device key. It returns "" when there is no device key or the device
+// cannot refresh.
+func updateDeviceToken(base string) string {
 	if !deviceKeyExists() {
 		return ""
 	}

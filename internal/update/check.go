@@ -152,8 +152,9 @@ var goBinDir = func() (string, error) {
 // and for at most maxCheckDelay. Every failure answers None: the check never blocks or
 // fails a launch.
 func RunCheck(now time.Time, inst Install, sw Switch) Outcome {
-	if underTest() && baseURL("") == "" {
-		// A test run reaches a stub host or nothing, never a real one.
+	if underTest() && baseURL("") == "" && switchBase(sw.BaseURL) == "" {
+		// A test run reaches a stub host or nothing, never a real one. It has
+		// a host when it names a release host, or a Switch on this machine.
 		return Outcome{}
 	}
 	return runCheck(now, inst, defaultState(), LatestFor(inst, sw), maxCheckDelay)

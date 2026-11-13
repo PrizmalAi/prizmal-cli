@@ -123,10 +123,19 @@ func LatestFor(inst Install, sw Switch) func() (string, error) {
 // releaseListFor is the public release list that matches how inst was
 // installed.
 func releaseListFor(inst Install) func() (string, error) {
+	read := latestTag
 	if inst.Method == Homebrew {
-		return latestCask
+		read = latestCask
 	}
-	return latestTag
+	return func() (string, error) {
+		if underTest() && baseURL("") == "" {
+			// A testing process names the release host it may read. With none
+			// named it reads no list, so a test that names only a Switch
+			// cannot fall through to the real one.
+			return "", errors.New("release list: no host named in a testing process")
+		}
+		return read()
+	}
 }
 
 var tagPattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`)

@@ -65,6 +65,17 @@ func releaseList(t *testing.T, tag string) *int {
 	return hits
 }
 
+// offerFor is the action a newer release earns inst: Offer when this install
+// can run its own upgrade, Warn when it cannot, which is every install on
+// Windows. Whether an install can upgrade is covered where CanUpgrade is
+// tested. These tests assert the version.
+func offerFor(inst Install) Action {
+	if inst.CanUpgrade() {
+		return Offer
+	}
+	return Warn
+}
+
 func withSwitch(s *switchStub, credential func() string) Switch {
 	return Switch{BaseURL: s.srv.URL, Credential: credential}
 }
@@ -79,8 +90,8 @@ func TestSwitchAnswerNewerThanInstalledOffersTheUpgrade(t *testing.T) {
 	list := releaseList(t, "v0.0.1")
 	sw := newSwitchStub(t, answers(200, `{"version":"0.2.0"}`))
 	o := check(now, goInst, stateStore{dir: t.TempDir()}, LatestFor(goInst, withSwitch(sw, noCredential)))
-	if o.Action != Offer || o.Latest != "v0.2.0" {
-		t.Fatalf("outcome = %+v, want Offer v0.2.0", o)
+	if o.Action != offerFor(goInst) || o.Latest != "v0.2.0" {
+		t.Fatalf("outcome = %+v, want %v v0.2.0", o, offerFor(goInst))
 	}
 	if got := sw.paths; len(got) != 1 || got[0] != switchRoute {
 		t.Errorf("Switch requests = %v, want one %q", got, switchRoute)
@@ -131,8 +142,8 @@ func TestSwitch404FallsBackToTheReleaseList(t *testing.T) {
 		list := releaseList(t, "v0.3.0")
 		sw := newSwitchStub(t, answers(404, `{"error":{"message":"Route not found"}}`))
 		o := check(now, inst, stateStore{dir: t.TempDir()}, LatestFor(inst, withSwitch(sw, noCredential)))
-		if o.Action != Offer || o.Latest != "v0.3.0" {
-			t.Errorf("%s: outcome = %+v, want Offer v0.3.0 from the list", name, o)
+		if o.Action != offerFor(inst) || o.Latest != "v0.3.0" {
+			t.Errorf("%s: outcome = %+v, want %v v0.3.0 from the list", name, o, offerFor(inst))
 		}
 		if *list != 1 {
 			t.Errorf("%s: release list reads = %d, want 1", name, *list)
@@ -307,12 +318,12 @@ func TestSwitchVersionThatIsNoTagIsNotOffered(t *testing.T) {
 }
 
 // A testing process asks a Switch on this machine and no other, so a test that
-// never names one cannot reach the real deployment. It never mistakes the
-// release host the testing seam names for the Switch.
+// never names one cannot reach the real deployment.
 func TestTestingProcessAsksOnlyALoopbackSwitch(t *testing.T) {
 	setHome(t, t.TempDir())
 	list := releaseList(t, "v0.3.0")
 	t.Setenv(envTesting, "testing")
+	t.Setenv(testURLEnv, apiBase) // the stub release host the seam names
 
 	lookups := 0
 	remote := Switch{BaseURL: "https://switch.example.invalid", Credential: func() string { lookups++; return "pz-test-key" }}
@@ -325,9 +336,52 @@ func TestTestingProcessAsksOnlyALoopbackSwitch(t *testing.T) {
 	}
 
 	local := newSwitchStub(t, answers(200, `{"version":"0.2.0"}`))
-	t.Setenv(testURLEnv, "http://127.0.0.1:1") // the release host the seam names
 	o = check(now, archInst, stateStore{dir: t.TempDir()}, LatestFor(archInst, withSwitch(local, noCredential)))
 	if o.Action != Warn || o.Latest != "v0.2.0" || len(local.requests()) != 1 {
 		t.Errorf("outcome %+v with %d requests to the local Switch, want Warn v0.2.0 from one", o, len(local.requests()))
+	}
+}
+
+// A test that names only a Switch, through the config file or --url, still
+// asks it. The guard reads the host the fetch uses, not only the release host.
+func TestRunCheckInATestingProcessAsksTheSwitchItWasGiven(t *testing.T) {
+	setHome(t, t.TempDir())
+	list := releaseList(t, "v9.9.9")
+	stub := newSwitchStub(t, answers(200, `{"version":"0.2.0"}`))
+	t.Setenv(envTesting, "testing")
+	t.Setenv(testURLEnv, "")
+	o := RunCheck(now, archInst, withSwitch(stub, noCredential))
+	if o.Action != Warn || o.Latest != "v0.2.0" || len(stub.requests()) != 1 {
+		t.Fatalf("outcome %+v with %d Switch requests, want Warn v0.2.0 from one", o, len(stub.requests()))
+	}
+	if *list != 0 {
+		t.Errorf("the release list was read %d times", *list)
+	}
+}
+
+// With no release host named, a Switch that cannot answer never sends the check
+// on to a real release list.
+func TestRunCheckInATestingProcessNeverReadsAnUnnamedReleaseList(t *testing.T) {
+	setHome(t, t.TempDir())
+	list := releaseList(t, "v9.9.9") // stands where the real list would be
+	stub := newSwitchStub(t, answers(404, `{}`))
+	t.Setenv(envTesting, "testing")
+	t.Setenv(testURLEnv, "")
+	o := RunCheck(now, archInst, withSwitch(stub, noCredential))
+	if o.Action != None || *list != 0 {
+		t.Fatalf("outcome %+v with %d release list reads, want None and none", o, *list)
+	}
+}
+
+// With nothing named at all the check does nothing.
+func TestRunCheckInATestingProcessWithNoHostDoesNothing(t *testing.T) {
+	setHome(t, t.TempDir())
+	list := releaseList(t, "v9.9.9")
+	t.Setenv(envTesting, "testing")
+	t.Setenv(testURLEnv, "")
+	lookups := 0
+	sw := Switch{BaseURL: "https://switch.example.invalid", Credential: func() string { lookups++; return "pz-test-key" }}
+	if o := RunCheck(now, archInst, sw); o.Action != None || *list != 0 || lookups != 0 {
+		t.Fatalf("outcome %+v, %d list reads, %d credential lookups; want None and none", o, *list, lookups)
 	}
 }
