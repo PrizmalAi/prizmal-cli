@@ -148,15 +148,15 @@ var goBinDir = func() (string, error) {
 	return "", errors.New("go env has no GOBIN or GOPATH")
 }
 
-// RunCheck asks whether a newer release exists, at most once a day and for at
-// most maxCheckDelay. Every failure answers None: the check never blocks or
+// RunCheck asks the Switch whether a newer release exists, at most once a day
+// and for at most maxCheckDelay. Every failure answers None: the check never blocks or
 // fails a launch.
-func RunCheck(now time.Time, inst Install) Outcome {
+func RunCheck(now time.Time, inst Install, sw Switch) Outcome {
 	if underTest() && baseURL("") == "" {
 		// A test run reaches a stub host or nothing, never a real one.
 		return Outcome{}
 	}
-	return runCheck(now, inst, defaultState(), LatestFor(inst), maxCheckDelay)
+	return runCheck(now, inst, defaultState(), LatestFor(inst, sw), maxCheckDelay)
 }
 
 func runCheck(now time.Time, inst Install, state stateStore, latest func() (string, error), deadline time.Duration) Outcome {
