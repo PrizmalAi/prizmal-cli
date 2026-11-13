@@ -11,9 +11,10 @@ import (
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher"
 )
 
-// piDeviceExtensionSource is the Pi extension a device-mode launch loads. It
-// registers the Switch as a provider whose credential comes from this binary's
-// device-token helper, which Pi runs whenever it needs the key.
+// piDeviceExtensionSource is the Pi extension every launch loads. In device
+// mode it registers the Switch as a provider whose credential comes from this
+// binary's device-token helper, which Pi runs whenever it needs the key. In
+// every mode it sets a turn's cost to the charge the Switch sent.
 //
 //go:embed pi_extension/prizmal-device.ts
 var piDeviceExtensionSource []byte
@@ -61,7 +62,11 @@ type piDeviceLaunch struct {
 // credential command it runs is exactly the binary the operator launched. A
 // package would add a distribution step, a version to keep in step with the
 // CLI, and a network fetch in the path of a launch that has none today.
-func writePiDeviceExtension(model string, models []launch.LaunchModel) (*piDeviceLaunch, error) {
+//
+// A switch-key launch keeps its provider in models.json, so it gets the
+// extension alone, with no sidecar config: the extension registers no provider
+// without one and only sets the turn charge.
+func writePiDeviceExtension(model string, models []launch.LaunchModel, device bool) (*piDeviceLaunch, error) {
 	dir, err := os.MkdirTemp("", "prizmal-pi-")
 	if err != nil {
 		return nil, fmt.Errorf("create the pi extension directory: %w", err)
@@ -73,10 +78,13 @@ func writePiDeviceExtension(model string, models []launch.LaunchModel) (*piDevic
 		return nil, fmt.Errorf("write the pi extension: %w", err)
 	}
 
-	configPath := filepath.Join(dir, piDeviceConfigName)
-	if err := os.WriteFile(configPath, piDeviceConfigJSON(model, models), 0o600); err != nil {
-		_ = os.RemoveAll(dir)
-		return nil, fmt.Errorf("write the pi extension config: %w", err)
+	configPath := ""
+	if device {
+		configPath = filepath.Join(dir, piDeviceConfigName)
+		if err := os.WriteFile(configPath, piDeviceConfigJSON(model, models), 0o600); err != nil {
+			_ = os.RemoveAll(dir)
+			return nil, fmt.Errorf("write the pi extension config: %w", err)
+		}
 	}
 
 	return &piDeviceLaunch{dir: dir, extensionPath: extensionPath, configPath: configPath}, nil

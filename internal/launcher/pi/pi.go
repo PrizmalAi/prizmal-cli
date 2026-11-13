@@ -156,15 +156,13 @@ func (p *Pi) Run(model string, models []launch.LaunchModel, args []string) error
 	return cmd.Run()
 }
 
-// piDeviceLaunchFor writes the device extension and its config for a launch.
-// It returns nil when the process is not in device mode, which is every
-// switch-key launch: those select the provider entry Edit wrote and take the
-// key from the environment as before.
+// piDeviceLaunchFor writes the extension for a launch, and its config when the
+// process is in device mode. A switch-key launch selects the provider entry
+// Edit wrote and takes the key from the environment as before; its extension
+// only sets the turn charge.
 func piDeviceLaunchFor(model string, models []launch.LaunchModel) (*piDeviceLaunch, error) {
-	if !envconfig.DeviceMode() || envconfig.RelayMode() {
-		return nil, nil
-	}
-	extension, err := writePiDeviceExtension(model, models)
+	device := envconfig.DeviceMode() && !envconfig.RelayMode()
+	extension, err := writePiDeviceExtension(model, models, device)
 	if err != nil {
 		return nil, err
 	}
@@ -194,7 +192,7 @@ func (p *Pi) childEnv(extension *piDeviceLaunch) []string {
 
 func (p *Pi) envVars(extension *piDeviceLaunch) []string {
 	version := envconfig.ClientVersionEnvVar + "=" + envconfig.ClientVersion()
-	if extension == nil {
+	if extension == nil || extension.configPath == "" {
 		return []string{envconfig.KeyEnvVar + "=" + envconfig.APIKey(), version}
 	}
 	return claude.EnsureHelperBaseURL([]string{
@@ -211,13 +209,12 @@ func ensureNpmInstalled() error {
 	return nil
 }
 
-// piLaunchArgs assembles the pi command line: the device extension when there
-// is one, the prizmal provider selection, then the user's passthrough args.
+// piLaunchArgs assembles the pi command line: the extension when there is one,
+// the prizmal provider selection, then the user's passthrough args.
 //
-// A device-mode launch loads its extension by path, so the provider that
-// command names is registered by the extension and resolves its own credential
-// per request. A switch-key launch loads nothing and relies on the provider
-// entry Edit wrote.
+// Every launch loads the extension by path. A device-mode launch's extension
+// registers the provider, which resolves its own credential per request. A
+// switch-key launch relies on the provider entry Edit wrote.
 //
 // When the user's args already select a provider — --provider (pi spells it
 // long-form only; -p is --print), --provider=…, or a provider-qualified --model
