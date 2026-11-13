@@ -158,6 +158,10 @@ func TestReauthWarning(t *testing.T) {
 	if got := ReauthWarning(ptr(now.Add(48*time.Hour)), now); got != "" {
 		t.Fatalf("a deadline 48h out warned too early: %q", got)
 	}
+	deadline := now.Add(20 * time.Hour)
+	if got := ReauthWarning(&deadline, now); !strings.Contains(got, deadline.UTC().Format("2006-01-02 15:04 UTC")) {
+		t.Errorf("warning %q does not name the deadline", got)
+	}
 	if got := ReauthWarning(ptr(now.Add(20*time.Hour)), now); !strings.Contains(got, "prizmal login") {
 		t.Fatalf("a deadline 20h out did not warn: %q", got)
 	}
