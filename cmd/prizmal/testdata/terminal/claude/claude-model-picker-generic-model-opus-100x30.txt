@@ -12,7 +12,6 @@
 
 
 
-
 ▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔ ● high · /effort ▔
    Select model
    Switch between Claude models. Your pick becomes the default for new sessions. For
@@ -23,7 +22,8 @@
      3. Opus                   smart · Everyday coding
      4. Sonnet                 smart · Everyday coding
      5. Haiku                  quick · Quick answers
-     6. sample-model-a         Custom model (sample-model-a[1m])
+   ↓ 6. default                Custom model (default[1m])
+      … +1 model
 
    ● High effort (default) ←/→ to adjust
 

@@ -391,27 +391,11 @@ func HoldsTier(catalog []LaunchModel, tier claudecode.Tier) bool {
 	})
 }
 
-// CheckSendable refuses the names no Switch routes: `default` and its legacy
-// `prizmal/default` spelling, with or without a suffix. They are placeholders,
-// not model names, so no catalogue, read or unread, makes them right.
-//
-// It is the whole check on a name the operator typed: a --model, a
-// --subagent-model or a saved default. GET /v1/models lists each config once,
-// under its own name, and never the aliases the Switch also routes to it, so
-// the CLI cannot tell an alias from a typo. The Switch is the authority on
-// names and answers one it does not route with its own error.
-func CheckSendable(name string) error {
-	if IsReservedModelName(ModelNameWithoutSuffix(name)) {
-		return fmt.Errorf("model %q is not a name the Switch accepts; "+
-			"run `prizmal --list` for the names it routes", name)
-	}
-	return nil
-}
-
 // CheckRoutable refuses a model name the Switch would refuse, for a name the
 // CLI chose itself off the catalog: the picker's choice. A name the operator
-// typed gets CheckSendable instead, because the catalog does not list every
-// alias the Switch routes. The catalog is
+// typed is sent as given, with a warning when Lists says the catalog does not
+// place it, because the catalog does not list every alias the Switch routes.
+// The catalog is
 // the list of names the key routes, the tier aliases the tenant holds among
 // them, so a name outside it is a model the tenant has no copy of, and
 // the Switch answers it with an error instead of a model.
@@ -432,18 +416,12 @@ func CheckSendable(name string) error {
 // holds its tier. It does not when the tier is unheld: the launch's own
 // mapping points the word at the launch model, which is the word itself.
 //
-// `default` and its legacy `prizmal/default` spelling are refused whatever the
-// catalogue lists, as CheckSendable refuses them.
-//
 // An unread catalog passes everything. The launch path reads the catalog on a
 // best effort, and an endpoint that serves no model list is a supported target,
 // so the absence of a list is not evidence of a wrong name.
 func CheckRoutable(name string, catalog []LaunchModel, tierWords bool) error {
 	if name == "" {
 		return nil
-	}
-	if err := CheckSendable(name); err != nil {
-		return err
 	}
 	bare := ModelNameWithoutSuffix(name)
 	if len(catalog) == 0 {
@@ -609,13 +587,11 @@ func ListSwitchModels(ctx context.Context) ([]string, error) {
 }
 
 // LaunchableNames returns the names in catalog that a launch can send, in the
-// order the list carries them. The `default` placeholder is left out: a
-// launch never sends it, so a menu that offered it or a listing that printed it
-// would name something every launch refuses.
+// order the list carries them. Only an entry without a name is left out.
 func LaunchableNames(catalog []LaunchModel) []string {
 	names := make([]string, 0, len(catalog))
 	for _, m := range catalog {
-		if m.Name == "" || IsReservedModelName(m.Name) {
+		if m.Name == "" {
 			continue
 		}
 		names = append(names, m.Name)

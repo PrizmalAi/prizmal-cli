@@ -223,9 +223,8 @@ func TestModelRowsSkipEmptyNames(t *testing.T) {
 
 // A name `--list` prints is never dropped from the picker without a trace. A
 // config that holds a tier is folded into that tier's row, and the row says
-// which config it stands for; every other listed name keeps its own row. The
-// one exception is `default`, the placeholder a launch never
-// sends, so a row for it would offer a route the CLI refuses.
+// which config it stands for; every other listed name keeps its own row,
+// `default` included.
 func TestModelRowsShowEveryListedName(t *testing.T) {
 	catalog := withClaudeTiers([]LaunchModel{
 		{Name: "default"},
@@ -244,18 +243,19 @@ func TestModelRowsShowEveryListedName(t *testing.T) {
 
 	rows := ModelRows(catalog)
 
-	// Four tier rows and the one config that holds no tier. `default` is
-	// reserved and gets none.
-	if len(rows) != 5 {
-		t.Fatalf("built %d rows, want 5: %+v", len(rows), rows)
+	// Four tier rows and the two configs that hold no tier.
+	if len(rows) != 6 {
+		t.Fatalf("built %d rows, want 6: %+v", len(rows), rows)
 	}
 
 	byModel := map[string]ModelRow{}
 	for _, row := range rows {
 		byModel[row.Model] = row
 	}
-	if _, ok := byModel["sample-model-a"]; !ok {
-		t.Errorf("sample-model-a is listed but has no row: %+v", rows)
+	for _, name := range []string{"sample-model-a", "default"} {
+		if _, ok := byModel[name]; !ok {
+			t.Errorf("%s is listed but has no row: %+v", name, rows)
+		}
 	}
 
 	for tier, folded := range map[string]string{
@@ -283,12 +283,11 @@ func TestModelRowsShowEveryListedName(t *testing.T) {
 	}
 }
 
-// The legacy spelling of the placeholder is still the same placeholder, and a
-// catalog that lists only it leaves nothing to choose, which is an error rather
-// than an empty menu.
-func TestModelRowsOfOnlyThePlaceholderAreEmpty(t *testing.T) {
-	if rows := ModelRows([]LaunchModel{{Name: "prizmal/default"}}); len(rows) != 0 {
-		t.Fatalf("rows = %+v, want none", rows)
+// A catalog that lists only `prizmal/default` offers that name as its one row.
+func TestModelRowsOfADefaultNamedModel(t *testing.T) {
+	rows := ModelRows([]LaunchModel{{Name: "prizmal/default"}})
+	if len(rows) != 1 || rows[0].Model != "prizmal/default" {
+		t.Fatalf("rows = %+v, want one row for prizmal/default", rows)
 	}
 }
 
