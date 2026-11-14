@@ -143,173 +143,80 @@ func TestAuthTokenReauthRequiredSaysRunLogin(t *testing.T) {
 	}
 }
 
-// resetAppURLState clears the envconfig URL fields appBaseURL reads, so a
-// config URL one test loads cannot leak into the next.
+// A running session cannot start over when the 7-day sign-in deadline passes,
+// so the helper does what the launcher does at launch: with a switch key in
+// hand, it prints that key and Claude Code keeps working. The warning goes to
+// stderr, where the helper's diagnostics belong.
+func TestAuthTokenFallsBackToSwitchKeyWhenReauthRequired(t *testing.T) {
+	home := useTempHome(t)
+	writeDeviceKey(t, home)
+	t.Setenv(envconfig.KeyEnvVar, "sk-fallback-from-env")
+	envconfig.SetAPIKey("")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"code":"REAUTH_REQUIRED"}}`))
+	}))
+	defer srv.Close()
+
+	out, err := runAuthToken(t, srv.URL)
+	if err != nil {
+		t.Fatalf("auth token: %v, want the switch key as the fallback", err)
+	}
+	if strings.TrimSpace(out) != "sk-fallback-from-env" {
+		t.Fatalf("stdout = %q, want the switch key and nothing else", out)
+	}
+}
+
+// The fallback never invents a credential: with no switch key anywhere, the
+// helper still fails and says to sign in.
+func TestAuthTokenFallbackNeedsASwitchKey(t *testing.T) {
+	home := useTempHome(t)
+	writeDeviceKey(t, home)
+	t.Setenv(envconfig.KeyEnvVar, "")
+	envconfig.SetAPIKey("")
+	envconfig.SetConfigAPIKey("")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"code":"REAUTH_REQUIRED"}}`))
+	}))
+	defer srv.Close()
+
+	out, err := runAuthToken(t, srv.URL)
+	if err == nil || !strings.Contains(err.Error(), "prizmal login") || strings.TrimSpace(out) != "" {
+		t.Fatalf("stdout = %q, err = %v; want no output and a run-prizmal-login error", out, err)
+	}
+}
+
+// A revoked device's helper run ends with the same next step as every other
+// refusal the CLI can fix: run prizmal login, which makes a new key.
+func TestAuthTokenRevokedDeviceSaysRunLogin(t *testing.T) {
+	home := useTempHome(t)
+	writeDeviceKey(t, home)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"code":"DEVICE_REVOKED"}}`))
+	}))
+	defer srv.Close()
+
+	_, err := runAuthToken(t, srv.URL)
+	if err == nil || !strings.Contains(err.Error(), "revoked") || !strings.Contains(err.Error(), "prizmal login") {
+		t.Fatalf("error = %v, want it to say the device was revoked and to run prizmal login", err)
+	}
+}
+
+// resetAppURLState clears the envconfig URL fields a login reads, so a config
+// URL one test loads cannot leak into the next.
 func resetAppURLState(t *testing.T) {
 	t.Helper()
 	envconfig.SetBaseURL("")
 	envconfig.SetConfigBaseURL("")
-	envconfig.SetConfigAppURL("")
 	t.Cleanup(func() {
 		envconfig.SetBaseURL("")
 		envconfig.SetConfigBaseURL("")
-		envconfig.SetConfigAppURL("")
 	})
-}
-
-// The consent URL comes from $PRIZMAL_APP_URL, then the config file's app_url,
-// then the production app. Only the production switch has a default; the app
-// origin cannot be derived from any other switch host.
-func TestAppBaseURL(t *testing.T) {
-	t.Setenv("PRIZMAL_SWITCH_URL", "")
-	t.Setenv("PRIZMAL_APP_URL", "")
-	resetAppURLState(t)
-
-	envconfig.SetBaseURL("https://api.prizmal.ai")
-	got, err := appBaseURL()
-	if err != nil || got != "https://app.prizmal.ai" {
-		t.Fatalf("appBaseURL(production) = %q, %v; want the production app", got, err)
-	}
-
-	envconfig.SetConfigBaseURL("https://api.example.test")
-	envconfig.SetConfigAppURL("https://app.example.test/")
-	envconfig.SetBaseURL("https://api.example.test")
-	got, err = appBaseURL()
-	if err != nil || got != "https://app.example.test" {
-		t.Fatalf("appBaseURL(config app_url) = %q, %v; want the config app", got, err)
-	}
-
-	// A capitalised production host still reaches the production app.
-	envconfig.SetBaseURL("https://API.prizmal.ai")
-	got, err = appBaseURL()
-	if err != nil || got != "https://app.prizmal.ai" {
-		t.Fatalf("appBaseURL(capitalised production) = %q, %v; want the production app", got, err)
-	}
-
-	// Relay mode changes the URL a launch uses, not the switch the config names,
-	// so the paired app still answers.
-	envconfig.SetRelay("http://127.0.0.1:54321", "placeholder")
-	t.Cleanup(envconfig.ClearRelay)
-	envconfig.SetConfigBaseURL("https://api.example.test")
-	envconfig.SetConfigAppURL("https://app.example.test")
-	envconfig.SetBaseURL("https://api.example.test")
-	got, err = appBaseURL()
-	if err != nil || got != "https://app.example.test" {
-		t.Fatalf("appBaseURL(relay mode) = %q, %v; want the paired config app", got, err)
-	}
-
-	t.Setenv("PRIZMAL_APP_URL", "https://app.example.invalid/")
-	got, err = appBaseURL()
-	if err != nil || got != "https://app.example.invalid" {
-		t.Fatalf("appBaseURL($PRIZMAL_APP_URL) = %q, %v; want the environment app", got, err)
-	}
-}
-
-// A non-production switch with no app URL must stop the login and name the
-// setting, not approve the device on the production page.
-func TestAppBaseURLRequiresAppURLForNonProductionSwitch(t *testing.T) {
-	t.Setenv("PRIZMAL_SWITCH_URL", "")
-	t.Setenv("PRIZMAL_APP_URL", "")
-	resetAppURLState(t)
-	envconfig.SetBaseURL("https://api.example.test")
-
-	got, err := appBaseURL()
-	if err == nil {
-		t.Fatalf("appBaseURL = %q, want an error for a non-production switch with no app URL", got)
-	}
-	for _, want := range []string{"app_url", "$PRIZMAL_APP_URL"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("error = %q, want it to name %s", err, want)
-		}
-	}
-}
-
-// A --url or $PRIZMAL_SWITCH_URL override replaces the configured switch, so
-// the configured consent app no longer belongs to it. Login must stop instead of
-// pointing the override's operator at the configured app.
-func TestAppBaseURLIgnoresConfigAppForAnOverriddenSwitch(t *testing.T) {
-	t.Setenv(envconfig.EnvVar, "")
-	t.Setenv("PRIZMAL_APP_URL", "")
-	resetAppURLState(t)
-	envconfig.SetConfigBaseURL("https://api.example.test")
-	envconfig.SetConfigAppURL("https://app.example.test")
-	envconfig.SetBaseURL("https://api.other.example")
-
-	if _, err := appBaseURL(); err == nil {
-		t.Fatal("appBaseURL used the configured app for a switch the override replaced")
-	}
-
-	// The pairing needs a switch in the config file. An app_url on its own is
-	// still not a pairing for a switch that another source resolved.
-	resetAppURLState(t)
-	envconfig.SetConfigAppURL("https://app.example.test")
-	envconfig.SetBaseURL("https://api.example.test")
-	if _, err := appBaseURL(); err == nil {
-		t.Fatal("appBaseURL used an app_url with no config base_url for an overridden switch")
-	}
-
-	// The same holds when $PRIZMAL_SWITCH_URL is the source that chose the
-	// switch.
-	resetAppURLState(t)
-	envconfig.SetConfigAppURL("https://app.example.test")
-	t.Setenv(envconfig.EnvVar, "https://api.example.test")
-	if _, err := appBaseURL(); err == nil {
-		t.Fatal("appBaseURL used the configured app for a switch the environment replaced")
-	}
-}
-
-// The config file's app_url drives the consent page, so a non-production machine
-// configured only through ~/.prizmal/config.json signs in on its app.
-func TestLoginConsentAppFollowsConfigAppURL(t *testing.T) {
-	home := useTempHome(t)
-	t.Setenv(envconfig.EnvVar, "")
-	t.Setenv("PRIZMAL_APP_URL", "")
-	resetAppURLState(t)
-
-	dir := filepath.Join(home, ".prizmal")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	writeJSONFile(t, filepath.Join(dir, "config.json"), map[string]any{
-		"version":  1,
-		"base_url": "https://api.example.test",
-		"app_url":  "https://app.example.test",
-	})
-
-	if err := applyURLPrecedence("", ""); err != nil {
-		t.Fatalf("applyURLPrecedence: %v", err)
-	}
-	if got := envconfig.BaseURL(); got != "https://api.example.test" {
-		t.Fatalf("BaseURL() = %q, want the config file's switch URL", got)
-	}
-	got, err := appBaseURL()
-	if err != nil || got != "https://app.example.test" {
-		t.Fatalf("appBaseURL() = %q, %v; want the config file's app_url", got, err)
-	}
-}
-
-// A config file naming a non-production switch and no app URL reaches the same
-// error, so the login names what the file is missing instead of guessing.
-func TestLoginRequiresAppURLForConfiguredNonProductionSwitch(t *testing.T) {
-	home := useTempHome(t)
-	t.Setenv(envconfig.EnvVar, "")
-	t.Setenv("PRIZMAL_APP_URL", "")
-	resetAppURLState(t)
-
-	dir := filepath.Join(home, ".prizmal")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	writeJSONFile(t, filepath.Join(dir, "config.json"), map[string]any{
-		"version": 1, "base_url": "https://api.example.test",
-	})
-
-	if err := applyURLPrecedence("", ""); err != nil {
-		t.Fatalf("applyURLPrecedence: %v", err)
-	}
-	if _, err := appBaseURL(); err == nil {
-		t.Fatal("appBaseURL found an app URL for a non-production switch with none configured")
-	}
 }
 
 // A config file that exists but cannot be parsed must stop the login rather
@@ -318,7 +225,6 @@ func TestLoginRequiresAppURLForConfiguredNonProductionSwitch(t *testing.T) {
 func TestLoginRefusesUnreadableConfig(t *testing.T) {
 	home := useTempHome(t)
 	t.Setenv(envconfig.EnvVar, "")
-	t.Setenv("PRIZMAL_APP_URL", "")
 	resetAppURLState(t)
 
 	dir := filepath.Join(home, ".prizmal")
@@ -550,5 +456,92 @@ func TestEnterDeviceModeSucceedsSetsDeviceMode(t *testing.T) {
 	}
 	if got := envconfig.APIKey(); got != "pz-d-dt-ok" {
 		t.Fatalf("APIKey() = %q, want the fresh device token", got)
+	}
+}
+
+// The deadline warning prints once device mode is on and the deadline is under
+// a day away, and stays silent for a deadline further out or for a member with
+// none.
+func TestWarnReauthDeadline(t *testing.T) {
+	useTempHome(t)
+	resetDeviceModeState(t)
+	now := time.Now()
+
+	save := func(by *time.Time) {
+		t.Helper()
+		if err := (&device.CachedToken{Token: "pz-d-x", Expiry: now.Add(10 * time.Minute), ReauthBy: by}).Save(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	warn := func() string {
+		var b strings.Builder
+		warnReauthDeadline(&b, now)
+		return b.String()
+	}
+
+	soon := now.Add(5 * time.Hour)
+	save(&soon)
+	if got := warn(); got != "" {
+		t.Fatalf("warning printed with device mode off: %q", got)
+	}
+
+	envconfig.SetDeviceMode(true)
+	if got := warn(); !strings.Contains(got, "prizmal login") || !strings.Contains(got, soon.UTC().Format("2006-01-02 15:04 UTC")) {
+		t.Fatalf("warning = %q, want the deadline and the login command", got)
+	}
+	far := now.Add(72 * time.Hour)
+	save(&far)
+	if got := warn(); got != "" {
+		t.Fatalf("warning printed 3 days out: %q", got)
+	}
+	past := now.Add(-time.Hour)
+	save(&past)
+	if got := warn(); !strings.Contains(got, "past its deadline") {
+		t.Fatalf("warning = %q, want the past-deadline sentence", got)
+	}
+	save(nil)
+	if got := warn(); got != "" {
+		t.Fatalf("warning printed for a member with no deadline: %q", got)
+	}
+}
+
+// Only the sign-in deadline falls back. A device the admin revoked answers
+// 401 NOT_AUTHORIZED, and the helper must fail rather than put the static key
+// in its place.
+func TestAuthTokenDoesNotFallBackForARevokedDevice(t *testing.T) {
+	home := useTempHome(t)
+	writeDeviceKey(t, home)
+	t.Setenv(envconfig.KeyEnvVar, "sk-fallback-from-env")
+	envconfig.SetAPIKey("")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"code":"UNAUTHORIZED"}}`))
+	}))
+	defer srv.Close()
+
+	out, err := runAuthToken(t, srv.URL)
+	if err == nil || strings.Contains(out, "sk-fallback") {
+		t.Fatalf("stdout = %q, err = %v; want a failure and no switch key on stdout", out, err)
+	}
+}
+
+// A switch key that is not one printable ASCII line cannot go to Claude Code,
+// so the helper fails with the login instruction instead of printing it.
+func TestAuthTokenFallbackRejectsAnUnprintableKey(t *testing.T) {
+	home := useTempHome(t)
+	writeDeviceKey(t, home)
+	t.Setenv(envconfig.KeyEnvVar, "sk-bad\nkey")
+	envconfig.SetAPIKey("")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"code":"REAUTH_REQUIRED"}}`))
+	}))
+	defer srv.Close()
+
+	out, err := runAuthToken(t, srv.URL)
+	if err == nil || strings.TrimSpace(out) != "" {
+		t.Fatalf("stdout = %q, err = %v; want a login error and no output", out, err)
 	}
 }

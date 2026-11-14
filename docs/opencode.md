@@ -9,7 +9,7 @@
 | Provider, endpoint, key, models, selected model | the inline config in `OPENCODE_CONFIG_CONTENT` |
 | Search tool | `OPENCODE_CONFIG_DIR`, set to `~/.cache/prizmal/opencode` |
 
-The inline config declares the `prizmal` provider (`@ai-sdk/openai-compatible`), its endpoint, an `apiKey`, the model list, and `"model": "prizmal/<your-model>"`. It also turns off OpenCode's built-in websearch tool, which posts to OpenCode's own hosted backends rather than the Switch.
+The inline config declares the `prizmal` provider (`@ai-sdk/openai-compatible`), its endpoint, an `apiKey`, the model list, and `"model": "prizmal/<your-model>"`. The provider's `options.headers` carries the CLI's version as `x-prizmal-client-version` on every request, so the Switch can tell which CLI build a request came from. Without the CLI, nothing sends the header, and the Switch counts that as an unknown version. It also turns off OpenCode's built-in websearch tool, which posts to OpenCode's own hosted backends rather than the Switch.
 
 Each model also sets `limit.context` to 1,000,000, the window the Switch rules for every model, and `limit.output` to 32,000. Without `limit.context`, OpenCode assumes no window and doesn't compact a session until the provider refuses it. With it, OpenCode compacts at 968,000 tokens, the window less the output budget.
 

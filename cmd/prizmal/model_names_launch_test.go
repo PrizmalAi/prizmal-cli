@@ -12,11 +12,25 @@ import (
 	"github.com/PrizmalAi/prizmal-cli/internal/stubserver"
 )
 
-// A launch names a model the Switch routes, or stops before it starts the
-// harness. The harness here is a stand-in that leaves a marker file, so the
-// test sees whether prizmal started it.
-func TestLaunchStopsOnANameTheSwitchDoesNotRoute(t *testing.T) {
+// A name the operator passes reaches the harness as it is, whether or not the
+// catalog lists it: GET /v1/models lists each config once, under its own name,
+// and never the aliases the Switch also routes to it. The Switch is the
+// authority on names and answers one it does not route with its own error. The
+// `default` placeholder is the one name a launch refuses, because no Switch
+// routes it.
+//
+// The catalog here is shaped like a tenant whose Opus config holds the
+// frontier tier and answers to aliases the listing does not carry, such as the
+// legacy claude-tier-opus. The harness is a stand-in that writes its
+// arguments to a marker file, so the test sees whether prizmal started it and
+// which model it was handed. A name the catalog does not place gets a warning
+// before the harness starts, so a typo shows up before the Switch's error.
+// unlistedWarning is the text of the startup warning after the model it is about.
+const unlistedWarning = "is not in the model list this Switch serves"
+
+func TestLaunchSendsAnExplicitNameTheCatalogDoesNotList(t *testing.T) {
 	srv := stubserver.NewServer(stubserver.WithEntries(
+		stubserver.Entry{ID: "prizmal-max", Tiers: []string{"frontier"}},
 		stubserver.Entry{ID: "prizmal-flash", Tier: "haiku"},
 		stubserver.Entry{ID: "prizmal-core"},
 	))
@@ -24,30 +38,26 @@ func TestLaunchStopsOnANameTheSwitchDoesNotRoute(t *testing.T) {
 	prizmalBin := buildPrizmal(t)
 
 	for _, tc := range []struct {
-		name     string
-		args     []string
-		wantErr  string
-		wantRuns bool
+		name      string
+		args      []string
+		wantErr   string
+		wantModel string
+		// wantWarn is the subject of the startup warning for a name the
+		// catalog does not list, empty when the launch must not warn.
+		wantWarn string
 	}{
-		{name: "a listed name", args: []string{"-m", "prizmal-core"}, wantRuns: true},
-		{name: "a held tier alias", args: []string{"-m", "claude-tier-haiku"}, wantRuns: true},
-		{name: "an unknown name", args: []string{"-m", "gpt-5.6-luna"}, wantErr: `"gpt-5.6-luna" is not a name this Switch routes`},
-		{name: "a tier the tenant does not hold", args: []string{"-m", "claude-tier-opus"}, wantErr: `"claude-tier-opus" is not a name this Switch routes`},
+		{name: "a listed name", args: []string{"-m", "prizmal-core"}, wantModel: `"model":"prizmal-core[1m]"`},
+		{name: "a held tier alias", args: []string{"-m", "claude-tier-haiku"}, wantModel: `"model":"claude-tier-haiku`},
+		{name: "a legacy alias the listing does not carry", args: []string{"-m", "claude-tier-opus"}, wantModel: `"model":"claude-tier-opus[1m]"`, wantWarn: `model "claude-tier-opus"`},
+		{name: "the same alias after the integration name", args: []string{"claude", "--model", "claude-tier-opus"}, wantModel: `"model":"claude-tier-opus[1m]"`, wantWarn: `model "claude-tier-opus"`},
+		{name: "a name the CLI cannot place", args: []string{"-m", "gpt-5.6-luna"}, wantModel: `"model":"gpt-5.6-luna[1m]"`, wantWarn: `model "gpt-5.6-luna"`},
+		{name: "an unheld tier word", args: []string{"-m", "sonnet"}, wantModel: `"model":"sonnet[1m]"`, wantWarn: `model "sonnet"`},
+		{name: "a subagent model the listing does not carry", args: []string{"-m", "prizmal-core", "--subagent-model", "claude-tier-opus"}, wantModel: `"model":"prizmal-core[1m]"`, wantWarn: `--subagent-model: model "claude-tier-opus"`},
 		// `default` is a placeholder, not a model name, and a launch never sends it.
 		{name: "default", args: []string{"-m", "default"}, wantErr: "is not a name the Switch accepts"},
 		{name: "the legacy default spelling", args: []string{"-m", "prizmal/default"}, wantErr: "is not a name the Switch accepts"},
+		{name: "default after the integration name", args: []string{"claude", "--model", "default"}, wantErr: "is not a name the Switch accepts"},
 		{name: "a default subagent model", args: []string{"-m", "prizmal-core", "--subagent-model", "default"}, wantErr: "--subagent-model: model \"default\" is not a name the Switch accepts"},
-		// Claude Code resolves a tier word itself, to the id the tenant's
-		// alias maps: held here for haiku, not for sonnet.
-		{name: "a held tier word", args: []string{"-m", "haiku"}, wantRuns: true},
-		{name: "an unheld tier word", args: []string{"-m", "sonnet"}, wantErr: `"sonnet" runs the sonnet tier`},
-		{name: "a vendor id of a held tier", args: []string{"-m", "claude-haiku-4-5-20251001"}, wantRuns: true},
-		{name: "a subagent tier word", args: []string{"-m", "prizmal-core", "--subagent-model", "sonnet"}, wantRuns: true},
-		// The picker's row reads "tier-haiku"; the name that routes carries
-		// the claude- prefix the label drops.
-		{name: "a picker label", args: []string{"-m", "tier-haiku"}, wantRuns: true},
-		{name: "a picker label of an unheld tier", args: []string{"-m", "tier-opus"}, wantErr: `"tier-opus" is not a name this Switch routes`},
-		{name: "an unknown subagent model", args: []string{"-m", "prizmal-core", "--subagent-model", "gpt-5.6-luna"}, wantErr: `--subagent-model: model "gpt-5.6-luna"`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -62,22 +72,36 @@ func TestLaunchStopsOnANameTheSwitchDoesNotRoute(t *testing.T) {
 			writeJSONFile(t, filepath.Join(home, ".prizmal", "config.json"), map[string]any{
 				"version": 1, "base_url": srv.URL, "api_key": stubserver.StubKey,
 			})
-			writeScript(t, filepath.Join(bin, "claude"), "#!/bin/sh\ntouch "+shellQuote(marker)+"\n")
+			writeScript(t, filepath.Join(bin, "claude"), "#!/bin/sh\nprintf '%s\\n' \"$@\" > "+shellQuote(marker)+"\n")
 
-			cmd := exec.Command(prizmalBin, append(append([]string{"-y"}, tc.args...), "claude")...)
+			args := append([]string{"-y"}, tc.args...)
+			if args[1] != "claude" {
+				args = append(args, "claude")
+			}
+			cmd := exec.Command(prizmalBin, args...)
 			cmd.Env = []string{"HOME=" + home, "PATH=" + bin + ":/usr/bin:/bin", "PRIZMAL_ENV=testing"}
 			out, err := cmd.CombinedOutput()
 
-			_, statErr := os.Stat(marker)
+			harnessArgs, statErr := os.ReadFile(marker)
 			ran := statErr == nil
-			if ran != tc.wantRuns {
-				t.Errorf("harness ran = %v, want %v\n%s", ran, tc.wantRuns, out)
-			}
 			if tc.wantErr == "" {
-				if err != nil {
-					t.Errorf("launch failed: %v\n%s", err, out)
+				if err != nil || !ran {
+					t.Fatalf("launch failed (harness ran = %v): %v\n%s", ran, err, out)
+				}
+				if !strings.Contains(string(harnessArgs), tc.wantModel) {
+					t.Errorf("harness arguments do not contain %s:\n%s", tc.wantModel, harnessArgs)
+				}
+				warned := strings.Contains(string(out), unlistedWarning)
+				if tc.wantWarn == "" && warned {
+					t.Errorf("launch warned about a name the catalog places:\n%s", out)
+				}
+				if tc.wantWarn != "" && !strings.Contains(string(out), "warning: "+tc.wantWarn+" "+unlistedWarning) {
+					t.Errorf("output does not warn about %s:\n%s", tc.wantWarn, out)
 				}
 				return
+			}
+			if ran {
+				t.Errorf("harness ran, want a refusal before it starts\n%s", out)
 			}
 			if err == nil {
 				t.Errorf("launch succeeded, want a refusal\n%s", out)

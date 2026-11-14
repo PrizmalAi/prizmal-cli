@@ -220,7 +220,7 @@ func TestInlineConfigInputsComeFromTheKiloVocabulary(t *testing.T) {
 		config := inlineConfig(t, m.Name, []launch.LaunchModel{m})
 		models := config["provider"].(map[string]any)["prizmal"].(map[string]any)["models"].(map[string]any)
 		input := models[m.Name].(map[string]any)["modalities"].(map[string]any)["input"]
-		want := launch.DeclaredInputs(m, launch.HarnessKilo)
+		want := launch.DeclaredInputs(m, Inputs)
 		if got := toStrings(input); strings.Join(got, ",") != strings.Join(want, ",") {
 			t.Fatalf("%s: modalities.input = %v, want the vocabulary's %v", m.Name, got, want)
 		}

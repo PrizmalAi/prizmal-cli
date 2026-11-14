@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -26,7 +27,7 @@ const refreshTimeout = 15 * time.Second
 var ErrDeviceUnknown = errors.New("device not enrolled")
 
 // ErrNotAuthorized means the switch answered 401 with no more specific code:
-// a bad signature, a stale ts, a revoked device, an inactive member, an
+// a bad signature, a stale ts, an inactive member, an
 // inactive WorkOS membership, or a disabled tenant. The switch says nothing
 // about which, and neither does this.
 var ErrNotAuthorized = errors.New("device not authorized")
@@ -37,6 +38,13 @@ var ErrNotAuthorized = errors.New("device not authorized")
 // device key — so it is a distinct error the CLI maps to "run prizmal login".
 var ErrReauthRequired = errors.New("device sign-in deadline passed")
 
+// ErrDeviceRevoked means the switch answered 401 DEVICE_REVOKED: the
+// device was revoked, and the request's signature verified, so the
+// key is the enrolled one. A revoked device never works again, so the fix is
+// a new key, which prizmal login makes. The switch answers this only to the
+// holder of the key; every other 401 stays ErrNotAuthorized.
+var ErrDeviceRevoked = errors.New("device revoked")
+
 // ErrRateLimited means the switch answered 429: a refresh arrived within 30
 // seconds of the previous one. The remedy is to wait one second and re-read
 // the cache, which a parallel helper has just written.
@@ -46,6 +54,10 @@ var ErrRateLimited = errors.New("device refresh too soon")
 // no verdict, retryable. The CLI prints a still-valid cached token rather than
 // failing.
 var ErrUnavailable = errors.New("device token service unavailable")
+
+// configPath is the route that reports the approval page, appended to the
+// configured Switch host. It needs no credential.
+const configPath = "/v1/cli/config"
 
 // Client issues device tokens against one Switch host.
 type Client struct {
@@ -152,8 +164,11 @@ func (c *Client) Refresh(key *Key, now time.Time) (*Token, error) {
 		return nil, ErrUnavailable
 
 	case http.StatusUnauthorized:
-		if codeOf(data) == "REAUTH_REQUIRED" {
+		switch codeOf(data) {
+		case "REAUTH_REQUIRED":
 			return nil, ErrReauthRequired
+		case "DEVICE_REVOKED":
+			return nil, ErrDeviceRevoked
 		}
 		return nil, ErrNotAuthorized
 
@@ -170,4 +185,42 @@ func codeOf(data []byte) string {
 		return ""
 	}
 	return env.Error.Code
+}
+
+// ApprovalURL asks the Switch where a person approves a device: the full URL of
+// the approval page, before any query. The request is a GET with no credential.
+// A Switch that has no such route, answers with nothing usable, fails or cannot
+// be reached gives an error, and the caller decides what to use instead.
+func (c *Client) ApprovalURL() (string, error) {
+	req, err := http.NewRequest(http.MethodGet, c.BaseURL+configPath, nil)
+	if err != nil {
+		return "", err
+	}
+	client := c.HTTP
+	if client == nil {
+		client = &http.Client{Timeout: refreshTimeout}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("ask the Switch for its approval page: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	if err != nil {
+		return "", fmt.Errorf("ask the Switch for its approval page: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("ask the Switch for its approval page: switch answered %s", resp.Status)
+	}
+	var body struct {
+		ApprovalURL string `json:"approval_url"`
+	}
+	if err := json.Unmarshal(data, &body); err != nil {
+		return "", fmt.Errorf("ask the Switch for its approval page: %w", err)
+	}
+	u, err := url.Parse(strings.TrimSpace(body.ApprovalURL))
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return "", fmt.Errorf("ask the Switch for its approval page: the answer holds no usable URL")
+	}
+	return u.String(), nil
 }

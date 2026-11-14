@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -40,8 +41,8 @@ func TestLoginPollsUntilApproved(t *testing.T) {
 	openedCh := make(chan struct{})
 	var out strings.Builder
 	tok, err := Login(NewClient(srv.URL), key, LoginOptions{
-		AuthorizeBaseURL: "https://app.prizmal.ai",
-		DeviceName:       "test-mac",
+		ApprovalURL: "https://app.example.invalid/cli/authorize",
+		DeviceName:  "test-mac",
 		Sleep: func(d time.Duration) {
 			select {
 			case <-openedCh:
@@ -86,13 +87,13 @@ func TestLoginTimesOutWhilePending(t *testing.T) {
 	defer srv.Close()
 
 	_, err := Login(NewClient(srv.URL), key, LoginOptions{
-		AuthorizeBaseURL: "https://app.prizmal.ai",
-		Interval:         time.Second,
-		Timeout:          5 * time.Second,
-		Sleep:            clk.sleep,
-		Now:              clk.now,
-		OpenBrowser:      func(string) error { return nil },
-		Confirm:          confirmYes,
+		ApprovalURL: "https://app.example.invalid/cli/authorize",
+		Interval:    time.Second,
+		Timeout:     5 * time.Second,
+		Sleep:       clk.sleep,
+		Now:         clk.now,
+		OpenBrowser: func(string) error { return nil },
+		Confirm:     confirmYes,
 	})
 	if err == nil {
 		t.Fatal("Login returned no error after the timeout")
@@ -123,13 +124,13 @@ func TestLoginKeepsPollingThroughReauthRequired(t *testing.T) {
 	defer srv.Close()
 
 	tok, err := Login(NewClient(srv.URL), key, LoginOptions{
-		AuthorizeBaseURL: "https://app.prizmal.ai",
-		Interval:         time.Second,
-		Timeout:          time.Minute,
-		Sleep:            clk.sleep,
-		Now:              clk.now,
-		OpenBrowser:      func(string) error { return nil },
-		Confirm:          confirmYes,
+		ApprovalURL: "https://app.example.invalid/cli/authorize",
+		Interval:    time.Second,
+		Timeout:     time.Minute,
+		Sleep:       clk.sleep,
+		Now:         clk.now,
+		OpenBrowser: func(string) error { return nil },
+		Confirm:     confirmYes,
 	})
 	if err != nil {
 		t.Fatalf("Login: %v", err)
@@ -152,23 +153,44 @@ func TestLoginTimesOutWhileReauthRequired(t *testing.T) {
 	defer srv.Close()
 
 	_, err := Login(NewClient(srv.URL), key, LoginOptions{
-		AuthorizeBaseURL: "https://app.prizmal.ai",
-		Interval:         time.Second,
-		Timeout:          5 * time.Second,
-		Sleep:            clk.sleep,
-		Now:              clk.now,
-		OpenBrowser:      func(string) error { return nil },
-		Confirm:          confirmYes,
+		ApprovalURL: "https://app.example.invalid/cli/authorize",
+		Interval:    time.Second,
+		Timeout:     5 * time.Second,
+		Sleep:       clk.sleep,
+		Now:         clk.now,
+		OpenBrowser: func(string) error { return nil },
+		Confirm:     confirmYes,
 	})
 	if err == nil || !strings.Contains(err.Error(), "timed out waiting for approval") {
 		t.Fatalf("error = %v, want the timed-out-waiting-for-approval error", err)
 	}
 }
 
-func TestAuthorizeURLTrimsTrailingSlash(t *testing.T) {
+// The approval URL the Switch reports already names the consent page, so the
+// CLI adds only the query: the public key and the suggested device name.
+func TestAuthorizeURLAddsOnlyTheQuery(t *testing.T) {
 	key, _ := GenerateKey()
-	if a, b := AuthorizeURL("https://app.prizmal.ai/", key, "n"), AuthorizeURL("https://app.prizmal.ai", key, "n"); a != b {
-		t.Fatalf("trailing slash changed the URL:\n%s\n%s", a, b)
+	got := AuthorizeURL("https://app.example.invalid/cli/authorize", key, "my laptop")
+	want := "https://app.example.invalid/cli/authorize?name=my+laptop&pk=" + key.PublicB64()
+	if got != want {
+		t.Fatalf("AuthorizeURL = %q, want %q", got, want)
+	}
+}
+
+// A reported page that already has a query keeps it, and the CLI adds its own.
+func TestAuthorizeURLKeepsAnExistingQuery(t *testing.T) {
+	key, _ := GenerateKey()
+	got := AuthorizeURL("https://app.example.invalid/cli/authorize?tenant=one", key, "n")
+	u, err := url.Parse(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := u.Query()
+	if q.Get("tenant") != "one" || q.Get("pk") != key.PublicB64() || q.Get("name") != "n" {
+		t.Fatalf("query = %v, want tenant, pk and name all present in %q", q, got)
+	}
+	if strings.Count(got, "?") != 1 {
+		t.Fatalf("URL %q has more than one '?'", got)
 	}
 }
 
@@ -201,9 +223,9 @@ func TestLoginShowsTheCodeBeforeOpeningTheBrowser(t *testing.T) {
 	opened := false
 	openedCh := make(chan struct{})
 	_, _ = Login(NewClient(srv.URL), key, LoginOptions{
-		AuthorizeBaseURL: "https://app.prizmal.ai",
-		Interval:         time.Second,
-		Timeout:          2 * time.Second,
+		ApprovalURL: "https://app.example.invalid/cli/authorize",
+		Interval:    time.Second,
+		Timeout:     2 * time.Second,
 		Sleep: func(d time.Duration) {
 			select {
 			case <-openedCh:
@@ -229,7 +251,7 @@ func TestLoginShowsTheCodeBeforeOpeningTheBrowser(t *testing.T) {
 	if confirmAt < 0 {
 		t.Fatalf("no confirm prompt:\n%s", screen)
 	}
-	urlAt := strings.Index(screen, "https://app.prizmal.ai/cli/authorize")
+	urlAt := strings.Index(screen, "https://app.example.invalid/cli/authorize")
 	fpAt := strings.Index(screen, key.Fingerprint())
 	if urlAt < 0 || fpAt < 0 || urlAt > confirmAt || fpAt > confirmAt {
 		t.Fatalf("URL/fingerprint are not shown before the confirm prompt:\n%s", screen)
@@ -256,12 +278,12 @@ func TestLoginDecliningTheConfirmDoesNotOpenTheBrowser(t *testing.T) {
 	var opened bool
 	var out strings.Builder
 	tok, err := Login(NewClient(srv.URL), key, LoginOptions{
-		AuthorizeBaseURL: "https://app.prizmal.ai",
-		Sleep:            clk.sleep,
-		Now:              clk.now,
-		Confirm:          func(<-chan struct{}) (bool, error) { return false, nil },
-		OpenBrowser:      func(string) error { opened = true; return nil },
-		Out:              &out,
+		ApprovalURL: "https://app.example.invalid/cli/authorize",
+		Sleep:       clk.sleep,
+		Now:         clk.now,
+		Confirm:     func(<-chan struct{}) (bool, error) { return false, nil },
+		OpenBrowser: func(string) error { opened = true; return nil },
+		Out:         &out,
 	})
 	if err != nil {
 		t.Fatalf("Login: %v", err)
@@ -299,9 +321,9 @@ func TestLoginApprovedElsewhereNeedsNoEnter(t *testing.T) {
 	released := make(chan struct{})
 	var out strings.Builder
 	tok, err := Login(NewClient(srv.URL), key, LoginOptions{
-		AuthorizeBaseURL: "https://app.prizmal.ai",
-		Sleep:            clk.sleep,
-		Now:              clk.now,
+		ApprovalURL: "https://app.example.invalid/cli/authorize",
+		Sleep:       clk.sleep,
+		Now:         clk.now,
 		Confirm: func(done <-chan struct{}) (bool, error) {
 			defer close(released)
 			return confirmNever(done)
@@ -325,5 +347,56 @@ func TestLoginApprovedElsewhereNeedsNoEnter(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Approved in your browser") {
 		t.Fatalf("output does not say the approval was seen:\n%s", out.String())
+	}
+}
+
+// loginAgainst runs Login against a server whose refresh answers are scripted:
+// each entry is a status for one poll, and the last repeats.
+func loginAgainst(t *testing.T, statuses ...int) string {
+	t.Helper()
+	key, _ := GenerateKey()
+	clk := &fakeClock{t: time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)}
+	var polls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		i := int(atomic.AddInt32(&polls, 1)) - 1
+		if i >= len(statuses) {
+			i = len(statuses) - 1
+		}
+		if statuses[i] == http.StatusOK {
+			_ = json.NewEncoder(w).Encode(map[string]any{"device_token": "pz-d-dt-token", "expires_in": 600})
+			return
+		}
+		w.WriteHeader(statuses[i])
+		_, _ = w.Write([]byte(`{"error":{"code":"NOT_FOUND"}}`))
+	}))
+	defer srv.Close()
+	var out strings.Builder
+	if _, err := Login(NewClient(srv.URL), key, LoginOptions{
+		ApprovalURL: "https://app.example.invalid/cli/authorize",
+		Sleep:       clk.sleep,
+		Now:         clk.now,
+		OpenBrowser: func(string) error { return nil },
+		Confirm:     func(done <-chan struct{}) (bool, error) { <-done; return false, nil },
+		Out:         &out,
+	}); err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	return out.String()
+}
+
+// "Approved in your browser." claims a person clicked Allow while the CLI
+// waited. It is printed only when the wait began with a refresh that failed and
+// a later one succeeded. A first refresh that succeeds means nobody approved
+// anything during the wait, so the line would be false.
+func TestLoginSaysApprovedInTheBrowserOnlyAfterWaiting(t *testing.T) {
+	const line = "Approved in your browser."
+	if out := loginAgainst(t, http.StatusOK); strings.Contains(out, line) {
+		t.Fatalf("a first refresh that succeeded printed %q:\n%s", line, out)
+	}
+	if out := loginAgainst(t, http.StatusNotFound, http.StatusOK); !strings.Contains(out, line) {
+		t.Fatalf("an approval after a pending refresh did not print %q:\n%s", line, out)
+	}
+	if out := loginAgainst(t, http.StatusTooManyRequests, http.StatusOK); strings.Contains(out, line) {
+		t.Fatalf("a rate-limited refresh then success printed %q:\n%s", line, out)
 	}
 }

@@ -20,11 +20,11 @@ const EnvTesting = "PRIZMAL_ENV"
 
 // TestingEnv returns the environment entries a test subprocess should carry so
 // an accidental sign-in cannot leave the machine: the testing marker that
-// disables the browser, and a consent-page origin at a non-routable host.
+// disables the browser. The approval page comes from the Switch the test
+// serves, so there is nothing else to pin.
 func TestingEnv() []string {
 	return []string{
 		EnvTesting + "=testing",
-		"PRIZMAL_APP_URL=http://127.0.0.1:0",
 	}
 }
 
@@ -114,9 +114,10 @@ func ReauthWarning(reauthBy *time.Time, now time.Time) string {
 		return ""
 	}
 	if remaining < 0 {
-		return "Your Prizmal sign-in is past its deadline. Run prizmal login to re-approve this device."
+		return "Your Prizmal sign-in is past its deadline. Run prizmal login --reapprove to re-approve this device."
 	}
-	return fmt.Sprintf("Your Prizmal sign-in expires in %s. Run prizmal login to re-approve this device.", formatRemaining(remaining))
+	return fmt.Sprintf("Your Prizmal sign-in expires in %s, at %s. Run prizmal login --reapprove to re-approve this device.",
+		formatRemaining(remaining), reauthBy.UTC().Format("2006-01-02 15:04 UTC"))
 }
 
 // formatRemaining spells a duration the way a warning reads: whole days or

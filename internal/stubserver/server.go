@@ -141,9 +141,32 @@ type serverConfig struct {
 	deviceApproved bool
 	// approveAfter, when above zero, keeps the device pending until that many
 	// refresh requests have arrived. refreshes counts them.
-	approveAfter        int32
-	refreshes           atomic.Int32
-	deviceOnly          bool
+	approveAfter int32
+	refreshes    atomic.Int32
+	deviceOnly   bool
+	// noApprovalPage makes GET /v1/cli/config answer 404, like a Switch that
+	// predates the route. By default the stub reports an approval page.
+	noApprovalPage bool
+	// revokeFirst answers the first refresh with 401 DEVICE_REVOKED, the one
+	// answer the Switch gives a revoked device's key, then follows the
+	// approval options. revoked records that the first answer went out.
+	revokeFirst bool
+	// reauthFirst answers the first refresh with 401 REAUTH_REQUIRED, as the
+	// Switch does for a key whose sign-in deadline passed, then follows the
+	// approval options. reauthSent records that the first answer went out.
+	reauthFirst bool
+	// reauthBy overrides DeviceReauthBy as the sign-in deadline an approved
+	// refresh reports; reauthBySet records that it was given, and an empty
+	// value then omits the field, as for a Directory Sync-managed member.
+	reauthBy    string
+	reauthBySet bool
+	// laterAfter, when above zero, makes the nth approved refresh and every
+	// later one report a deadline a week past reauthBy, as the Switch does once
+	// the device is approved again. approvals counts approved refreshes.
+	laterAfter          int32
+	approvals           atomic.Int32
+	reauthSent          atomic.Bool
+	revoked             atomic.Bool
 	issuer              *DeviceTokenIssuer
 	toolLoop            *toolScript
 	usagePlan           *UsagePlan
@@ -444,6 +467,46 @@ func WithDeviceApproval() ServerOption {
 	return func(c *serverConfig) { c.deviceApproved = true }
 }
 
+// WithoutApprovalPage makes GET /v1/cli/config answer 404, as a Switch that
+// predates the route does. Without it the stub reports ApprovalURL.
+func WithoutApprovalPage() ServerOption {
+	return func(c *serverConfig) { c.noApprovalPage = true }
+}
+
+// WithDeviceReauthFirst makes the first POST /v1/cli/token answer 401
+// REAUTH_REQUIRED, as the Switch does for a key whose sign-in deadline passed,
+// and every later one follow the approval options. A login then meets an
+// expired key, shows the approval link, and waits for the approval it asks for.
+func WithDeviceReauthFirst() ServerOption {
+	return func(c *serverConfig) { c.reauthFirst = true }
+}
+
+// WithDeviceReauthBy sets the sign-in deadline an approved refresh reports, an
+// RFC 3339 time, in place of DeviceReauthBy. An empty value omits the field,
+// the answer for a member whose directory manages the sign-in.
+func WithDeviceReauthBy(deadline string) ServerOption {
+	return func(c *serverConfig) {
+		c.reauthBy = deadline
+		c.reauthBySet = true
+	}
+}
+
+// WithDeviceReapprovalAfter makes the nth approved refresh, and each one after
+// it, report a deadline a week later than the earlier ones. A device that is
+// still approved refreshes successfully all along, so a re-approval is seen
+// only as that later deadline.
+func WithDeviceReapprovalAfter(n int) ServerOption {
+	return func(c *serverConfig) { c.laterAfter = int32(n) }
+}
+
+// WithDeviceRevokedFirst makes the first POST /v1/cli/token answer 401
+// DEVICE_REVOKED, as the Switch does for a revoked device's key, and every
+// later one follow the approval options. A login then meets a revoked key and,
+// once it makes a new one, the approval it asks for.
+func WithDeviceRevokedFirst() ServerOption {
+	return func(c *serverConfig) { c.revokeFirst = true }
+}
+
 // WithDeviceApprovalAfter approves the device on the nth refresh request and
 // answers 404 before it. It gives a login time to show its pending screen and
 // take a keypress before the approval lands.
@@ -666,6 +729,13 @@ func handler(c *serverConfig) http.HandlerFunc {
 			return
 		}
 
+		// GET /v1/cli/config reports where a person approves a device. The real
+		// Switch serves it without a key too: the CLI asks before it holds one.
+		if r.Method == http.MethodGet && r.URL.Path == "/v1/cli/config" {
+			handleCLIConfig(w, c)
+			return
+		}
+
 		// Auth check: require either Authorization: Bearer or x-api-key.
 		if !hasAuth(r) || !hasAcceptedAuth(r, c) {
 			writeJSON(w, http.StatusUnauthorized, map[string]any{
@@ -724,31 +794,72 @@ func handler(c *serverConfig) http.HandlerFunc {
 	}
 }
 
+// ApprovalURL is the approval page the stub reports: a non-routable host, so a
+// window that opened it would reach nothing.
+const ApprovalURL = "http://127.0.0.1:0/cli/authorize"
+
+// handleCLIConfig answers the approval-page route: the fixed ApprovalURL, or a
+// 404 when the stub models a Switch with no such route.
+func handleCLIConfig(w http.ResponseWriter, c *serverConfig) {
+	if c.noApprovalPage {
+		writeJSON(w, http.StatusNotFound, map[string]any{
+			"error": map[string]any{"message": "this Switch does not report an approval page"},
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"approval_url": ApprovalURL})
+}
+
 // handleCLIToken answers the device refresh. While pending it returns 404, the
 // same "unknown device" the CLI polls through during enrollment. Approved
 // returns 200 with a token: the fixed DeviceToken when the stub issues no
 // short-lived tokens, otherwise a fresh short-lived one. The 600-second expiry
 // and fixed reauth_by mirror the shape the Switch forwards from the Config API.
 func handleCLIToken(w http.ResponseWriter, c *serverConfig) {
+	if c.reauthFirst && c.reauthSent.CompareAndSwap(false, true) {
+		writeJSON(w, http.StatusUnauthorized, map[string]any{
+			"error": map[string]any{"code": "REAUTH_REQUIRED", "message": "device sign-in deadline passed"},
+		})
+		return
+	}
+	if c.revokeFirst && c.revoked.CompareAndSwap(false, true) {
+		writeJSON(w, http.StatusUnauthorized, map[string]any{
+			"error": map[string]any{"code": "DEVICE_REVOKED", "message": "device revoked"},
+		})
+		return
+	}
 	if !c.deviceApproved || (c.approveAfter > 0 && c.refreshes.Add(1) < c.approveAfter) {
 		writeJSON(w, http.StatusNotFound, map[string]any{
 			"error": map[string]any{"code": "NOT_FOUND", "message": "unknown device"},
 		})
 		return
 	}
+	body := map[string]any{"device_token": DeviceToken, "expires_in": 600}
 	if c.issuer != nil {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"device_token": c.issuer.Token(time.Now()),
-			"expires_in":   int(c.issuer.ttl / time.Second),
-			"reauth_by":    DeviceReauthBy,
-		})
-		return
+		body["device_token"] = c.issuer.Token(time.Now())
+		body["expires_in"] = int(c.issuer.ttl / time.Second)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"device_token": DeviceToken,
-		"expires_in":   600,
-		"reauth_by":    DeviceReauthBy,
-	})
+	if deadline := deviceDeadline(c); deadline != "" {
+		body["reauth_by"] = deadline
+	}
+	writeJSON(w, http.StatusOK, body)
+}
+
+// deviceDeadline is the reauth_by an approved refresh reports, and counts the
+// refresh: the configured deadline, or a week past it from the refresh a
+// re-approval option names.
+func deviceDeadline(c *serverConfig) string {
+	deadline := DeviceReauthBy
+	if c.reauthBySet {
+		deadline = c.reauthBy
+	}
+	n := c.approvals.Add(1)
+	if c.laterAfter > 0 && n >= c.laterAfter && deadline != "" {
+		if t, err := time.Parse(time.RFC3339, deadline); err == nil {
+			deadline = t.Add(7 * 24 * time.Hour).Format(time.RFC3339)
+		}
+	}
+	return deadline
 }
 
 func hasAuth(r *http.Request) bool {

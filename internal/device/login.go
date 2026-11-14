@@ -23,9 +23,9 @@ const (
 // a real terminal, a real clock, and the default cadence. Tests supply a
 // fake sleep, clock and browser so the loop runs without waiting.
 type LoginOptions struct {
-	// AuthorizeBaseURL is the admin app the operator approves in, the
-	// origin of the /cli/authorize consent page.
-	AuthorizeBaseURL string
+	// ApprovalURL is the approval page the Switch reports (Client.ApprovalURL):
+	// the full URL the operator opens, before the CLI adds its query.
+	ApprovalURL string
 	// DeviceName is offered to the page as the default label. The page
 	// decides the name it enrolls; this is only a suggestion.
 	DeviceName string
@@ -46,6 +46,11 @@ type LoginOptions struct {
 	// once done closes, which happens when the approval lands first. Nil means
 	// a real terminal read (readConfirm).
 	Confirm func(done <-chan struct{}) (bool, error)
+	// Reapprove, when set, makes Login extend an approval that still works. It
+	// holds the sign-in deadline the device has now. A key that is approved
+	// refreshes successfully the whole time, so a success proves nothing: the
+	// wait ends on a refresh whose deadline is later than this one.
+	Reapprove *time.Time
 	// Out receives the URL, fingerprint and progress, os.Stderr when nil.
 	Out io.Writer
 }
@@ -75,22 +80,20 @@ func (o *LoginOptions) withDefaults() LoginOptions {
 	return *o
 }
 
-// AuthorizeURL builds the consent page URL: base + /cli/authorize with the
-// public key and the suggested device name. The page derives the device id and
-// fingerprint itself and trusts no other parameter.
-func AuthorizeURL(base string, key *Key, name string) string {
-	base = trimTrailingSlash(base)
-	q := url.Values{}
+// AuthorizeURL builds the URL the operator opens: the approval page the Switch
+// reports, with the public key and the suggested device name as its query. The
+// page derives the device id and fingerprint itself and trusts no other
+// parameter.
+func AuthorizeURL(approvalURL string, key *Key, name string) string {
+	u, err := url.Parse(approvalURL)
+	if err != nil {
+		return approvalURL
+	}
+	q := u.Query()
 	q.Set("pk", key.PublicB64())
 	q.Set("name", name)
-	return base + "/cli/authorize?" + q.Encode()
-}
-
-func trimTrailingSlash(s string) string {
-	for len(s) > 0 && s[len(s)-1] == '/' {
-		s = s[:len(s)-1]
-	}
-	return s
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 // Login enrolls (or re-approves) the device: it prints the consent URL and the
@@ -104,7 +107,7 @@ func trimTrailingSlash(s string) string {
 func Login(client *Client, key *Key, opts LoginOptions) (*Token, error) {
 	opts = opts.withDefaults()
 
-	authURL := AuthorizeURL(opts.AuthorizeBaseURL, key, opts.DeviceName)
+	authURL := AuthorizeURL(opts.ApprovalURL, key, opts.DeviceName)
 	// The URL and fingerprint come first, and the browser opens only after the
 	// operator presses Enter: they approve the fingerprint on the page, so they
 	// need to read it here before a window covers the terminal, and a browser
@@ -157,7 +160,17 @@ func Login(client *Client, key *Key, opts LoginOptions) (*Token, error) {
 		<-finished
 	}
 
+	// waited records that a refresh came back not approved yet. Only then does
+	// a later success mean someone approved during this wait; a first refresh
+	// that succeeds means the device was already approved, and saying "approved
+	// in your browser" would be false.
+	waited := false
 	deadline := opts.Now().Add(opts.Timeout)
+	if opts.Reapprove != nil {
+		// The probe that found the key approved stamped the Switch's refresh
+		// throttle, so the first refresh waits instead of asking at once.
+		opts.Sleep(opts.Interval)
+	}
 	for {
 		select {
 		case err := <-enterErr:
@@ -168,17 +181,23 @@ func Login(client *Client, key *Key, opts LoginOptions) (*Token, error) {
 
 		tok, err := client.Refresh(key, opts.Now())
 		switch {
+		case err == nil && !laterDeadline(tok, opts.Reapprove):
+			// Re-approval only: the key still works, but the deadline has not
+			// moved, so nobody has approved yet.
 		case err == nil:
 			stop()
 			if !answered {
 				// The prompt is still on screen: take it off the line.
 				clearPrompt(out, opts.Out)
-				_, _ = fmt.Fprintf(out, "Approved in your browser.\n")
+				if waited || opts.Reapprove != nil {
+					_, _ = fmt.Fprintf(out, "Approved in your browser.\n")
+				}
 			}
 			return tok, nil
 		case errors.Is(err, ErrDeviceUnknown), errors.Is(err, ErrReauthRequired):
 			// Not approved yet. An expired sign-in answers REAUTH_REQUIRED
 			// until the browser approval resets its re-auth deadline.
+			waited = true
 		case errors.Is(err, ErrRateLimited):
 			// A parallel helper refreshed first; wait out the throttle and
 			// try again.
@@ -195,6 +214,16 @@ func Login(client *Client, key *Key, opts LoginOptions) (*Token, error) {
 		}
 		opts.Sleep(opts.Interval)
 	}
+}
+
+// laterDeadline reports whether tok ends a re-approval wait: always for a plain
+// login (previous is nil), and for a re-approval only when the Switch moved the
+// sign-in deadline past the one the wait started from.
+func laterDeadline(tok *Token, previous *time.Time) bool {
+	if previous == nil {
+		return true
+	}
+	return tok.ReauthBy != nil && tok.ReauthBy.After(*previous)
 }
 
 // clearPrompt removes the unanswered Enter prompt. On a terminal it erases the
@@ -227,6 +256,8 @@ func loginError(err error) error {
 	switch {
 	case errors.Is(err, ErrNotAuthorized):
 		return fmt.Errorf("device not authorized; ask a tenant manager to approve this device, or run prizmal login again")
+	case errors.Is(err, ErrDeviceRevoked):
+		return fmt.Errorf("this device was revoked; run prizmal login again to enroll a new key")
 	case errors.Is(err, ErrUnavailable):
 		return fmt.Errorf("the token service is unavailable; try prizmal login again shortly")
 	default:

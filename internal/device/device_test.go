@@ -222,6 +222,7 @@ func TestRefreshStatusCodeMapping(t *testing.T) {
 		{"404 pending", http.StatusNotFound, `{"error":{"code":"NOT_FOUND"}}`, ErrDeviceUnknown},
 		{"401 generic", http.StatusUnauthorized, `{"error":{"code":"UNAUTHORIZED"}}`, ErrNotAuthorized},
 		{"401 reauth", http.StatusUnauthorized, `{"error":{"code":"REAUTH_REQUIRED"}}`, ErrReauthRequired},
+		{"401 revoked", http.StatusUnauthorized, `{"error":{"code":"DEVICE_REVOKED"}}`, ErrDeviceRevoked},
 		{"429 throttle", http.StatusTooManyRequests, `{"error":{"code":"CONFLICT"}}`, ErrRateLimited},
 		{"503 unavailable", http.StatusServiceUnavailable, `{"error":{"code":"UNAVAILABLE"}}`, ErrUnavailable},
 	}
@@ -244,8 +245,8 @@ func TestRefreshStatusCodeMapping(t *testing.T) {
 
 func TestAuthorizeURLCarriesPublicKeyAndName(t *testing.T) {
 	key, _ := GenerateKey()
-	u := AuthorizeURL("https://app.prizmal.ai/", key, "Nicolas's MacBook")
-	if u[:len("https://app.prizmal.ai/cli/authorize?")] != "https://app.prizmal.ai/cli/authorize?" {
+	u := AuthorizeURL("https://app.example.invalid/cli/authorize", key, "Nicolas's MacBook")
+	if u[:len("https://app.example.invalid/cli/authorize?")] != "https://app.example.invalid/cli/authorize?" {
 		t.Fatalf("URL = %q", u)
 	}
 	if !contains(u, "pk="+key.PublicB64()) {

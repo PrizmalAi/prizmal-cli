@@ -6,13 +6,16 @@ import (
 	"github.com/PrizmalAi/prizmal-cli/internal/internaltest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher/launchtest"
+	"github.com/PrizmalAi/prizmal-cli/internal/launcher/selfpath"
 	"github.com/PrizmalAi/prizmal-cli/internal/model"
 )
 
@@ -353,6 +356,50 @@ func TestCodexDeviceModeFailsWhenTheExecutableIsUnknown(t *testing.T) {
 
 	if _, err := (&Codex{}).args("smart", "", nil); err == nil || !strings.Contains(err.Error(), "find the prizmal executable") {
 		t.Fatalf("args error = %v, want one naming the missing executable", err)
+	}
+}
+
+// TestCodexAuthCommandPathDefaultsToSelfpath is the regression guard: the auth
+// command must record selfpath.Path's answer, not os.Executable's resolved
+// target. A revert to os.Executable here would restore the bug this change
+// fixes.
+func TestCodexAuthCommandPathDefaultsToSelfpath(t *testing.T) {
+	if reflect.ValueOf(executablePath).Pointer() != reflect.ValueOf(selfpath.Path).Pointer() {
+		t.Error("executablePath does not default to selfpath.Path; a launch would record os.Executable's resolved target")
+	}
+}
+
+// TestCodexAuthCommandCarriesTheTypedPath pins the wiring: the provider's auth
+// command is the resolver's path, run directly with the helper arguments. Codex
+// execs the command itself, so the path needs no shell quoting.
+func TestCodexAuthCommandCarriesTheTypedPath(t *testing.T) {
+	launchtest.WithDeviceMode(t)
+	typed := "/opt/chain home/prizmal"
+	previous := executablePath
+	executablePath = func() (string, error) { return typed, nil }
+	t.Cleanup(func() { executablePath = previous })
+
+	command, args, err := codexAuthCommand()
+	if err != nil {
+		t.Fatalf("codexAuthCommand: %v", err)
+	}
+	if command != typed {
+		t.Errorf("auth command = %q, want the typed path %q", command, typed)
+	}
+	if !reflect.DeepEqual(args, []string{"auth", "token"}) {
+		t.Errorf("auth args = %v, want [auth token]", args)
+	}
+
+	// The provider settings quote the command as one TOML string, so the
+	// rendered overrides carry exactly the typed path.
+	settings, err := codexProviderSettings()
+	if err != nil {
+		t.Fatalf("codexProviderSettings: %v", err)
+	}
+	for _, setting := range settings {
+		if setting.key == "auth.command" && setting.value != strconv.Quote(typed) {
+			t.Errorf("auth.command = %s, want %s", setting.value, strconv.Quote(typed))
+		}
 	}
 }
 

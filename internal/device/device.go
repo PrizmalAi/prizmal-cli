@@ -153,6 +153,45 @@ func LoadOrCreateKey() (*Key, bool, error) {
 	return key, true, nil
 }
 
+// RetireKey takes a revoked device key out of service so LoadOrCreateKey makes
+// a new one. With backup it moves the key to a file next to it, named with the
+// time (device.key.revoked-20261111T150405Z), and returns that path. Without,
+// it deletes the key and returns "". Either way the revoked device's cached
+// token goes too, since it names a device the switch no longer serves.
+func RetireKey(backup bool, now time.Time) (string, error) {
+	dir, err := Dir()
+	if err != nil {
+		return "", err
+	}
+	return retireKeyIn(dir, backup, now)
+}
+
+func retireKeyIn(dir string, backup bool, now time.Time) (string, error) {
+	var dest string
+	if backup {
+		stamp := now.UTC().Format("20060102T150405Z")
+		dest = keyPath(dir) + ".revoked-" + stamp
+		// Two retirements in one second keep both backups.
+		for n := 2; fileExists(dest); n++ {
+			dest = fmt.Sprintf("%s.revoked-%s-%d", keyPath(dir), stamp, n)
+		}
+		if err := os.Rename(keyPath(dir), dest); err != nil {
+			return "", err
+		}
+	} else if err := os.Remove(keyPath(dir)); err != nil {
+		return "", err
+	}
+	if err := os.Remove(tokenPath(dir)); err != nil && !os.IsNotExist(err) {
+		return dest, err
+	}
+	return dest, nil
+}
+
+func fileExists(path string) bool {
+	_, err := os.Lstat(path)
+	return err == nil
+}
+
 // SignRefresh produces the sig the refresh request carries: the ed25519
 // signature over (cli-refresh-v1, deviceID, ts) length-prefixed. The device id
 // ties the request to this machine; the server adds whatever context it needs.

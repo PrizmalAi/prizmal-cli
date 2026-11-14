@@ -15,6 +15,7 @@ import (
 	"github.com/PrizmalAi/prizmal-cli/internal/fileutil"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher/claude"
+	"github.com/PrizmalAi/prizmal-cli/internal/launcher/selfpath"
 	"golang.org/x/mod/semver"
 )
 
@@ -39,6 +40,12 @@ const piProviderID = "prizmal"
 // reads a "$NAME" value from its own environment, and Run puts the key there,
 // so models.json names the variable and never holds the key itself.
 const piAPIKeyReference = "$" + envconfig.KeyEnvVar
+
+// piClientVersionReference is the header value Edit writes into the provider
+// entry. models.json persists across upgrades, so it names the variable and
+// every launch exports the running version. pi refuses a request whose
+// referenced variable is unset or empty, so the launch never leaves it so.
+const piClientVersionReference = "$" + envconfig.ClientVersionEnvVar
 
 // piRestoredProviderID aliases piProviderID for Restore; keeping one name
 // makes a rename of either a compile error rather than a silent split.
@@ -187,12 +194,14 @@ func (p *Pi) childEnv(extension *piDeviceLaunch) []string {
 }
 
 func (p *Pi) envVars(extension *piDeviceLaunch) []string {
+	version := envconfig.ClientVersionEnvVar + "=" + envconfig.ClientVersion()
 	if extension == nil {
-		return []string{envconfig.KeyEnvVar + "=" + envconfig.APIKey()}
+		return []string{envconfig.KeyEnvVar + "=" + envconfig.APIKey(), version}
 	}
 	return claude.EnsureHelperBaseURL([]string{
 		piCredentialCommandEnv + "=" + piCredentialCommand(),
 		piDeviceConfigEnv + "=" + extension.configPath,
+		version,
 	}, envconfig.BaseURL())
 }
 
@@ -230,12 +239,19 @@ func piLaunchArgs(model string, extension *piDeviceLaunch, extra []string) []str
 	return append(args, extra...)
 }
 
+// piExecutablePath resolves the prizmal path a launch records. It is
+// selfpath.Path, held in a variable so a test can drive what the command
+// carries. selfpath records the path the operator typed, or the PATH symlink,
+// rather than os.Executable's resolved target, so a package upgrade that
+// replaces the target directory does not break a live session.
+var piExecutablePath = selfpath.Path
+
 // piCredentialCommand is the command the device extension runs for each
 // credential: the quoted path of the running prizmal binary followed by its
 // device-token helper. The path is quoted because pi runs the string through a
 // shell, and an install path with a space would otherwise split into two words.
 func piCredentialCommand() string {
-	exe, err := os.Executable()
+	exe, err := piExecutablePath()
 	if err != nil {
 		return ""
 	}
@@ -671,6 +687,7 @@ func (p *Pi) Edit(models []launch.LaunchModel) error {
 			"baseUrl": envconfig.OpenAIBaseURL(false),
 			"api":     "openai-completions",
 			"apiKey":  piAPIKeyReference,
+			"headers": map[string]any{envconfig.ClientVersionHeader: piClientVersionReference},
 		}
 	} else {
 		// Re-assert the current endpoint and key reference, so a provider
@@ -678,6 +695,7 @@ func (p *Pi) Edit(models []launch.LaunchModel) error {
 		piProvider["baseUrl"] = envconfig.OpenAIBaseURL(false)
 		piProvider["api"] = "openai-completions"
 		piProvider["apiKey"] = piAPIKeyReference
+		piProvider["headers"] = withClientVersionHeader(piProvider["headers"])
 	}
 
 	existingModels, ok := piProvider["models"].([]any)
@@ -891,7 +909,7 @@ func createConfig(model launch.LaunchModel) map[string]any {
 	// The declared inputs come from the capability vocabulary in
 	// capability.go, which owns what a modality means, what each harness
 	// spells it as, and what an unknown model gets.
-	cfg["input"] = launch.DeclaredInputs(model, launch.HarnessPi)
+	cfg["input"] = launch.DeclaredInputs(model, Inputs)
 
 	// Set reasoning based on thinking capability
 	if model.HasCapability("thinking") {
@@ -909,4 +927,19 @@ func createConfig(model launch.LaunchModel) map[string]any {
 	cfg["maxTokens"] = piFallbackMaxOutputTokens
 
 	return cfg
+}
+
+// withClientVersionHeader keeps the operator's other provider headers and
+// replaces any client-version entry with the variable reference.
+func withClientVersionHeader(existing any) map[string]any {
+	headers := map[string]any{}
+	if current, ok := existing.(map[string]any); ok {
+		for name, value := range current {
+			if !strings.EqualFold(name, envconfig.ClientVersionHeader) {
+				headers[name] = value
+			}
+		}
+	}
+	headers[envconfig.ClientVersionHeader] = piClientVersionReference
+	return headers
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher/claude"
+	"github.com/PrizmalAi/prizmal-cli/internal/launcher/selfpath"
 )
 
 const openCodeInstallScript = "curl -fsSL https://opencode.ai/install | bash"
@@ -20,6 +21,13 @@ var openCodeGOOS = runtime.GOOS
 
 // noticeOut is where launch notices go.
 var noticeOut io.Writer = os.Stderr
+
+// openCodeExecutablePath resolves the prizmal path the auth plugin runs. It is
+// selfpath.Path, held in a variable so a test can drive what the launch
+// records. selfpath records the path the operator typed, or the PATH symlink,
+// rather than os.Executable's resolved target, so a package upgrade that
+// replaces the target directory does not break a live session.
+var openCodeExecutablePath = selfpath.Path
 
 // OpenCode implements launch.Runner and Editor for OpenCode integration.
 // Config is passed via OPENCODE_CONFIG_CONTENT env var at launch time
@@ -208,7 +216,7 @@ func (o *OpenCode) searchDirEnv(model string) []string {
 	}
 	// The plugin runs `prizmal auth token`, a separate prizmal process that
 	// resolves the Switch host from scratch, so the launch pins its own.
-	exe, err := os.Executable()
+	exe, err := openCodeExecutablePath()
 	if err != nil {
 		return env
 	}
@@ -330,7 +338,10 @@ func buildInlineConfigFor(api string, primary launch.LaunchModel, models []launc
 		return "", fmt.Errorf("buildInlineConfig: primary and models are required")
 	}
 
-	options := map[string]any{"baseURL": envconfig.OpenAIBaseURL(false)}
+	options := map[string]any{
+		"baseURL": envconfig.OpenAIBaseURL(false),
+		"headers": map[string]any{envconfig.ClientVersionHeader: envconfig.ClientVersion()},
+	}
 	// A device-mode launch carries no key: the auth plugin sets the header from
 	// a fresh token for each request, and a static one would expire.
 	if !envconfig.DeviceMode() || envconfig.RelayMode() {
@@ -390,7 +401,7 @@ func buildModelEntries(modelList []launch.LaunchModel) map[string]any {
 				"output":  openCodeMaxOutputTokens,
 			},
 			"modalities": map[string]any{
-				"input":  launch.DeclaredInputs(model, launch.HarnessOpenCode),
+				"input":  launch.DeclaredInputs(model, Inputs),
 				"output": []string{"text"},
 			},
 		}

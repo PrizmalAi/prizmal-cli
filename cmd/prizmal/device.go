@@ -3,10 +3,9 @@ package main
 import (
 	"errors"
 	"fmt"
-	neturl "net/url"
+	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/config"
@@ -17,36 +16,81 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// appBaseURL is the admin app that serves the /cli/authorize consent page. An
-// explicit $PRIZMAL_APP_URL wins, then the config file's app_url, then the
-// production app — but only for the production switch. The consent page lives
-// on another environment's host, so any other switch needs an app URL; guessing
-// one would send the operator to a host that is not the switch's.
-//
-// The config file's app_url belongs to the base_url in the same file. When a
-// flag or $PRIZMAL_SWITCH_URL names a different switch, the config app is the
-// wrong page for it and is ignored, which leaves the override to name its own
-// app with $PRIZMAL_APP_URL.
-func appBaseURL() (string, error) {
-	if v := strings.TrimSpace(os.Getenv("PRIZMAL_APP_URL")); v != "" {
-		return strings.TrimRight(v, "/"), nil
+// defaultApprovalURL is the approval page a login uses when the Switch does not
+// report one.
+const defaultApprovalURL = "https://app.prizmal.ai/cli/authorize"
+
+// approvalURL asks the Switch where a person approves a device. The page
+// belongs to the same deployment as the Switch, so the Switch is the one place
+// that knows it, and the CLI holds no setting for it. When the Switch cannot
+// say (no such route, an empty or invalid answer, a failure, or no answer at
+// all) the login uses the default page and says so, so a CLI newer than its
+// Switch still signs in.
+func approvalURL(client *device.Client, out io.Writer) string {
+	url, err := client.ApprovalURL()
+	if err != nil {
+		_, _ = fmt.Fprintf(out, "The Switch doesn't report an approval page, so using the default approval page.\n")
+		return defaultApprovalURL
 	}
-	if app := envconfig.PairedAppURL(); app != "" {
-		return app, nil
-	}
-	if isDefaultSwitch() {
-		return "https://app.prizmal.ai", nil
-	}
-	return "", fmt.Errorf(
-		"no consent app for switch %s: set $PRIZMAL_APP_URL or the matching app_url in the config file",
-		envconfig.BaseURL())
+	return url
 }
 
-// isDefaultSwitch reports whether the resolved switch is the production API,
-// the one host whose consent app is known without configuration.
-func isDefaultSwitch() bool {
-	u, err := neturl.Parse(envconfig.BaseURL())
-	return err == nil && strings.EqualFold(u.Hostname(), "api.prizmal.ai")
+// prepareLogin does what a login needs before it prints a URL. It settles the
+// device key first, and that step tries one refresh with an existing key. When
+// the refresh succeeds the device is already approved: prepareLogin returns the
+// token, asks for no approval page, and the caller prints no link. Otherwise it
+// asks the Switch for the approval page.
+func prepareLogin(client *device.Client, out io.Writer) (string, *device.Key, bool, *device.Token, error) {
+	key, created, approved, err := ensureDeviceKey(client, out)
+	if err != nil {
+		return "", nil, false, nil, err
+	}
+	if approved != nil {
+		return "", key, false, approved, nil
+	}
+	return approvalURL(client, out), key, created, nil, nil
+}
+
+// reportAlreadyApproved says that a login found the device already approved,
+// with the deadline when one applies. It prints no link: there is nothing to
+// approve.
+func reportAlreadyApproved(out io.Writer, token *device.Token) {
+	if token.ReauthBy != nil {
+		_, _ = fmt.Fprintf(out, "%sThis device is already approved until %s.%s\n",
+			launcher.AnsiGreen, token.ReauthBy.Format(time.RFC3339), launcher.AnsiReset)
+		_, _ = fmt.Fprintf(out, "Run prizmal login --reapprove to extend it now.\n")
+		return
+	}
+	_, _ = fmt.Fprintf(out, "%sThis device is already approved.%s\n", launcher.AnsiGreen, launcher.AnsiReset)
+}
+
+// approvedLoginAction is what a login does when its key is still approved.
+type approvedLoginAction int
+
+const (
+	// actionReportApproved says the device is already approved and stops.
+	actionReportApproved approvedLoginAction = iota
+	// actionReapprove shows the approval link and waits for a later deadline. It
+	// follows only from --reapprove.
+	actionReapprove
+	// actionNoDeadline says a --reapprove has nothing to extend and stops.
+	actionNoDeadline
+)
+
+// planApprovedLogin decides what a login does with a key that is still
+// approved. Only --reapprove opens the approval flow, and a key with no
+// deadline (Directory Sync manages it) has nothing to extend. A plain login
+// never starts an approval on its own, whatever time is left: it reports the
+// device approved and names --reapprove.
+func planApprovedLogin(token *device.Token, reapprove bool) approvedLoginAction {
+	switch {
+	case !reapprove:
+		return actionReportApproved
+	case token.ReauthBy == nil:
+		return actionNoDeadline
+	default:
+		return actionReapprove
+	}
 }
 
 // deviceKeyExists reports whether this machine has an enrolled (or
@@ -116,6 +160,9 @@ func enterDeviceMode() error {
 		if errors.Is(err, device.ErrReauthRequired) {
 			return fmt.Errorf("this device's sign-in expired; run prizmal login to re-approve it")
 		}
+		if errors.Is(err, device.ErrDeviceRevoked) {
+			return fmt.Errorf("this device was revoked; run prizmal login to enroll a new key")
+		}
 		if errors.Is(err, device.ErrNotAuthorized) || errors.Is(err, device.ErrDeviceUnknown) {
 			return fmt.Errorf("device not authorized; run prizmal login to re-approve this device")
 		}
@@ -128,6 +175,22 @@ func enterDeviceMode() error {
 		_ = ct.Save()
 	}
 	return nil
+}
+
+// warnReauthDeadline prints the sign-in deadline warning when device mode is on
+// and the deadline is under a day away. It reads the token cache the refresh
+// just wrote, and prints nothing for a member with no deadline.
+func warnReauthDeadline(out io.Writer, now time.Time) {
+	if !envconfig.DeviceMode() {
+		return
+	}
+	ct, err := device.LoadCachedToken()
+	if err != nil || ct == nil {
+		return
+	}
+	if w := device.ReauthWarning(ct.ReauthBy, now); w != "" {
+		_, _ = fmt.Fprintf(out, "%s%s%s\n", launcher.AnsiYellow, w, launcher.AnsiReset)
+	}
 }
 
 // loadCachedToken reads the token cache for HelperToken, returning nil when
@@ -147,7 +210,9 @@ func loadCachedToken() *device.CachedToken {
 // machine that has one reuses it, so the Config API updates the same device
 // row the tenant already trusts and the device id does not change. Minting a
 // new key here would silently orphan the old enrollment and leave the operator
-// comparing a fingerprint against a device the browser page never showed.
+// comparing a fingerprint against a device the browser page never showed. The
+// one exception is a revoked device, which the Switch refuses for good:
+// ensureDeviceKey replaces that key.
 func cmdLogin(cmd *cobra.Command, _ []string) error {
 	flagURL, _ := cmd.Flags().GetString("url")
 	flagKey, _ := cmd.Flags().GetString("api-key")
@@ -155,16 +220,30 @@ func cmdLogin(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// Resolve the consent page before creating a key: a login that cannot tell
-	// which app to approve on must not leave a new device key behind.
-	appURL, err := appBaseURL()
+	reapprove, _ := cmd.Flags().GetBool("reapprove")
+
+	client := device.NewClient(envconfig.BaseURL())
+	appURL, key, created, approved, err := prepareLogin(client, os.Stderr)
 	if err != nil {
 		return err
 	}
-
-	key, created, err := device.LoadOrCreateKey()
-	if err != nil {
-		return err
+	var reapproveFrom *time.Time
+	if approved != nil {
+		// A key still inside its approval. Keep the fresh token, then either
+		// finish or extend the approval.
+		if err := (&device.CachedToken{Token: approved.Value, Expiry: approved.Expiry, ReauthBy: approved.ReauthBy}).Save(); err != nil {
+			return err
+		}
+		switch planApprovedLogin(approved, reapprove) {
+		case actionNoDeadline:
+			fmt.Fprintf(os.Stderr, "This device has no sign-in deadline to extend.\n")
+			return nil
+		case actionReportApproved:
+			reportAlreadyApproved(os.Stderr, approved)
+			return nil
+		}
+		appURL = approvalURL(client, os.Stderr)
+		reapproveFrom = approved.ReauthBy
 	}
 
 	fmt.Fprintf(os.Stderr, "\nSigning in with your browser...\n")
@@ -174,11 +253,11 @@ func cmdLogin(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintf(os.Stderr, "Re-approving the device key already on this machine.\n")
 	}
 
-	client := device.NewClient(envconfig.BaseURL())
 	token, err := device.Login(client, key, device.LoginOptions{
-		AuthorizeBaseURL: appURL,
-		DeviceName:       deviceName(),
-		Out:              os.Stderr,
+		ApprovalURL: appURL,
+		DeviceName:  deviceName(),
+		Reapprove:   reapproveFrom,
+		Out:         os.Stderr,
 	})
 	if err != nil {
 		return err
@@ -196,7 +275,8 @@ func cmdLogin(cmd *cobra.Command, _ []string) error {
 }
 
 // cmdAuthToken is `prizmal auth token`, the Claude Code apiKeyHelper. It prints
-// one device token on stdout and nothing else: Claude Code captures stdout and
+// one credential on stdout and nothing else: the device token, or the switch
+// key once the sign-in deadline has passed: Claude Code captures stdout and
 // rejects anything that is not a single printable-ASCII line within its size
 // limit. Every diagnostic goes to stderr.
 func cmdAuthToken(cmd *cobra.Command, _ []string) error {
@@ -217,12 +297,32 @@ func cmdAuthToken(cmd *cobra.Command, _ []string) error {
 	client := device.NewClient(envconfig.BaseURL())
 	token, ct, err := device.HelperToken(client, key, time.Now(), loadCachedToken, time.Sleep)
 	if err != nil {
+		// A running session cannot restart when the device's sign-in deadline
+		// passes, so the helper falls back the way the launcher does: a
+		// switch key from a flag, $PRIZMAL_SWITCH_KEY or the config file keeps
+		// the session alive. The warning goes to stderr, because stdout
+		// carries the credential and nothing else. Run prizmal login to go
+		// back to the device token; Claude Code runs this helper again on its
+		// next refresh.
+		//
+		// Only the sign-in deadline falls back. A revoked or unknown device,
+		// a rate limit and an unreachable switch keep failing closed: a
+		// static, tenant-wide key must not stand in for a device credential
+		// an admin withdrew or a throttle briefly refused.
+		if fallback, src := envconfig.APIKey(), envconfig.APIKeySource(); errors.Is(err, device.ErrReauthRequired) && fallback != "" && device.ValidHelperOutput(fallback) {
+			fmt.Fprintf(os.Stderr, "warning: this device's sign-in deadline passed; using the switch key from %s instead. Run prizmal login to sign in again.\n", src)
+			_, _ = fmt.Fprintln(os.Stdout, fallback)
+			return nil
+		}
 		// The one 401 whose fix differs: the developer signs in again, which
 		// re-approves the same device key. Every other refusal is the same
 		// "device not authorized" the switch sends, and this never guesses
 		// which check failed.
 		if errors.Is(err, device.ErrReauthRequired) {
 			return fmt.Errorf("run prizmal login")
+		}
+		if errors.Is(err, device.ErrDeviceRevoked) {
+			return fmt.Errorf("this device was revoked; run prizmal login to enroll a new key")
 		}
 		if errors.Is(err, device.ErrNotAuthorized) || errors.Is(err, device.ErrDeviceUnknown) {
 			return fmt.Errorf("device not authorized; run prizmal login")
@@ -261,7 +361,6 @@ func applyURLPrecedence(flagURL, flagKey string) error {
 	if cfg.BaseURL != "" {
 		envconfig.SetConfigBaseURL(cfg.BaseURL)
 	}
-	envconfig.SetConfigAppURL(cfg.AppURL)
 	if flagKey == "" && envconfig.EnvAPIKey() == "" && cfg.APIKey != nil {
 		if resolved, err := cfg.APIKey.Resolve(); err == nil {
 			envconfig.SetConfigAPIKey(resolved)
@@ -296,12 +395,19 @@ There is no localhost listener, so this works over SSH: open the printed URL
 on any machine with a browser.
 
 Running login again re-approves the device key this machine already has, which
-is how a sign-in that expired is renewed. It never replaces the key.`,
+is how a sign-in that expired is renewed. A device that is still approved is
+reported as such, with its sign-in deadline. With --reapprove, login prints the
+approval link anyway and waits until the deadline has moved, to push it back a
+full term before it runs out. It replaces the key only when the
+Switch reports that the device was revoked: it asks whether to back the key up
+(or backs it up without asking when there is no terminal), then makes a new key
+and approves that.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Args:          cobra.NoArgs,
 		RunE:          cmdLogin,
 	}
+	login.Flags().Bool("reapprove", false, "approve again now, even while the device is still approved, to push its sign-in deadline back")
 	login.Flags().String("url", "", "provider base URL (or $"+envconfig.EnvVar+")")
 	login.Flags().String("api-key", "", "provider API key (or $"+envconfig.KeyEnvVar+")")
 	auth := &cobra.Command{

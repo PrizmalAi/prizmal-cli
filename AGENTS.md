@@ -215,22 +215,28 @@ integrations, and the flags an operator runs. Setup for another environment,
 internal host knowledge, and any recipe that names a non-production endpoint
 belong in this file instead.
 
-## Consent app for a non-production login
+## Approval page comes from the Switch
 
-`prizmal login` takes the consent page from `$PRIZMAL_APP_URL`, then the config
-file's `app_url`, then the production app for a switch at `api.prizmal.ai`.
-The config file's `app_url` pairs with its own `base_url`, so an override
-through `--url` or `$PRIZMAL_SWITCH_URL` also needs `$PRIZMAL_APP_URL` for its
-app. Any other switch with no app setting stops the login and reports both
-settings it needs.
+`prizmal login` and the first-run sign-in ask the Switch where to approve a
+device: `GET <switch>/v1/cli/config` returns `{"approval_url": "..."}`, and the
+CLI opens that URL with the device's public key as its query. The request needs
+no key. The page belongs to the same deployment as the Switch, so the CLI holds
+no per-deployment host list and no setting for it.
 
-A machine that signs in against another environment sets the switch and the app
-in its config file, and exports nothing:
+When the Switch cannot say (no such route, an empty or invalid answer, a failure
+or no answer at all), the login says so and uses the default approval page,
+`defaultApprovalURL` in `cmd/prizmal/device.go`, so a CLI newer than its Switch
+still signs in.
+
+A machine that signs in against another deployment needs only `base_url` in its
+config file, or `--url`, or `$PRIZMAL_SWITCH_URL`:
 
 ```json
-{"version": 1, "base_url": "https://api.example.test", "app_url": "https://app.example.test"}
+{"version": 1, "base_url": "https://api.example.test"}
 ```
 
+`$PRIZMAL_APP_URL` and the config file's `app_url` are retired. A config file
+that still has `app_url` loads without a warning, and the field changes nothing.
+
 The device token's environment label is server-side: the switch already knows
-which deployment it is, and the CLI neither sends nor names it. A login needs
-only `base_url` and `app_url`.
+which deployment it is, and the CLI neither sends nor names it.

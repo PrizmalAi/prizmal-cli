@@ -16,6 +16,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 )
 
 // TokenSource returns the credential the relay sends upstream. It is called
@@ -207,6 +209,8 @@ func (r *Relay) forward(req *http.Request, body []byte, token string) (*http.Res
 	removeHopHeaders(out.Header)
 	out.Header.Set("Authorization", "Bearer "+token)
 	out.Header.Del("X-Api-Key")
+	// Set after the clone, so a harness cannot pre-set it.
+	out.Header.Set(envconfig.ClientVersionHeader, envconfig.ClientVersion())
 	out.ContentLength = int64(len(body))
 	if len(body) == 0 {
 		out.Body = http.NoBody

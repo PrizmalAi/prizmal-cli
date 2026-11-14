@@ -52,10 +52,6 @@ type Config struct {
 	Version int          `json:"version"`
 	BaseURL string       `json:"base_url,omitempty"`
 	APIKey  *APIKeyValue `json:"api_key,omitempty"`
-	// AppURL is the admin app that serves the /cli/authorize consent page.
-	// Signing in against a switch other than the production API needs it: the
-	// app origin cannot be derived from the switch URL.
-	AppURL string `json:"app_url,omitempty"`
 	// DefaultModel is the model the picker chose last. A launch that names no
 	// model sends this one. Only a pick writes it, so passing --model changes
 	// one launch without changing what a bare launch does.
@@ -253,6 +249,12 @@ func Load() (*Config, error) {
 	return &c, nil
 }
 
+// retiredKeys are top-level members an older CLI wrote and this one no longer
+// reads. A file that still holds one loads without a warning, the member
+// changes nothing, and the next save drops it. app_url named the approval page
+// before the Switch began to report it.
+var retiredKeys = map[string]struct{}{"app_url": {}}
+
 // collectUnknownKeys returns the file's top-level members that Config does not
 // declare and warns once for each, naming it. Unknown members are not an error:
 // a newer build, a hand edit or a teammate may have added one, and Save writes
@@ -265,6 +267,9 @@ func collectUnknownKeys(data []byte, path string) map[string]json.RawMessage {
 	declared := declaredJSONKeys()
 	unknown := make(map[string]json.RawMessage)
 	for key, val := range raw {
+		if _, retired := retiredKeys[key]; retired {
+			continue
+		}
 		if _, ok := declared[key]; !ok {
 			unknown[key] = val
 		}

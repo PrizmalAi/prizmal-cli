@@ -103,20 +103,21 @@ func TestCheckRoutablePassesEverythingWithoutACatalog(t *testing.T) {
 	}
 }
 
-// A subagent's tier word routes whether or not the tenant holds the tier: a
-// held tier maps onto its alias, and an unheld one lands on the launch model,
-// which the launch check accepted.
-func TestCheckSubagentRoutableTakesEveryTierWord(t *testing.T) {
-	for _, name := range []string{"sonnet", "haiku", "fable", "best", "opusplan", "Opus[1m]"} {
-		if err := CheckSubagentRoutable(name, routableTenant(), true); err != nil {
-			t.Errorf("CheckSubagentRoutable(%q) = %v, want nil", name, err)
+// A name the operator types reaches the Switch unless it is the `default`
+// placeholder. The catalog lists configs, never the aliases that route to
+// them, so the legacy claude-tier-opus alias, a tier word and a name the CLI
+// cannot place all pass.
+func TestCheckSendableRefusesOnlyThePlaceholder(t *testing.T) {
+	for _, name := range []string{"claude-tier-opus", "claude-tier-opus[1m]", "frontier", "sonnet", "gpt-5.6-luna", "claude-fable-5-1", ""} {
+		if err := CheckSendable(name); err != nil {
+			t.Errorf("CheckSendable(%q) = %v, want nil", name, err)
 		}
 	}
-	if err := CheckSubagentRoutable("claude-tier-fable", routableTenant(), true); err == nil {
-		t.Error("CheckSubagentRoutable(claude-tier-fable) = nil, want the launch rule")
-	}
-	if err := CheckSubagentRoutable("sonnet", routableTenant(), false); err == nil {
-		t.Error("CheckSubagentRoutable(sonnet) with a harness that sends the word as it is = nil, want a refusal")
+	for _, name := range []string{"default", "default[1m]", "prizmal/default"} {
+		err := CheckSendable(name)
+		if err == nil || !strings.Contains(err.Error(), "is not a name the Switch accepts") {
+			t.Errorf("CheckSendable(%q) = %v, want the placeholder refusal", name, err)
+		}
 	}
 }
 
@@ -143,5 +144,25 @@ func TestRouteNameDecoratesAPickerLabel(t *testing.T) {
 	}
 	if got := RouteName(nil, "tier-opus"); got != "tier-opus" {
 		t.Errorf("RouteName with no catalog = %q, want tier-opus", got)
+	}
+}
+
+// A subagent's tier word is placed whether or not the tenant holds the tier: a
+// held tier maps onto its alias, and an unheld one lands on the launch model.
+// Any other name follows the launch rule, so it is placed only when listed.
+func TestListsSubagentPlacesEveryTierWord(t *testing.T) {
+	for _, name := range []string{"sonnet", "haiku", "fable", "best", "opusplan", "Opus[1m]"} {
+		if !ListsSubagent(name, routableTenant(), true) {
+			t.Errorf("ListsSubagent(%q) = false, want true", name)
+		}
+	}
+	if ListsSubagent("claude-tier-fable", routableTenant(), true) {
+		t.Error("ListsSubagent(claude-tier-fable) = true, want the launch rule")
+	}
+	if ListsSubagent("sonnet", routableTenant(), false) {
+		t.Error("ListsSubagent(sonnet) with a harness that sends the word as it is = true, want false")
+	}
+	if !Lists("gpt-5.6-luna", nil, false) {
+		t.Error("Lists with no catalog = false, want true: an unread list is no evidence")
 	}
 }

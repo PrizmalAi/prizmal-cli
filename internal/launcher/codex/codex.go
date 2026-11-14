@@ -17,6 +17,7 @@ import (
 	"github.com/PrizmalAi/prizmal-cli/internal/fileutil"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher/claude"
+	"github.com/PrizmalAi/prizmal-cli/internal/launcher/selfpath"
 	"github.com/PrizmalAi/prizmal-cli/internal/tiers"
 	"github.com/pelletier/go-toml/v2"
 	"golang.org/x/mod/semver"
@@ -242,9 +243,12 @@ const codexPlaceholderKey = "prizmal-no-key"
 // --subagent-model names.
 func (c *Codex) TakesSubagentModel() bool { return true }
 
-// executablePath finds the running binary. It is a variable so a test can make
-// the lookup fail.
-var executablePath = os.Executable
+// executablePath resolves the prizmal path Codex records. It is selfpath.Path,
+// held in a variable so a test can make the lookup fail or drive the value.
+// selfpath records the path the operator typed, or the PATH symlink, rather
+// than os.Executable's resolved target, so a package upgrade that replaces the
+// target directory does not break a live session.
+var executablePath = selfpath.Path
 
 // codexAuthCommand is the command Codex runs for a device token: this binary,
 // and the arguments that select its helper subcommand. Codex executes it
@@ -525,6 +529,7 @@ func codexManagedConfigOverrides(modelCatalogPath string) ([]string, error) {
 		fmt.Sprintf("model_providers.%s.name=%q", codexProfileName, codexProviderName),
 		fmt.Sprintf("model_providers.%s.base_url=%q", codexProfileName, codexBaseURL()),
 		fmt.Sprintf("model_providers.%s.wire_api=%q", codexProfileName, "responses"),
+		fmt.Sprintf("model_providers.%s.http_headers={%q=%q}", codexProfileName, envconfig.ClientVersionHeader, envconfig.ClientVersion()),
 	}
 	for _, setting := range settings {
 		overrides = append(overrides, "model_providers."+codexProfileName+"."+setting.key+"="+setting.value)
@@ -840,7 +845,7 @@ func buildCodexModelEntry(launchModel launch.LaunchModel) map[string]any {
 	// The declared input modalities come from the capability vocabulary, so
 	// codex learns "image" from the Switch's "image" modality instead of
 	// carrying its own list.
-	modalities := launch.DeclaredInputs(launchModel, launch.HarnessCodex)
+	modalities := launch.DeclaredInputs(launchModel, Inputs)
 
 	return map[string]any{
 		"slug":                    modelName,

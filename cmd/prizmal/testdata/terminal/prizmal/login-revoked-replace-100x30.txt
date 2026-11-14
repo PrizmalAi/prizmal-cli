@@ -1,0 +1,19 @@
+
+This device was revoked.
+Back up the revoked key before making a new one? (Y/n) n
+Replaced the revoked key.
+
+Signing in with your browser...
+Generated a new device key at ~/.prizmal/device.key
+
+To approve this device, open:
+
+<consent-url>
+
+Device fingerprint: <fp>
+Confirm this matches the fingerprint shown in your browser.
+Waiting for approval...
+Approved in your browser.
+This device is approved.
+Re-approve before 2026-10-08T00:00:00Z.
+[prizmal exited 0]

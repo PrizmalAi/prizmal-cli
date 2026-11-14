@@ -14,6 +14,7 @@ import (
 	"github.com/PrizmalAi/prizmal-cli/internal/claudecode"
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher"
+	"github.com/PrizmalAi/prizmal-cli/internal/launcher/selfpath"
 	"github.com/PrizmalAi/prizmal-cli/internal/tiers"
 )
 
@@ -214,13 +215,20 @@ func EnsureHelperBaseURL(env []string, baseURL string) []string {
 	return append(env, envconfig.EnvVar+"="+baseURL)
 }
 
+// claudeExecutablePath resolves the prizmal path a launch records. It is
+// selfpath.Path, held in a variable so a test can drive what the helper
+// carries. selfpath records the path the operator typed, or the PATH symlink,
+// rather than os.Executable's resolved target, so a package upgrade that
+// replaces the target directory does not break a live session.
+var claudeExecutablePath = selfpath.Path
+
 // apiKeyHelperCommand is the settings value that tells Claude Code to fetch its
 // credential from this binary: the quoted executable path followed by the
 // helper subcommand. The path is quoted because Claude Code runs the string
 // through a shell, and an install path with a space would otherwise split into
 // two words.
 func apiKeyHelperCommand() (string, error) {
-	exe, err := os.Executable()
+	exe, err := claudeExecutablePath()
 	if err != nil {
 		return "", fmt.Errorf("find the prizmal executable: %w", err)
 	}
@@ -274,6 +282,8 @@ func (c *Claude) envVars() []string {
 		// caller, and envconfig.UnversionedBaseURL explains what breaks if a
 		// base configured with the suffix keeps it.
 		"ANTHROPIC_BASE_URL=" + envconfig.UnversionedBaseURL(),
+		// Claude Code adds each line of this variable to every model request.
+		"ANTHROPIC_CUSTOM_HEADERS=" + customHeaders(os.Getenv("ANTHROPIC_CUSTOM_HEADERS")),
 	}
 	if !envconfig.DeviceMode() || envconfig.RelayMode() {
 		// The switch key travels as ANTHROPIC_AUTH_TOKEN, Claude Code's
@@ -747,3 +757,19 @@ func ClaudeInstallerCommand(goos string) (string, []string, error) {
 // claudeChildEnv sets two model variables: ANTHROPIC_DEFAULT_OPUS_MODEL, so
 // the /model picker's Default row shows the pinned model, and
 // CLAUDE_CODE_SUBAGENT_MODEL, when a subagent model was picked.
+
+// customHeaders is the value of ANTHROPIC_CUSTOM_HEADERS for a launch: the
+// operator's own lines, then the client-version line. Header names are
+// case-insensitive, so an inherited client-version line is dropped and the CLI's
+// is the only one sent.
+func customHeaders(inherited string) string {
+	var lines []string
+	for _, line := range strings.Split(inherited, "\n") {
+		name, _, _ := strings.Cut(line, ":")
+		if strings.TrimSpace(line) == "" || strings.EqualFold(strings.TrimSpace(name), envconfig.ClientVersionHeader) {
+			continue
+		}
+		lines = append(lines, strings.TrimRight(line, "\r"))
+	}
+	return strings.Join(append(lines, envconfig.ClientVersionHeader+": "+envconfig.ClientVersion()), "\n")
+}

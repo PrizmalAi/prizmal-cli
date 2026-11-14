@@ -1,0 +1,4 @@
+warning: model "claude-tier-opus" is not in the model list this Switch serves; sending it as given,
+because the Switch also routes aliases it does not list. Run `prizmal --list` for the listed names.
+using api key from: config file (~/.prizmal/config.json)
+[prizmal exited 0]

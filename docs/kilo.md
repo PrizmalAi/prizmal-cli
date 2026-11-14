@@ -9,7 +9,7 @@
 | Provider, endpoint, placeholder key, models, selected model | the inline config in `KILO_CONFIG_CONTENT` |
 | Selected model | `--model prizmal/<your-model>` on Kilo's command line |
 
-The inline config declares the `prizmal` provider (`@ai-sdk/openai-compatible`), its endpoint, an `apiKey`, the model list, `"enabled_providers": ["prizmal"]` so Kilo doesn't list gateway models fetched over the network, and `"model": "prizmal/<your-model>"`. It also turns off Kilo's built-in websearch tool, which posts to hosted backends rather than the Switch.
+The inline config declares the `prizmal` provider (`@ai-sdk/openai-compatible`), its endpoint, an `apiKey`, the model list, `"enabled_providers": ["prizmal"]` so Kilo doesn't list gateway models fetched over the network, and `"model": "prizmal/<your-model>"`. The provider's `options.headers` carries the CLI's version as `x-prizmal-client-version` on every request, so the Switch can tell which CLI build a request came from. Without the CLI, nothing sends the header, and the Switch counts that as an unknown version. It also turns off Kilo's built-in websearch tool, which posts to hosted backends rather than the Switch.
 
 Each model's input modalities follow the `input_modalities` list that `GET /v1/models` returns: every model gets text. A model that lists `image` also gets image, and one that lists `file` also gets pdf. A model with no list gets text and image. Each model also sets `limit.context` to 1,000,000 and `limit.output` to 32,000. Without `limit.context`, Kilo doesn't know the window and compacts a session only after the provider refuses it.
 

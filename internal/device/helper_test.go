@@ -158,6 +158,10 @@ func TestReauthWarning(t *testing.T) {
 	if got := ReauthWarning(ptr(now.Add(48*time.Hour)), now); got != "" {
 		t.Fatalf("a deadline 48h out warned too early: %q", got)
 	}
+	deadline := now.Add(20 * time.Hour)
+	if got := ReauthWarning(&deadline, now); !strings.Contains(got, deadline.UTC().Format("2006-01-02 15:04 UTC")) {
+		t.Errorf("warning %q does not name the deadline", got)
+	}
 	if got := ReauthWarning(ptr(now.Add(20*time.Hour)), now); !strings.Contains(got, "prizmal login") {
 		t.Fatalf("a deadline 20h out did not warn: %q", got)
 	}
@@ -173,3 +177,12 @@ func TestReauthWarning(t *testing.T) {
 }
 
 func ptr(t time.Time) *time.Time { return &t }
+
+func TestReauthWarningNamesReapprove(t *testing.T) {
+	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
+	for _, deadline := range []time.Time{now.Add(20 * time.Hour), now.Add(-time.Hour)} {
+		if got := ReauthWarning(ptr(deadline), now); !strings.Contains(got, "prizmal login --reapprove") {
+			t.Fatalf("warning for %v does not name prizmal login --reapprove: %q", deadline, got)
+		}
+	}
+}

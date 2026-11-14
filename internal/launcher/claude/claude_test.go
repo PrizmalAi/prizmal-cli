@@ -6,6 +6,7 @@ import (
 	"github.com/PrizmalAi/prizmal-cli/internal/internaltest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher/launchtest"
+	"github.com/PrizmalAi/prizmal-cli/internal/launcher/selfpath"
 )
 
 // resetAPIKey clears the process-wide key override and env var so each test
@@ -240,12 +242,40 @@ func TestDeviceSettingsJSONAddsHelperToExistingSettings(t *testing.T) {
 	if !strings.HasSuffix(helper, " auth token") {
 		t.Errorf("apiKeyHelper = %q, want it to end with the helper subcommand", helper)
 	}
-	exe, err := os.Executable()
+	exe, err := claudeExecutablePath()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.HasPrefix(helper, strconv.Quote(exe)) {
 		t.Errorf("apiKeyHelper = %q, want the quoted executable %q first", helper, exe)
+	}
+}
+
+// TestAPIKeyHelperPathDefaultsToSelfpath is the regression guard: the helper
+// must record selfpath.Path's answer, not os.Executable's resolved target. A
+// revert to os.Executable here would restore the bug this change fixes.
+func TestAPIKeyHelperPathDefaultsToSelfpath(t *testing.T) {
+	if reflect.ValueOf(claudeExecutablePath).Pointer() != reflect.ValueOf(selfpath.Path).Pointer() {
+		t.Error("claudeExecutablePath does not default to selfpath.Path; a launch would record os.Executable's resolved target")
+	}
+}
+
+// TestAPIKeyHelperCommandCarriesTheTypedPath pins the wiring: the helper is
+// the resolver's path, quoted as one shell word, with the helper subcommand
+// after it. A path with a space stays one word, because Claude Code runs the
+// string through a shell.
+func TestAPIKeyHelperCommandCarriesTheTypedPath(t *testing.T) {
+	typed := "/opt/chain home/prizmal"
+	previous := claudeExecutablePath
+	claudeExecutablePath = func() (string, error) { return typed, nil }
+	t.Cleanup(func() { claudeExecutablePath = previous })
+
+	helper, err := apiKeyHelperCommand()
+	if err != nil {
+		t.Fatalf("apiKeyHelperCommand: %v", err)
+	}
+	if want := strconv.Quote(typed) + " auth token"; helper != want {
+		t.Errorf("apiKeyHelper = %q, want %q", helper, want)
 	}
 }
 
