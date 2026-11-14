@@ -17,6 +17,7 @@ import (
 	"github.com/PrizmalAi/prizmal-cli/internal/fileutil"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher/claude"
+	"github.com/PrizmalAi/prizmal-cli/internal/launcher/selfpath"
 	"github.com/PrizmalAi/prizmal-cli/internal/tiers"
 	"github.com/pelletier/go-toml/v2"
 	"golang.org/x/mod/semver"
@@ -242,9 +243,12 @@ const codexPlaceholderKey = "prizmal-no-key"
 // --subagent-model names.
 func (c *Codex) TakesSubagentModel() bool { return true }
 
-// executablePath finds the running binary. It is a variable so a test can make
-// the lookup fail.
-var executablePath = os.Executable
+// executablePath resolves the prizmal path Codex records. It is selfpath.Path,
+// held in a variable so a test can make the lookup fail or drive the value.
+// selfpath records the path the operator typed, or the PATH symlink, rather
+// than os.Executable's resolved target, so a package upgrade that replaces the
+// target directory does not break a live session.
+var executablePath = selfpath.Path
 
 // codexAuthCommand is the command Codex runs for a device token: this binary,
 // and the arguments that select its helper subcommand. Codex executes it

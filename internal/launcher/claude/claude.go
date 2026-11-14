@@ -14,6 +14,7 @@ import (
 	"github.com/PrizmalAi/prizmal-cli/internal/claudecode"
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher"
+	"github.com/PrizmalAi/prizmal-cli/internal/launcher/selfpath"
 	"github.com/PrizmalAi/prizmal-cli/internal/tiers"
 )
 
@@ -214,13 +215,20 @@ func EnsureHelperBaseURL(env []string, baseURL string) []string {
 	return append(env, envconfig.EnvVar+"="+baseURL)
 }
 
+// claudeExecutablePath resolves the prizmal path a launch records. It is
+// selfpath.Path, held in a variable so a test can drive what the helper
+// carries. selfpath records the path the operator typed, or the PATH symlink,
+// rather than os.Executable's resolved target, so a package upgrade that
+// replaces the target directory does not break a live session.
+var claudeExecutablePath = selfpath.Path
+
 // apiKeyHelperCommand is the settings value that tells Claude Code to fetch its
 // credential from this binary: the quoted executable path followed by the
 // helper subcommand. The path is quoted because Claude Code runs the string
 // through a shell, and an install path with a space would otherwise split into
 // two words.
 func apiKeyHelperCommand() (string, error) {
-	exe, err := os.Executable()
+	exe, err := claudeExecutablePath()
 	if err != nil {
 		return "", fmt.Errorf("find the prizmal executable: %w", err)
 	}

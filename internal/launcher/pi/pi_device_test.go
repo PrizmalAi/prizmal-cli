@@ -5,12 +5,14 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher/launchtest"
+	"github.com/PrizmalAi/prizmal-cli/internal/launcher/selfpath"
 )
 
 // TestPiDeviceLaunchWritesExtensionAndConfig is the core of the device-mode
@@ -152,6 +154,30 @@ func TestPiDeviceEnvCarriesTheCredentialCommand(t *testing.T) {
 	}
 	if got := launchtest.EnvValue(env, envconfig.KeyEnvVar+"="); got != "" {
 		t.Errorf("%s is set in a device-mode environment, want no key", envconfig.KeyEnvVar)
+	}
+}
+
+// TestPiCredentialPathDefaultsToSelfpath is the regression guard: the command
+// must record selfpath.Path's answer, not os.Executable's resolved target. A
+// revert to os.Executable here would restore the bug this change fixes.
+func TestPiCredentialPathDefaultsToSelfpath(t *testing.T) {
+	if reflect.ValueOf(piExecutablePath).Pointer() != reflect.ValueOf(selfpath.Path).Pointer() {
+		t.Error("piExecutablePath does not default to selfpath.Path; a launch would record os.Executable's resolved target")
+	}
+}
+
+// TestPiCredentialCommandCarriesTheTypedPath pins the wiring: the credential
+// command is the resolver's path, quoted as one shell word, with the helper
+// subcommand after it. A path with a space stays one word, because pi runs the
+// string through a shell.
+func TestPiCredentialCommandCarriesTheTypedPath(t *testing.T) {
+	typed := "/opt/chain home/prizmal"
+	previous := piExecutablePath
+	piExecutablePath = func() (string, error) { return typed, nil }
+	t.Cleanup(func() { piExecutablePath = previous })
+
+	if got, want := piCredentialCommand(), strconv.Quote(typed)+" auth token"; got != want {
+		t.Errorf("piCredentialCommand = %q, want %q", got, want)
 	}
 }
 

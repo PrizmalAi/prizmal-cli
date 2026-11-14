@@ -11,11 +11,19 @@ import (
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher/claude"
+	"github.com/PrizmalAi/prizmal-cli/internal/launcher/selfpath"
 )
 
 const openCodeInstallScript = "curl -fsSL https://opencode.ai/install | bash"
 
 var openCodeGOOS = runtime.GOOS
+
+// openCodeExecutablePath resolves the prizmal path the auth plugin runs. It is
+// selfpath.Path, held in a variable so a test can drive what the launch
+// records. selfpath records the path the operator typed, or the PATH symlink,
+// rather than os.Executable's resolved target, so a package upgrade that
+// replaces the target directory does not break a live session.
+var openCodeExecutablePath = selfpath.Path
 
 // OpenCode implements launch.Runner and Editor for OpenCode integration.
 // Config is passed via OPENCODE_CONFIG_CONTENT env var at launch time
@@ -206,7 +214,7 @@ func (o *OpenCode) envVars(model string, models []launch.LaunchModel) []string {
 	}
 	// The plugin runs `prizmal auth token`, a separate prizmal process that
 	// resolves the Switch host from scratch, so the launch pins its own.
-	exe, err := os.Executable()
+	exe, err := openCodeExecutablePath()
 	if err != nil {
 		return env
 	}
