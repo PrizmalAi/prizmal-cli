@@ -18,7 +18,6 @@
 
 
 
-
   Select Model and Effort
 
 
@@ -26,5 +25,6 @@
   2. smart (Terra-like)          Everyday coding
   3. quick                       Luna-like
   4. sample-model-a
+  5. default
 
   enter select · esc back
