@@ -3,6 +3,7 @@ package device
 import (
 	"crypto/ed25519"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -282,4 +283,43 @@ func contains(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+// The refresh signature vector below is the one the Config API publishes in its
+// contract and asserts in its own tests. The CLI and the service each keep their
+// own encoder on purpose, so only a shared fixed vector catches a change to the
+// length-prefix format on one side. An ed25519 signature is deterministic, so
+// the seed fixes every other value.
+const (
+	refreshVectorSeedHex   = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+	refreshVectorPublicKey = "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+	refreshVectorDeviceID  = "dev_56475aa75463474c0285"
+	refreshVectorTS        = "2026-01-02T03:04:05Z"
+	refreshVectorMessage   = "14:cli-refresh-v1|24:dev_56475aa75463474c0285|20:2026-01-02T03:04:05Z"
+	refreshVectorSignature = "0K5y98LdNAJvEkrOyg0BHaD5DjaKZRTKFroPJFqkYiLqV8Rq-zSwuyZH8VRDVfqrNjv-e-0K3IwQDSD98ujWCA"
+)
+
+func TestRefreshSignatureMatchesTheSharedVector(t *testing.T) {
+	seed, err := hex.DecodeString(refreshVectorSeedHex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	priv := ed25519.NewKeyFromSeed(seed)
+	key := &Key{Priv: priv, Pub: priv.Public().(ed25519.PublicKey)}
+
+	if got := key.PublicB64(); got != refreshVectorPublicKey {
+		t.Fatalf("public key = %q, want %q", got, refreshVectorPublicKey)
+	}
+	if got := key.ID(); got != refreshVectorDeviceID {
+		t.Fatalf("device id = %q, want %q", got, refreshVectorDeviceID)
+	}
+	if got := string(EncodeMsg(refreshDomainTag, key.ID(), refreshVectorTS)); got != refreshVectorMessage {
+		t.Fatalf("signed message = %q, want %q", got, refreshVectorMessage)
+	}
+	if got := key.SignRefresh(refreshVectorTS); got != refreshVectorSignature {
+		t.Fatalf("signature = %q, want %q", got, refreshVectorSignature)
+	}
+	if !key.VerifyRefresh(refreshVectorTS, refreshVectorSignature) {
+		t.Fatal("the vector's signature does not verify against its own key")
+	}
 }
