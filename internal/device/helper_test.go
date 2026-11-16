@@ -10,7 +10,7 @@ import (
 
 func TestHelperReusesCachedTokenWithFiveMinutesLeft(t *testing.T) {
 	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
-	// At least CacheValidMargin (5m) remains when the margin is included.
+	// At least CacheMargin(DefaultTokenLifetime), 5m, remains.
 	cached := &CachedToken{Token: "pz-d-dt-cached", Expiry: now.Add(5*time.Minute + time.Second)}
 
 	var hits int
@@ -184,5 +184,111 @@ func TestReauthWarningNamesReapprove(t *testing.T) {
 		if got := ReauthWarning(ptr(deadline), now); !strings.Contains(got, "prizmal login --reapprove") {
 			t.Fatalf("warning for %v does not name prizmal login --reapprove: %q", deadline, got)
 		}
+	}
+}
+
+// The reuse margin is half the token's own lifetime, read from expires_in, so a
+// shorter or longer lifetime moves it. The cache records the lifetime the last
+// refresh reported.
+func TestHelperMarginFollowsTheCachedLifetime(t *testing.T) {
+	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"device_token":"pz-d-dt-fresh","expires_in":120}`))
+	}))
+	defer srv.Close()
+	key, _ := GenerateKey()
+
+	cases := []struct {
+		name        string
+		lifetimeSec int64
+		left        time.Duration
+		wantReuse   bool
+	}{
+		{"120s token with 61s left is reused", 120, 61 * time.Second, true},
+		{"120s token with 59s left is refreshed", 120, 59 * time.Second, false},
+		{"1200s token with 599s left is refreshed", 1200, 599 * time.Second, false},
+		{"1200s token with 601s left is reused", 1200, 601 * time.Second, true},
+		{"a cache with no lifetime keeps the 10 minute default", 0, 5*time.Minute + time.Second, true},
+		{"a cache with no lifetime refreshes under half of 10 minutes", 0, 4 * time.Minute, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cached := &CachedToken{Token: "pz-d-dt-cached", Expiry: now.Add(tc.left), LifetimeSecs: tc.lifetimeSec}
+			got, _, err := HelperToken(NewClient(srv.URL), key, now, func() *CachedToken { return cached }, nil)
+			if err != nil {
+				t.Fatalf("HelperToken: %v", err)
+			}
+			if reused := got == cached.Token; reused != tc.wantReuse {
+				t.Fatalf("reused = %v, want %v (token %q)", reused, tc.wantReuse, got)
+			}
+		})
+	}
+}
+
+func TestHelperRecordsTheLifetimeTheServerReports(t *testing.T) {
+	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"device_token":"pz-d-dt-fresh","expires_in":300}`))
+	}))
+	defer srv.Close()
+	key, _ := GenerateKey()
+
+	_, ct, err := HelperToken(NewClient(srv.URL), key, now, func() *CachedToken { return nil }, nil)
+	if err != nil {
+		t.Fatalf("HelperToken: %v", err)
+	}
+	if ct.Lifetime() != 5*time.Minute {
+		t.Fatalf("cached lifetime = %v, want 5m0s from expires_in", ct.Lifetime())
+	}
+	if (&CachedToken{}).Lifetime() != DefaultTokenLifetime {
+		t.Fatalf("a cache with no recorded lifetime must report DefaultTokenLifetime")
+	}
+}
+
+// A hostile or buggy expires_in cannot wrap a duration or shrink the harness
+// interval below what the 30-second refresh throttle allows.
+func TestLifetimeIsClamped(t *testing.T) {
+	cases := []struct {
+		secs int64
+		want time.Duration
+	}{
+		{0, DefaultTokenLifetime},
+		{-5, DefaultTokenLifetime},
+		{2, MinTokenLifetime},
+		{600, 10 * time.Minute},
+		{10_000_000_000, MaxTokenLifetime},
+	}
+	for _, tc := range cases {
+		if got := (&CachedToken{LifetimeSecs: tc.secs}).Lifetime(); got != tc.want {
+			t.Errorf("Lifetime() for lifetime_secs %d = %v, want %v", tc.secs, got, tc.want)
+		}
+	}
+}
+
+func TestRefreshCapsAnAbsurdExpiresIn(t *testing.T) {
+	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"device_token":"pz-d-dt-fresh","expires_in":20000000000}`))
+	}))
+	defer srv.Close()
+	key, _ := GenerateKey()
+
+	tok, err := NewClient(srv.URL).Refresh(key, now)
+	if err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	if tok.ExpiresIn != MaxTokenLifetime || !tok.Expiry.Equal(now.Add(MaxTokenLifetime)) {
+		t.Fatalf("token = %+v, want the lifetime capped at %v", tok, MaxTokenLifetime)
+	}
+}
+
+// Every writer of the token cache records the lifetime, so a login token is
+// sized the same way a refreshed one is.
+func TestTokenCachedKeepsTheLifetime(t *testing.T) {
+	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
+	tok := &Token{Value: "pz-d-dt-x", ExpiresIn: 2 * time.Minute, Expiry: now.Add(2 * time.Minute)}
+	ct := tok.Cached()
+	if ct.Token != tok.Value || !ct.Expiry.Equal(tok.Expiry) || ct.Lifetime() != 2*time.Minute {
+		t.Fatalf("Cached() = %+v, want the token, its expiry and a 2 minute lifetime", ct)
 	}
 }

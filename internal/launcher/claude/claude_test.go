@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/claudecode"
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
@@ -215,8 +216,15 @@ func TestClaudeChildEnvDeviceModeHasNoAuthToken(t *testing.T) {
 	if got := launchtest.EnvValue(env, "ANTHROPIC_API_KEY="); got != "" {
 		t.Fatalf("ANTHROPIC_API_KEY = %q, want empty in device mode", got)
 	}
-	if got := launchtest.EnvValue(env, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS="); got != strconv.Itoa(launch.DeviceTokenRefreshMs) {
-		t.Fatalf("CLAUDE_CODE_API_KEY_HELPER_TTL_MS = %q, want %d", got, launch.DeviceTokenRefreshMs)
+	if got := launchtest.EnvValue(env, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS="); got != strconv.Itoa(launch.DeviceTokenRefreshMs(10*time.Minute)) {
+		t.Fatalf("CLAUDE_CODE_API_KEY_HELPER_TTL_MS = %q, want %d", got, launch.DeviceTokenRefreshMs(10*time.Minute))
+	}
+	// A shorter lifetime from expires_in shortens the interval with it.
+	envconfig.SetDeviceTokenLifetime(5 * time.Minute)
+	t.Cleanup(func() { envconfig.SetDeviceTokenLifetime(0) })
+	env = claudeChildEnv("", nil)
+	if got := launchtest.EnvValue(env, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS="); got != "120000" {
+		t.Fatalf("CLAUDE_CODE_API_KEY_HELPER_TTL_MS = %q for a 5 minute token, want 120000", got)
 	}
 }
 

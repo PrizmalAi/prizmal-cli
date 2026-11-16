@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher"
@@ -321,6 +322,19 @@ func TestCodexCatalogDeclaresTheWindowTheSwitchPublishes(t *testing.T) {
 		if want[m.Slug] != m.Window {
 			t.Errorf("%s context_window = %d, want %d", m.Slug, m.Window, want[m.Slug])
 		}
+	}
+}
+
+// A shorter token lifetime from expires_in shortens the interval Codex re-runs
+// the credential command on, at 40% of the lifetime.
+func TestCodexRefreshIntervalFollowsTheTokenLifetime(t *testing.T) {
+	launchtest.WithDeviceMode(t)
+	envconfig.SetDeviceTokenLifetime(5 * time.Minute)
+	t.Cleanup(func() { envconfig.SetDeviceTokenLifetime(0) })
+
+	overrides := strings.Join(managedOverrides(t, ""), "\n")
+	if want := "model_providers.prizmal.auth.refresh_interval_ms=120000"; !strings.Contains(overrides, want) {
+		t.Fatalf("overrides lack %q for a 5 minute token:\n%s", want, overrides)
 	}
 }
 

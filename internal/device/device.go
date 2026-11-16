@@ -228,11 +228,30 @@ func EncodeMsg(parts ...string) []byte {
 }
 
 // CachedToken is the persisted token cache: the device token string, its
-// expiry, and the sign-in deadline the last refresh reported, if one applies.
+// expiry, the lifetime the last refresh reported in expires_in, and the
+// sign-in deadline the last refresh reported, if one applies.
 type CachedToken struct {
-	Token    string     `json:"token"`
-	Expiry   time.Time  `json:"expiry"`
-	ReauthBy *time.Time `json:"reauth_by,omitempty"`
+	Token        string     `json:"token"`
+	Expiry       time.Time  `json:"expiry"`
+	LifetimeSecs int64      `json:"lifetime_secs,omitempty"`
+	ReauthBy     *time.Time `json:"reauth_by,omitempty"`
+}
+
+// Lifetime is the token's full lifetime as the last refresh reported it, or
+// DefaultTokenLifetime for a cache written before the lifetime was recorded.
+//
+// The value is clamped to [MinTokenLifetime, MaxTokenLifetime]. A hand-edited
+// cache or a hostile expires_in must not turn the reuse margin negative, so an
+// expired token is reused, or shrink the harness interval below what the
+// Config API's refresh throttle allows.
+func (c *CachedToken) Lifetime() time.Duration {
+	if c == nil || c.LifetimeSecs <= 0 {
+		return DefaultTokenLifetime
+	}
+	if c.LifetimeSecs >= int64(MaxTokenLifetime/time.Second) {
+		return MaxTokenLifetime
+	}
+	return max(time.Duration(c.LifetimeSecs)*time.Second, MinTokenLifetime)
 }
 
 // loadCachedTokenFrom reads the token cache from dir. A missing cache is not

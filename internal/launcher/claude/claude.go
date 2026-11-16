@@ -325,10 +325,10 @@ func (c *Claude) envVars() []string {
 		"ENABLE_TOOL_SEARCH=true",
 	)
 	if envconfig.DeviceMode() && !envconfig.RelayMode() {
-		// The helper refreshes the device token 4 minutes before it would
-		// otherwise expire, with 6 minutes still on the token in hand: enough
-		// for the background refresh a laptop sleep interrupts.
-		env = append(env, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS="+strconv.Itoa(launch.DeviceTokenRefreshMs))
+		// The helper re-runs at 40% of the token's lifetime, with 60% still on
+		// the token in hand: enough for the background refresh a laptop sleep
+		// interrupts.
+		env = append(env, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS="+strconv.Itoa(launch.DeviceTokenRefreshMs(envconfig.DeviceTokenLifetime())))
 	}
 	return env
 }

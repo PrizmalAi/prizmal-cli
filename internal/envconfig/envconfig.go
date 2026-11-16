@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 const (
@@ -31,6 +32,7 @@ var (
 	configKey   string
 	deviceToken string
 	deviceMode  bool
+	deviceLife  time.Duration
 	relayURL    string
 	relayKey    string
 )
@@ -66,6 +68,30 @@ func SetDeviceMode(on bool) {
 	mu.Lock()
 	defer mu.Unlock()
 	deviceMode = on
+}
+
+// SetDeviceTokenLifetime records the lifetime the Config API reported for the
+// device token in hand (expires_in). Zero clears it.
+func SetDeviceTokenLifetime(d time.Duration) {
+	mu.Lock()
+	defer mu.Unlock()
+	deviceLife = d
+}
+
+// DefaultDeviceTokenLifetime is the lifetime assumed before any refresh has
+// reported one: 10 minutes, what the Config API has issued since device tokens
+// shipped.
+const DefaultDeviceTokenLifetime = 10 * time.Minute
+
+// DeviceTokenLifetime is the device token's lifetime from the last refresh, or
+// DefaultDeviceTokenLifetime when none has reported one.
+func DeviceTokenLifetime() time.Duration {
+	mu.RLock()
+	defer mu.RUnlock()
+	if deviceLife <= 0 {
+		return DefaultDeviceTokenLifetime
+	}
+	return deviceLife
 }
 
 // DeviceMode reports whether this process runs in device mode.

@@ -1,6 +1,9 @@
 package envconfig
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 // resetKeys clears every key source for one test.
 func resetKeys(t *testing.T) {
@@ -113,5 +116,17 @@ func TestRelayOverridesURLAndEveryCredentialSourceUntilCleared(t *testing.T) {
 	}
 	if got, src := APIKey(), APIKeySource(); got != "pz-s-dt-from-device" || src != KeySourceDevice {
 		t.Fatalf("APIKey() after ClearRelay = %q from %q, want device precedence restored", got, src)
+	}
+}
+
+func TestDeviceTokenLifetimeDefaultsToTenMinutesAndFollowsTheRefresh(t *testing.T) {
+	SetDeviceTokenLifetime(0)
+	if got := DeviceTokenLifetime(); got != DefaultDeviceTokenLifetime {
+		t.Fatalf("default lifetime = %v, want 10m0s", got)
+	}
+	SetDeviceTokenLifetime(5 * time.Minute)
+	t.Cleanup(func() { SetDeviceTokenLifetime(0) })
+	if got := DeviceTokenLifetime(); got != 5*time.Minute {
+		t.Fatalf("lifetime = %v, want 5m0s", got)
 	}
 }

@@ -143,10 +143,12 @@ func (c *Client) Refresh(key *Key, now time.Time) (*Token, error) {
 		if rr.DeviceToken == "" {
 			return nil, fmt.Errorf("refresh device token: switch returned no token")
 		}
+		// Cap before multiplying, so a huge value cannot wrap a duration.
+		life := time.Duration(min(rr.ExpiresIn, int(MaxTokenLifetime/time.Second))) * time.Second
 		tok := &Token{
 			Value:     rr.DeviceToken,
-			ExpiresIn: time.Duration(rr.ExpiresIn) * time.Second,
-			Expiry:    now.Add(time.Duration(rr.ExpiresIn) * time.Second),
+			ExpiresIn: life,
+			Expiry:    now.Add(life),
 		}
 		if !rr.ReauthBy.IsZero() {
 			deadline := rr.ReauthBy
@@ -223,4 +225,16 @@ func (c *Client) ApprovalURL() (string, error) {
 		return "", fmt.Errorf("ask the Switch for its approval page: the answer holds no usable URL")
 	}
 	return u.String(), nil
+}
+
+// Cached is the token as the cache file persists it: the token, its expiry, the
+// lifetime expires_in reported, and the sign-in deadline. Every writer of the
+// cache builds it here, so none can omit the lifetime.
+func (t *Token) Cached() *CachedToken {
+	return &CachedToken{
+		Token:        t.Value,
+		Expiry:       t.Expiry,
+		ReauthBy:     t.ReauthBy,
+		LifetimeSecs: int64(t.ExpiresIn / time.Second),
+	}
 }
