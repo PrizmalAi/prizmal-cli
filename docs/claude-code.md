@@ -23,7 +23,7 @@ The Switch refuses a model name that is not one of your tenant's models or an al
 
 ## Device login
 
-Claude Code can refresh a device token during a session, so a `prizmal claude` launch runs in device mode on a machine signed in with a device key. The launch adds an `apiKeyHelper` to its inline settings: a command that runs `prizmal auth token`, which prints a fresh device token on stdout. Claude Code re-runs it on the interval `CLAUDE_CODE_API_KEY_HELPER_TTL_MS` sets, four minutes, so a background refresh always starts with at least six minutes left on the token in hand. That margin covers a laptop sleep.
+Claude Code can refresh a device token during a session, so a `prizmal claude` launch runs in device mode on a machine signed in with a device key. The launch adds an `apiKeyHelper` to its inline settings: a command that runs `prizmal auth token`, which prints a fresh device token on stdout. Claude Code re-runs it on the interval `CLAUDE_CODE_API_KEY_HELPER_TTL_MS` sets, 40% of the token's lifetime from `expires_in`. For the 10-minute token that is four minutes, so a background refresh always starts with at least six minutes left on the token in hand. That margin covers a laptop sleep.
 
 In device mode `ANTHROPIC_AUTH_TOKEN` is left unset, and a value exported in your shell is filtered out of the child environment. Claude Code treats that variable as a fixed credential it never refreshes and builds the bearer header from it before consulting the helper, so leaving it set would pin the session to the launch-time token.
 

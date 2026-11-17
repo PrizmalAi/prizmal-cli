@@ -251,7 +251,7 @@ func runBrowserSignIn() error {
 	}
 	if approved != nil {
 		reportAlreadyApproved(os.Stderr, approved)
-		return (&device.CachedToken{Token: approved.Value, Expiry: approved.Expiry, ReauthBy: approved.ReauthBy}).Save()
+		return approved.Cached().Save()
 	}
 	if created {
 		fmt.Fprintf(os.Stderr, "Generated a device key at ~/.prizmal/%s\n", device.KeyFileName)
@@ -264,5 +264,5 @@ func runBrowserSignIn() error {
 	if err != nil {
 		return err
 	}
-	return (&device.CachedToken{Token: token.Value, Expiry: token.Expiry, ReauthBy: token.ReauthBy}).Save()
+	return token.Cached().Save()
 }

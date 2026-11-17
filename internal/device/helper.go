@@ -5,10 +5,28 @@ import (
 	"time"
 )
 
-// CacheValidMargin is how much of a cached token's life must remain for the
-// helper to reuse it instead of refreshing. A token with less than this left
-// is refreshed, so Claude Code never gets a credential about to expire.
-const CacheValidMargin = 5 * time.Minute
+// DefaultTokenLifetime is the lifetime assumed for a cached token whose cache
+// file predates the recorded lifetime: 10 minutes, what the Config API has
+// issued since device tokens shipped. A refresh always records the real value
+// from expires_in, so the default only covers an old cache until its next
+// refresh.
+const DefaultTokenLifetime = 10 * time.Minute
+
+// MinTokenLifetime and MaxTokenLifetime bound the lifetime the CLI trusts from
+// expires_in. The Config API throttles a refresh to one per 30 seconds, so a
+// shorter lifetime could never be honoured, and a day is far above any
+// lifetime issued. The bounds also keep the duration arithmetic from wrapping.
+const (
+	MinTokenLifetime = 30 * time.Second
+	MaxTokenLifetime = 24 * time.Hour
+)
+
+// CacheMargin is how much of a cached token's life must remain for the helper
+// to reuse it instead of refreshing: half the lifetime. A token with less than
+// this left is refreshed, so Claude Code never gets a credential about to
+// expire. It follows expires_in, so a shorter lifetime from the Config API
+// moves it with no CLI release.
+func CacheMargin(lifetime time.Duration) time.Duration { return lifetime / 2 }
 
 // MaxHelperOutput is the most Claude Code accepts from an apiKeyHelper
 // command: 16384 printable ASCII characters. A longer or non-printable value
@@ -18,7 +36,7 @@ const MaxHelperOutput = 16384
 // HelperToken returns the credential `prizmal auth token` prints, and the
 // cache to persist.
 //
-// A cached token with at least CacheValidMargin left is reused. Otherwise the
+// A cached token with at least CacheMargin of its lifetime left is reused. Otherwise the
 // helper proves the device key and refreshes. Two failures have a fallback:
 // a 429 means a parallel helper refreshed a moment ago, so it waits and
 // re-reads the cache that helper wrote; a 503 means the service has no verdict,
@@ -30,14 +48,14 @@ const MaxHelperOutput = 16384
 // real delay.
 func HelperToken(client *Client, key *Key, now time.Time, load func() *CachedToken, sleep func(time.Duration)) (string, *CachedToken, error) {
 	cached := load()
-	if cached != nil && !cached.Expiry.Before(now.Add(CacheValidMargin)) {
+	if cached != nil && !cached.Expiry.Before(now.Add(CacheMargin(cached.Lifetime()))) {
 		return cached.Token, cached, nil
 	}
 
 	tok, err := client.Refresh(key, now)
 	switch {
 	case err == nil:
-		ct := &CachedToken{Token: tok.Value, Expiry: tok.Expiry, ReauthBy: tok.ReauthBy}
+		ct := tok.Cached()
 		return ct.Token, ct, nil
 
 	case errors.Is(err, ErrRateLimited):

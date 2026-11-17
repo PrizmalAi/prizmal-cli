@@ -171,6 +171,8 @@ func enterDeviceMode() error {
 
 	envconfig.SetDeviceMode(true)
 	envconfig.SetDeviceToken(token)
+	// The harness refresh interval follows the lifetime this refresh reported.
+	envconfig.SetDeviceTokenLifetime(ct.Lifetime())
 	if ct != nil {
 		_ = ct.Save()
 	}
@@ -231,7 +233,7 @@ func cmdLogin(cmd *cobra.Command, _ []string) error {
 	if approved != nil {
 		// A key still inside its approval. Keep the fresh token, then either
 		// finish or extend the approval.
-		if err := (&device.CachedToken{Token: approved.Value, Expiry: approved.Expiry, ReauthBy: approved.ReauthBy}).Save(); err != nil {
+		if err := approved.Cached().Save(); err != nil {
 			return err
 		}
 		switch planApprovedLogin(approved, reapprove) {
@@ -263,7 +265,7 @@ func cmdLogin(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	if err := (&device.CachedToken{Token: token.Value, Expiry: token.Expiry, ReauthBy: token.ReauthBy}).Save(); err != nil {
+	if err := token.Cached().Save(); err != nil {
 		return err
 	}
 

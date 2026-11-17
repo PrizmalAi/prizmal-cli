@@ -66,13 +66,6 @@ const (
 	codexProviderName   = "prizmal"
 	codexRestoreSuccess = "Codex launch configuration removed."
 
-	// codexRefreshIntervalMs is how long Codex keeps a token from the auth
-	// command before running it again. It is the Claude Code interval for the
-	// same reason: the device token lives 10 minutes, and a refresh every 4
-	// leaves at least 6 on the token in hand. Codex's own default of 5
-	// minutes would refresh with only 5 left.
-	codexRefreshIntervalMs = launch.DeviceTokenRefreshMs
-
 	// codexApplyPatchToolType is the only value Codex 0.160 defines for
 	// apply_patch_tool_type (ApplyPatchToolType::Freeform in codex-rs protocol).
 	codexApplyPatchToolType = "freeform"
@@ -515,7 +508,11 @@ func codexProviderSettings() ([]codexSetting, error) {
 	return []codexSetting{
 		{"auth.command", strconv.Quote(command)},
 		{"auth.args", codexAuthArgsTOML(args)},
-		{"auth.refresh_interval_ms", strconv.Itoa(codexRefreshIntervalMs)},
+		// Codex keeps a token from the auth command for this long before running
+		// it again. It is the Claude Code interval for the same reason: a refresh
+		// at 40% of the lifetime leaves 60% on the token in hand, where Codex's
+		// own default of 5 minutes would refresh with only half left.
+		{"auth.refresh_interval_ms", strconv.Itoa(launch.DeviceTokenRefreshMs(envconfig.DeviceTokenLifetime()))},
 	}, nil
 }
 

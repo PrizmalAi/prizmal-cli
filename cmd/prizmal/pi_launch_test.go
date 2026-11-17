@@ -31,7 +31,7 @@ func TestHarnessLaunchPiFromDeviceLogin(t *testing.T) {
 
 // piDeviceTokenLife is how long the short-lived stub's device tokens last in
 // TestHarnessLaunchPiOutlivesOneDeviceToken. It is far shorter than
-// device.CacheValidMargin, so the helper cannot serve a cached token and must
+// a token lifetime the helper halves into its reuse margin, so it serves a cached token only briefly and must
 // refresh for each request, which is what lets a few seconds of session cross an
 // expiry.
 const piDeviceTokenLife = 2 * time.Second

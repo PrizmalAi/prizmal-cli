@@ -265,9 +265,9 @@ type presentedToken struct {
 }
 
 // NewDeviceTokenIssuer returns an issuer whose tokens live for ttl. A ttl
-// shorter than device.CacheValidMargin is deliberate in a test: the helper
-// reuses a cached token only while it still has that margin left, so a shorter
-// life forces a fresh refresh on every request and an expiry the test can
+// short is deliberate in a test: the helper reuses a cached token only while
+// half its lifetime remains (device.CacheMargin), so a short life forces a fresh
+// refresh soon after each issue and an expiry the test can
 // cross in seconds.
 func NewDeviceTokenIssuer(ttl time.Duration) *DeviceTokenIssuer {
 	return &DeviceTokenIssuer{ttl: ttl}
