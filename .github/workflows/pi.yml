@@ -63,6 +63,10 @@ jobs:
         env:
           PRIZMAL_HARNESS_LAUNCH: require
         run: go test -count=1 -v -run 'TestHarnessLaunchPiKeepsTheUsersExtensions$' ./cmd/prizmal
+      - name: Record the Switch's turn charge as the turn cost
+        env:
+          PRIZMAL_HARNESS_LAUNCH: require
+        run: go test -count=1 -v -run 'TestHarnessLaunchPiRecordsTheSwitchTurnCharge$' ./cmd/prizmal
 
   # compaction installs the pi release recorded in
   # cmd/prizmal/testdata/harness/pi-version, because Pi's compaction

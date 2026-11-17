@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -144,4 +145,61 @@ export default function (pi) {
 // the stub's switch key is bound to.
 func TestHarnessLaunchPiWithoutAModel(t *testing.T) {
 	runHarnessLaunchWithoutAModel(t, "pi")
+}
+
+// piTurnChargePico is the charge the stub reports for a turn: $0.04821.
+const piTurnChargePico = 48210000000
+
+// TestHarnessLaunchPiRecordsTheSwitchTurnCharge runs a real Pi against a stub
+// that bills the turn, and reads the cost Pi recorded for it. Pi's footer sums
+// that field. The stub's rates are not in models.json, so Pi alone records 0;
+// the extension sets the figure the Switch sent.
+func TestHarnessLaunchPiRecordsTheSwitchTurnCharge(t *testing.T) {
+	skipHarnessLaunchInShortMode(t)
+	harnessPath := harnessLaunchOnPath(t, "pi")
+
+	srv := stubserver.NewServer(
+		stubserver.WithModels(harnessLaunchModel),
+		stubserver.WithTurnCharge(piTurnChargePico),
+	)
+	t.Cleanup(srv.Close)
+
+	prizmalBin, home, project := harnessLaunchSandbox(t, srv.URL, false)
+	harnessArgs := harnessLaunchCases["pi"].args
+	stdout, stderr, timedOut, runErr := runHarnessCommand(t, prizmalBin, home, project, harnessPath, "pi", harnessArgs)
+	if !strings.Contains(stdout, stubserver.Reply) {
+		t.Fatalf("pi did not finish the session (run error: %v, timed out: %v)\n--- stdout ---\n%s\n--- stderr ---\n%s",
+			runErr, timedOut, tail(stdout, 50), tail(stderr, 50))
+	}
+
+	var total float64
+	found := false
+	sessions, _ := filepath.Glob(filepath.Join(home, ".pi", "agent", "sessions", "*", "*.jsonl"))
+	for _, path := range sessions {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			var entry struct {
+				Message struct {
+					Role  string `json:"role"`
+					Usage struct {
+						Cost struct {
+							Total float64 `json:"total"`
+						} `json:"cost"`
+					} `json:"usage"`
+				} `json:"message"`
+			}
+			if json.Unmarshal([]byte(line), &entry) == nil && entry.Message.Role == "assistant" {
+				total, found = entry.Message.Usage.Cost.Total, true
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("no assistant message in Pi's session files %v", sessions)
+	}
+	if want := float64(piTurnChargePico) / 1e12; total != want {
+		t.Fatalf("Pi recorded a turn cost of %v, want the Switch's %v", total, want)
+	}
 }

@@ -175,6 +175,7 @@ type serverConfig struct {
 	modelsStatus        int
 	rejectFirstResponse bool
 	requestLog          func(Request)
+	chargePico          int64
 }
 
 // Request is what the request log records: enough to tell which credential a
@@ -217,6 +218,14 @@ func WithShortLivedDeviceTokens(issuer *DeviceTokenIssuer) ServerOption {
 		c.deviceApproved = true
 		c.issuer = issuer
 	}
+}
+
+// WithTurnCharge makes the chat-completions route report a charge of pico
+// pico-dollars (dollars times 10^12) on the last chunk of a turn that ends in
+// a reply, as the Switch does for a billed tenant: usage.charged_total_pico and
+// usage.cost in dollars. A tool step carries none.
+func WithTurnCharge(pico int64) ServerOption {
+	return func(c *serverConfig) { c.chargePico = pico }
 }
 
 // WithPiToolLoop makes the chat-completions route answer a bash tool call that
@@ -766,7 +775,7 @@ func handler(c *serverConfig) http.HandlerFunc {
 			handleModels(w, c.models)
 
 		case method == http.MethodPost && path == "/v1/chat/completions":
-			handleChatCompletions(w, r, c.toolLoop, c.usagePlan)
+			handleChatCompletions(w, r, c.toolLoop, c.usagePlan, c.chargePico)
 
 		case method == http.MethodPost && path == "/v1/responses":
 			if c.rejectFirstResponse && rejected.CompareAndSwap(false, true) {
@@ -1113,7 +1122,7 @@ func planned(plan *UsagePlan, body map[string]any) (reply string, tokens int, re
 	return Reply, tokens, ""
 }
 
-func handleChatCompletions(w http.ResponseWriter, r *http.Request, loop *toolScript, plan *UsagePlan) {
+func handleChatCompletions(w http.ResponseWriter, r *http.Request, loop *toolScript, plan *UsagePlan, chargePico int64) {
 	body := requestBody(r)
 	reply, tokens, refusal := planned(plan, body)
 	if refusal != "" {
@@ -1173,7 +1182,12 @@ func handleChatCompletions(w http.ResponseWriter, r *http.Request, loop *toolScr
 			writeSSE(w, flusher, chunk(map[string]any{"role": "assistant", "content": reply}, nil))
 		}
 		last := chunk(map[string]any{}, finish)
-		last["usage"] = map[string]any{"prompt_tokens": tokens, "completion_tokens": 1, "total_tokens": tokens + 1}
+		usage := map[string]any{"prompt_tokens": tokens, "completion_tokens": 1, "total_tokens": tokens + 1}
+		if chargePico > 0 && !toolCall {
+			usage["charged_total_pico"] = chargePico
+			usage["cost"] = float64(chargePico) / 1e12
+		}
+		last["usage"] = usage
 		writeSSE(w, flusher, last)
 		_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
 		flusher.Flush()
