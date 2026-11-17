@@ -241,7 +241,7 @@ func TestInlineConfigPerAPI(t *testing.T) {
 		{"anthropic", "@ai-sdk/anthropic"},
 	} {
 		t.Run(tc.api, func(t *testing.T) {
-			raw, err := buildInlineConfigFor(tc.api, "smart", nil)
+			raw, err := buildInlineConfigFor(tc.api, "smart", nil, "")
 			if err != nil {
 				t.Fatal(err)
 			}
