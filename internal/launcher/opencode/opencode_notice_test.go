@@ -86,7 +86,7 @@ func TestPrepareAuthPluginFailsLoudlyWhenDeviceWriteFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := prepareAuthPlugin()
+	err := prepareAuthPlugin(openCodeMajor1)
 	if err == nil || !strings.Contains(err.Error(), "write OpenCode's auth plugin") {
 		t.Fatalf("prepareAuthPlugin = %v, want the write error", err)
 	}
@@ -99,7 +99,7 @@ func TestPrepareAuthPluginRemovesStalePluginOutsideDeviceMode(t *testing.T) {
 	pluginPath := filepath.Join(home, ".cache", "prizmal", "opencode", "plugin", "prizmal_auth.ts")
 
 	launchtest.WithDeviceMode(t)
-	if err := prepareAuthPlugin(); err != nil {
+	if err := prepareAuthPlugin(openCodeMajor1); err != nil {
 		t.Fatalf("device prepareAuthPlugin: %v", err)
 	}
 	if _, err := os.Stat(pluginPath); err != nil {
@@ -108,7 +108,7 @@ func TestPrepareAuthPluginRemovesStalePluginOutsideDeviceMode(t *testing.T) {
 
 	envconfig.SetDeviceMode(false)
 	envconfig.SetDeviceToken("")
-	if err := prepareAuthPlugin(); err != nil {
+	if err := prepareAuthPlugin(openCodeMajor1); err != nil {
 		t.Fatalf("static-key prepareAuthPlugin: %v", err)
 	}
 	if _, err := os.Stat(pluginPath); !os.IsNotExist(err) {
