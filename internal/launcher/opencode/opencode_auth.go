@@ -80,7 +80,7 @@ func writeOpenCodeAuthPlugin(dir string, major openCodeMajor) error {
 		return err
 	}
 	source := openCodeAuthPluginSource()
-	if major == openCodeMajor2 {
+	if capabilitiesFor(major).effectAuthPlugin {
 		source = openCodeAuthPluginSourceV2()
 	}
 	return os.WriteFile(filepath.Join(pluginDir, openCodeAuthPluginFile), []byte(source), 0o644)
