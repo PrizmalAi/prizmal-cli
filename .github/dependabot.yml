@@ -1,0 +1,24 @@
+# Dependabot dependency scanning (SOC 2 — Vulnerability Management Policy §3).
+# The CLI is a launcher: the root Go module is its shipped dependency surface,
+# and the workflows under .github/ run with the repository's token. Inspector
+# does not cover either, so this file is their only CVE signal.
+# Grouped so each weekly run opens one pull request per ecosystem.
+version: 2
+updates:
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      go-dependencies:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
