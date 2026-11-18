@@ -14,7 +14,7 @@ jobs:
   dupdelta:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # the merge-base must be reachable — without this it cannot work
-      - uses: elecnix/dupdelta@658504a2c2fc19ced01337e2e84c79aa4699a7a7 # v0.2.0
+      - uses: elecnix/dupdelta@c95b985a8e9ba75c1473f2fe3695d8478f869d53 # v0.3.0
