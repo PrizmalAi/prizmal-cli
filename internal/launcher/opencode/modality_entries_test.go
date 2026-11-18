@@ -76,7 +76,7 @@ func TestOpenCodeDeclaresTheVocabularyRowForACatalogEntry(t *testing.T) {
 // selects, and that an unsupported API is refused.
 func TestInlineConfigPackageFollowsTheAPI(t *testing.T) {
 	for api, want := range map[string]string{"": "@ai-sdk/openai-compatible", "chat": "@ai-sdk/openai-compatible", "responses": "@ai-sdk/openai"} {
-		raw, err := buildInlineConfigFor(api, launch.LaunchModel{Name: "m"}, []launch.LaunchModel{{Name: "m"}})
+		raw, err := buildInlineConfigFor(api, launch.LaunchModel{Name: "m"}, []launch.LaunchModel{{Name: "m"}}, openCodeMajor1)
 		if err != nil {
 			t.Fatal(err)
 		}

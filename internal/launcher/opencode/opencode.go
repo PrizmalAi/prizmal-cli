@@ -35,6 +35,23 @@ var openCodeExecutablePath = selfpath.Path
 type OpenCode struct {
 	api           string // empty means chat completions
 	configContent string // JSON config built by Edit, passed to Run via env var
+
+	// resolvedMajor is the major this launch resolved, cached so Run,
+	// envVars and the search/auth setup all act on the same value instead of
+	// re-running `opencode --version`. The zero value is openCodeMajorUnknown,
+	// which capabilitiesFor reads as the 1.x row, so a struct built directly
+	// by a test (never through Run or Edit) keeps today's 1.x behavior.
+	resolvedMajor openCodeMajor
+}
+
+// ensureMajorResolved resolves and caches the installed OpenCode's major the
+// first time anything needs it. resolveOpenCodeMajor never returns
+// openCodeMajorUnknown, so this runs at most once per OpenCode value.
+func (o *OpenCode) ensureMajorResolved() openCodeMajor {
+	if o.resolvedMajor == openCodeMajorUnknown {
+		o.resolvedMajor = resolveOpenCodeMajor()
+	}
+	return o.resolvedMajor
 }
 
 func (o *OpenCode) String() string { return "OpenCode" }
@@ -139,7 +156,7 @@ func (o *OpenCode) Run(model string, models []launch.LaunchModel, args []string)
 		return err
 	}
 
-	major := resolveOpenCodeMajor()
+	major := o.ensureMajorResolved()
 	if err := prepareAuthPlugin(major); err != nil {
 		return err
 	}
@@ -201,6 +218,9 @@ func (o *OpenCode) searchDirEnv(model string) []string {
 		noticeDegraded("web search", "cannot resolve the home directory: "+err.Error())
 		return nil
 	}
+	if capabilitiesFor(o.resolvedMajor).searchNeedsUnprovenToolTransform {
+		return o.degradedSearchEnvOnV2(dir)
+	}
 	if err := writeOpenCodeSearchTool(dir); err != nil {
 		// Search is an extra, not a precondition for the session. A launch that
 		// cannot write the tool still runs, just without web search.
@@ -231,6 +251,27 @@ func (o *OpenCode) searchDirEnv(model string) []string {
 // line on stderr.
 func noticeDegraded(feature, reason string) {
 	_, _ = fmt.Fprintf(noticeOut, "prizmal: %s is off on this launch: %s\n", feature, reason)
+}
+
+// openCodeV2SearchUnsupportedReason explains why 2.x search is off until a
+// later PR in this stack proves it against a live OpenCode 2.x run: 2.x has
+// no tools/ directory loader, and registering prizmal_search through
+// ctx.tool.transform needs an Effect-schema input helper the ticket's
+// source audit left unverified.
+const openCodeV2SearchUnsupportedReason = "its ctx.tool.transform input schema is not yet proven against a live OpenCode 2.x run"
+
+// degradedSearchEnvOnV2 removes any search tool file a previous 1.x launch
+// left under dir (2.x has no loader for it, so a stale file would never run,
+// but removing it keeps dir's contents honest), prints the one-line notice
+// the design calls for, and returns only OPENCODE_CONFIG_DIR: the auth
+// plugin prepareAuthPlugin already wrote under the same directory still
+// needs it set.
+func (o *OpenCode) degradedSearchEnvOnV2(dir string) []string {
+	// Best-effort: 2.x never loads this file either way, so a removal
+	// failure here is not worth its own notice.
+	_ = os.Remove(filepath.Join(dir, "tool", openCodeSearchToolID+".ts"))
+	_, _ = fmt.Fprintf(noticeOut, "prizmal: web search is off on OpenCode 2.x: %s\n", openCodeV2SearchUnsupportedReason)
+	return []string{"OPENCODE_CONFIG_DIR=" + dir}
 }
 
 // OpenCodeInstallerDependencies lists what OpenCode's installer needs to run.
@@ -270,7 +311,7 @@ func (o *OpenCode) resolveContent(model string, models []launch.LaunchModel) str
 	if len(resolvedModels) == 0 {
 		return ""
 	}
-	content, err := buildInlineConfigFor(o.api, resolvedModels[0], resolvedModels)
+	content, err := buildInlineConfigFor(o.api, resolvedModels[0], resolvedModels, o.resolvedMajor)
 	if err != nil {
 		return ""
 	}
@@ -298,7 +339,7 @@ func (o *OpenCode) ensureValidConfigContent(model string, models []launch.Launch
 	if len(resolvedModels) == 0 {
 		return nil
 	}
-	content, err := buildInlineConfigFor(o.api, resolvedModels[0], resolvedModels)
+	content, err := buildInlineConfigFor(o.api, resolvedModels[0], resolvedModels, o.resolvedMajor)
 	if err != nil {
 		return err
 	}
@@ -352,7 +393,7 @@ func (o *OpenCode) Edit(models []launch.LaunchModel) error {
 		return nil
 	}
 
-	content, err := buildInlineConfigFor(o.api, models[0], models)
+	content, err := buildInlineConfigFor(o.api, models[0], models, o.ensureMajorResolved())
 	if err != nil {
 		return err
 	}
@@ -364,14 +405,18 @@ func (o *OpenCode) Models() []string {
 	return nil
 }
 
-// buildInlineConfig produces the JSON string for OPENCODE_CONFIG_CONTENT.
-// primary is the model to launch with, models is the full list of available models.
+// buildInlineConfig produces the JSON string for OPENCODE_CONFIG_CONTENT,
+// built for the 1.x shape. primary is the model to launch with, models is
+// the full list of available models. Most existing callers (and tests) want
+// the 1.x shape explicitly; buildInlineConfigFor takes the major for a
+// caller that needs the 2.x shape instead.
 func buildInlineConfig(primary launch.LaunchModel, models []launch.LaunchModel) (string, error) {
-	return buildInlineConfigFor("", primary, models)
+	return buildInlineConfigFor("", primary, models, openCodeMajor1)
 }
 
-// buildInlineConfigFor builds the config for one API; "" is chat completions.
-func buildInlineConfigFor(api string, primary launch.LaunchModel, models []launch.LaunchModel) (string, error) {
+// buildInlineConfigFor builds the config for one API ("" is chat
+// completions) and one OpenCode major.
+func buildInlineConfigFor(api string, primary launch.LaunchModel, models []launch.LaunchModel, major openCodeMajor) (string, error) {
 	if api == "" {
 		api = launch.APIChat
 	}
@@ -396,7 +441,7 @@ func buildInlineConfigFor(api string, primary launch.LaunchModel, models []launc
 				"npm":     openCodePackages[api],
 				"name":    "Prizmal",
 				"options": options,
-				"models":  buildModelEntries(models),
+				"models":  buildModelEntries(models, major),
 			},
 		},
 		"model": "prizmal/" + primary.Name,
@@ -428,7 +473,22 @@ const openCodeContextWindow = 1_000_000
 // for an output budget.
 const openCodeMaxOutputTokens = 32_000
 
-func buildModelEntries(modelList []launch.LaunchModel) map[string]any {
+// buildModelEntries builds one major's models map. On a major whose
+// capability row sets dropsReasoningFields (2.x today), it sends no
+// "reasoning" or "variants" field at all — 2.x's config migration drops both
+// with only a logged warning — and sends "tool_call" instead, the field
+// 2.x's migration reads for a model's tool-calling support. The Switch's
+// catalogue carries no per-model signal for tool-calling today, so every
+// model declares it; this is a known gap against a true per-model signal,
+// not a default this launcher chose over one.
+//
+// A thinking model's reasoning-effort variants have no 2.x-native
+// replacement yet in what this launcher's live-run audit found, so a 2.x
+// launch loses --variant control for a thinking model until one is found.
+// That is the degradation this change accepts for 2.x, not a bug to fix
+// here.
+func buildModelEntries(modelList []launch.LaunchModel, major openCodeMajor) map[string]any {
+	drop := capabilitiesFor(major).dropsReasoningFields
 	models := make(map[string]any)
 	for _, model := range modelList {
 		// The declared input modalities come from the capability vocabulary in
@@ -446,7 +506,10 @@ func buildModelEntries(modelList []launch.LaunchModel) map[string]any {
 				"output": []string{"text"},
 			},
 		}
-		if model.HasCapability("thinking") {
+		switch {
+		case drop:
+			entry["tool_call"] = true
+		case model.HasCapability("thinking"):
 			entry["reasoning"] = true
 			// Every effort is offered and none is the default: the Switch
 			// reports which models reason and decides what a route does with
@@ -463,9 +526,11 @@ func buildModelEntries(modelList []launch.LaunchModel) map[string]any {
 	return models
 }
 
-// ModelEntries is the models map of an OpenCode provider block. Kilo is a fork
-// of OpenCode that reads the same provider schema, so its launch builds the
-// entries here rather than keeping a second copy.
+// ModelEntries is the models map of an OpenCode provider block. Kilo is a
+// fork of OpenCode's 1.x architecture that reads the same provider schema,
+// so its launch builds the entries here rather than keeping a second copy,
+// always on the 1.x shape regardless of any OpenCode major installed
+// alongside it.
 func ModelEntries(modelList []launch.LaunchModel) map[string]any {
-	return buildModelEntries(modelList)
+	return buildModelEntries(modelList, openCodeMajor1)
 }
