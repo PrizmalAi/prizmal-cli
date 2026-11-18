@@ -139,8 +139,12 @@ func (o *OpenCode) Run(model string, models []launch.LaunchModel, args []string)
 		return err
 	}
 
-	if err := prepareAuthPlugin(); err != nil {
+	major := resolveOpenCodeMajor()
+	if err := prepareAuthPlugin(major); err != nil {
 		return err
+	}
+	if err := o.ensureValidConfigContent(model, models); err != nil {
+		return fmt.Errorf("build OpenCode config: %w", err)
 	}
 
 	cmd := exec.Command(opencodePath, args...)
@@ -252,7 +256,12 @@ func OpenCodeInstallerCommand(goos string) (string, []string, error) {
 
 // resolveContent returns the inline config to send via OPENCODE_CONFIG_CONTENT.
 // Returns content built by Edit if available, otherwise builds it from the
-// requested model and the catalog.
+// requested model and the catalog. A build failure here is swallowed by
+// design: this helper backs envVars, which has no error return and is used by
+// tests that only inspect the resulting environment. Run is the launch path
+// that must fail loudly on a bad config, and it calls
+// ensureValidConfigContent first, which populates o.configContent so this
+// method's own fallback path is never reached from a real launch.
 func (o *OpenCode) resolveContent(model string, models []launch.LaunchModel) string {
 	if o.configContent != "" {
 		return o.configContent
@@ -266,6 +275,38 @@ func (o *OpenCode) resolveContent(model string, models []launch.LaunchModel) str
 		return ""
 	}
 	return content
+}
+
+// ensureValidConfigContent populates o.configContent and validates it as
+// JSON before the launch exports it. OpenCode 2.x drops a malformed
+// OPENCODE_CONFIG_CONTENT document with only a logged warning and runs with
+// no Switch provider at all, so this check belongs to the launcher: it is the
+// only place that can fail loudly instead of handing 2.x a document it will
+// silently discard.
+//
+// A launch with no model to resolve (model == "" and the catalog resolves
+// nothing) sets no content and is not a validation failure: it is today's
+// existing no-model path, unchanged.
+func (o *OpenCode) ensureValidConfigContent(model string, models []launch.LaunchModel) error {
+	if o.configContent != "" {
+		if !json.Valid([]byte(o.configContent)) {
+			return fmt.Errorf("precomputed OpenCode config is not valid JSON")
+		}
+		return nil
+	}
+	resolvedModels := resolveOpenCodeRunModels(model, models)
+	if len(resolvedModels) == 0 {
+		return nil
+	}
+	content, err := buildInlineConfigFor(o.api, resolvedModels[0], resolvedModels)
+	if err != nil {
+		return err
+	}
+	if !json.Valid([]byte(content)) {
+		return fmt.Errorf("built OpenCode config is not valid JSON")
+	}
+	o.configContent = content
+	return nil
 }
 
 func resolveOpenCodeRunModels(primary string, models []launch.LaunchModel) []launch.LaunchModel {
