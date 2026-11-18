@@ -112,9 +112,8 @@ export const PrizmalAuth = async ({ $ }) => ({
 
 // openCodeAuthPluginSourceV2 renders the 2.x plugin module. 2.x has no
 // `chat.headers` hook: a plugin must export `Plugin.define({ id, setup })`
-// and register `session.model.request`, proven live against OpenCode 2.2.6
-// (PRI-4664). Two behaviors that live run settled, and this source depends
-// on both:
+// and register `session.model.request`, proven live against OpenCode 2.2.6.
+// Two behaviors that live run settled, and this source depends on both:
 //
 //   - The provider's configured apiKey wins over a header this hook sets, so
 //     a device-mode launch's inline config must carry no apiKey at all (see

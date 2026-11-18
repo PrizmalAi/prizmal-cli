@@ -11,7 +11,7 @@ import (
 
 // On OpenCode 2.x, a device launch writes the Plugin.define shape, not the
 // 1.x chat.headers shape: 2.x has no chat.headers hook, so the 1.x plugin
-// would not load at all (PRI-4664).
+// would not load at all.
 func TestOpenCodeDeviceLaunchOnV2WritesTheEffectPlugin(t *testing.T) {
 	home := sandboxedHome(t)
 	launchtest.WithDeviceMode(t)

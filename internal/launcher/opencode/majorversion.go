@@ -65,7 +65,7 @@ func resolveOpenCodeMajor() openCodeMajor {
 	}
 	major := detectOpenCodeMajor(out)
 	if major == openCodeMajorUnknown {
-		fmt.Fprintf(noticeOut, "prizmal: could not read an OpenCode major version from %q, assuming 1.x\n", out)
+		_, _ = fmt.Fprintf(noticeOut, "prizmal: could not read an OpenCode major version from %q, assuming 1.x\n", out)
 		return openCodeMajor1
 	}
 	return major
