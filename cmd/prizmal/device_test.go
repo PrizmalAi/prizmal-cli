@@ -545,3 +545,25 @@ func TestAuthTokenFallbackRejectsAnUnprintableKey(t *testing.T) {
 		t.Fatalf("stdout = %q, err = %v; want a login error and no output", out, err)
 	}
 }
+
+// The login help walks a person through the consent page, so it lists the
+// page's steps and nothing more. The page asks for no router config.
+func TestLoginHelpListsOnlyTheConsentPageSteps(t *testing.T) {
+	var long string
+	for _, c := range deviceCommands() {
+		if c.Name() == "login" {
+			long = c.Long
+		}
+	}
+	if long == "" {
+		t.Fatal("no login command")
+	}
+	// The help wraps its lines, so compare with the line breaks removed.
+	long = strings.Join(strings.Fields(long), " ")
+	if strings.Contains(long, "router config") {
+		t.Errorf("login help asks for a router config, which the consent page no longer offers:\n%s", long)
+	}
+	if !strings.Contains(long, "confirm the fingerprint matches") {
+		t.Errorf("login help lost the fingerprint check:\n%s", long)
+	}
+}

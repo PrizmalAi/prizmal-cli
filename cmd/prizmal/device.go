@@ -389,9 +389,8 @@ func deviceCommands() []*cobra.Command {
 		Long: `Sign in through your browser to approve this machine.
 
 prizmal generates an ed25519 device key in ~/.prizmal and prints a URL and a
-fingerprint. Open the URL, confirm the fingerprint matches, choose a router
-config, and allow. The CLI then polls until the approval lands and stores the
-first device token.
+fingerprint. Open the URL, confirm the fingerprint matches, and allow. The CLI
+then polls until the approval lands and stores the first device token.
 
 There is no localhost listener, so this works over SSH: open the printed URL
 on any machine with a browser.
