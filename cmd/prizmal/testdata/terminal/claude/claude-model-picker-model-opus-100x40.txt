@@ -25,7 +25,6 @@
 
 
 
-
 ▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔ ● high · /effort ▔
    Select model
    Switch between Claude models. Your pick becomes the default for new sessions. For
@@ -34,6 +33,7 @@
      1. Default (recommended)  Use the default model (currently team-opus-blend)
    ❯ 2. team-opus-blend ✔      Opus tier
      3. smart                  Custom model (smart[1m])
+     4. default                Custom model (default[1m])
 
    ● High effort (default) ←/→ to adjust
 

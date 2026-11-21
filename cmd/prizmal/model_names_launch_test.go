@@ -15,9 +15,8 @@ import (
 // A name the operator passes reaches the harness as it is, whether or not the
 // catalog lists it: GET /v1/models lists each config once, under its own name,
 // and never the aliases the Switch also routes to it. The Switch is the
-// authority on names and answers one it does not route with its own error. The
-// `default` placeholder is the one name a launch refuses, because no Switch
-// routes it.
+// authority on names and answers one it does not route with its own error.
+// `default` is one more name: the CLI's only default is default_model.
 //
 // The catalog here is shaped like a tenant whose Opus config holds the
 // frontier tier and answers to aliases the listing does not carry, such as the
@@ -53,11 +52,12 @@ func TestLaunchSendsAnExplicitNameTheCatalogDoesNotList(t *testing.T) {
 		{name: "a name the CLI cannot place", args: []string{"-m", "gpt-5.6-luna"}, wantModel: `"model":"gpt-5.6-luna[1m]"`, wantWarn: `model "gpt-5.6-luna"`},
 		{name: "an unheld tier word", args: []string{"-m", "sonnet"}, wantModel: `"model":"sonnet[1m]"`, wantWarn: `model "sonnet"`},
 		{name: "a subagent model the listing does not carry", args: []string{"-m", "prizmal-core", "--subagent-model", "claude-tier-opus"}, wantModel: `"model":"prizmal-core[1m]"`, wantWarn: `--subagent-model: model "claude-tier-opus"`},
-		// `default` is a placeholder, not a model name, and a launch never sends it.
-		{name: "default", args: []string{"-m", "default"}, wantErr: "is not a name the Switch accepts"},
-		{name: "the legacy default spelling", args: []string{"-m", "prizmal/default"}, wantErr: "is not a name the Switch accepts"},
-		{name: "default after the integration name", args: []string{"claude", "--model", "default"}, wantErr: "is not a name the Switch accepts"},
-		{name: "a default subagent model", args: []string{"-m", "prizmal-core", "--subagent-model", "default"}, wantErr: "--subagent-model: model \"default\" is not a name the Switch accepts"},
+		// `default` is a model name like any other: the CLI sends it, and the
+		// Switch answers it.
+		{name: "default", args: []string{"-m", "default"}, wantModel: `"model":"default[1m]"`, wantWarn: `model "default"`},
+		{name: "prizmal/default", args: []string{"-m", "prizmal/default"}, wantModel: `"model":"prizmal/default[1m]"`, wantWarn: `model "prizmal/default"`},
+		{name: "default after the integration name", args: []string{"claude", "--model", "default"}, wantModel: `"model":"default[1m]"`, wantWarn: `model "default"`},
+		{name: "a default subagent model", args: []string{"-m", "prizmal-core", "--subagent-model", "default"}, wantModel: `"model":"prizmal-core[1m]"`, wantWarn: `--subagent-model: model "default"`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()

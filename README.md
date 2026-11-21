@@ -217,8 +217,6 @@ prizmal --restore codex
 # The tier aliases your tenant holds (frontier, core, flash, premier) lead,
 # because they route too even though the Switch does not list them; the same
 # aliases head the --pick menu.
-# `default` is left out: it is a placeholder, not a model name, and a launch
-# never sends it.
 prizmal --list
 ```
 
@@ -232,7 +230,7 @@ the harness exits. `--relay` is a launch flag: `--list`, `--restore` and
 `--persist` refuse it, and the existing credential gate refuses a remote launch
 that has no credential.
 
-The picker shows every name `--list` prints with one exception and one fold. `default` is the placeholder the Switch is retiring, so it is not a row to choose. A model whose `GET /v1/models` entry carries a tier sits under that tier's alias row, and the row names the folded model beside the tier's description. A model that holds several tiers gives a row for each.
+The picker shows every name `--list` prints, with one fold. A model whose `GET /v1/models` entry carries a tier sits under that tier's alias row, and the row names the folded model beside the tier's description. A model that holds several tiers gives a row for each.
 
 Each harness labels the tier rows in its own words, and every row sends the tier's alias. Codex names each tier row after the model behind it and puts the word in the row's description, as in "Sol-like":
 
@@ -262,8 +260,7 @@ as the default. The first save creates `~/.prizmal/config.json` if the machine
 has none, such as one that signed in with `prizmal login`, and the file holds
 the default alone. The device key stays the credential. A saved default skips
 the picker on a bare launch. When a launch has no model and no terminal to choose on, it stops,
-and the error lists the names `--list` prints. The launch never sends the
-Switch's `default` placeholder, which is not a model name.
+and the error lists the names `--list` prints.
 
 A launch that cannot ask stops. When stdin is not a terminal, or the harness
 runs one prompt and exits (`claude -p`, `codex exec`, `opencode run`, `pi
@@ -284,8 +281,7 @@ nowhere.
 routes to one of them, such as the legacy `claude-tier-opus`, is missing from
 the list and still works with `--model`. The launch prints a warning for a
 name missing from the list, then sends the name you pass. The Switch returns
-its own error for a name it does not route. The launch refuses only `default`
-before the harness starts, because it is not a model name.
+its own error for a name it does not route.
 
 Backups of any modified config files are kept in `~/.prizmal/backup/`.
 Each launch, `--persist` and `--restore` deletes any backup there that
