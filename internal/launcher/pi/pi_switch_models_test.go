@@ -134,48 +134,37 @@ func TestPiEditKeepsTheUsersModels(t *testing.T) {
 	}
 }
 
-// TestPiEditRefusesToClobberAnUnparsableModelsFile pins that a file Edit
-// cannot parse is left exactly as it was. An ignored parse error starts from an
-// empty document, so the write that follows drops every provider the operator
+// TestPiEditRefusesToClobberAFileItCannotParse pins that a file Edit cannot
+// parse is left exactly as it was. An ignored parse error starts from an
+// empty document, so the write that follows drops every entry the operator
 // had. Refusing is what keeps "never overwrites" true even for a file with a
-// trailing comma.
-func TestPiEditRefusesToClobberAnUnparsableModelsFile(t *testing.T) {
-	home := internaltest.SandboxedHome(t)
-	modelsPath := filepath.Join(home, ".pi", "agent", "models.json")
-	if err := os.MkdirAll(filepath.Dir(modelsPath), 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	broken := []byte("{\n  \"providers\": {\n    \"openrouter\": {\"models\": []},\n")
-	if err := os.WriteFile(modelsPath, broken, 0o600); err != nil {
-		t.Fatalf("seed models.json: %v", err)
-	}
+// trailing comma, in models.json and in settings.json alike.
+func TestPiEditRefusesToClobberAFileItCannotParse(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		file string
+	}{
+		{name: "models.json", file: "models.json"},
+		{name: "settings.json", file: "settings.json"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := internaltest.SandboxedHome(t)
+			path := filepath.Join(home, ".pi", "agent", tc.file)
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatalf("mkdir: %v", err)
+			}
+			broken := []byte("{\n  \"providers\": {\n    \"openrouter\": {\"models\": []},\n")
+			if err := os.WriteFile(path, broken, 0o600); err != nil {
+				t.Fatalf("seed %s: %v", tc.file, err)
+			}
 
-	if err := (&Pi{}).Edit([]launch.LaunchModel{{Name: "frontier"}}); err == nil {
-		t.Fatal("Pi.Edit accepted a models.json it cannot parse")
-	}
-	if after := readFile(t, modelsPath); string(after) != string(broken) {
-		t.Fatalf("Edit rewrote a file it cannot parse\nbefore: %s\nafter:  %s", broken, after)
-	}
-}
-
-// TestPiEditRefusesToClobberAnUnparsableSettingsFile is the same guard for
-// settings.json, which a launch also edits.
-func TestPiEditRefusesToClobberAnUnparsableSettingsFile(t *testing.T) {
-	home := internaltest.SandboxedHome(t)
-	settingsPath := filepath.Join(home, ".pi", "agent", "settings.json")
-	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	broken := []byte("{\n  \"theme\": \"dark\",\n")
-	if err := os.WriteFile(settingsPath, broken, 0o600); err != nil {
-		t.Fatalf("seed settings.json: %v", err)
-	}
-
-	if err := (&Pi{}).Edit([]launch.LaunchModel{{Name: "frontier"}}); err == nil {
-		t.Fatal("Pi.Edit accepted a settings.json it cannot parse")
-	}
-	if after := readFile(t, settingsPath); string(after) != string(broken) {
-		t.Fatalf("Edit rewrote a file it cannot parse\nbefore: %s\nafter:  %s", broken, after)
+			if err := (&Pi{}).Edit([]launch.LaunchModel{{Name: "frontier"}}); err == nil {
+				t.Fatalf("Pi.Edit accepted a %s it cannot parse", tc.file)
+			}
+			if after := readFile(t, path); string(after) != string(broken) {
+				t.Fatalf("Edit rewrote a file it cannot parse\nbefore: %s\nafter:  %s", broken, after)
+			}
+		})
 	}
 }
 
