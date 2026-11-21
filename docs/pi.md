@@ -12,6 +12,8 @@
 
 The entry's `headers` sends `x-prizmal-client-version` as `"$PRIZMAL_CLIENT_VERSION"`, and the launch exports that variable with the CLI's version, so the Switch can tell which CLI build a request came from. Pi sends nothing when the variable is unset or empty, so a bare `pi` run after `--persist` needs it exported to a non-empty value. The `"$PRIZMAL_SWITCH_KEY"` value is a reference, not the key, so the file doesn't contain your switch key. Pi 0.77.0 and later read the variable from their own environment, and a launch updates an older Pi first.
 
+A launch writes every model the Switch serves, not only the one it runs, because Pi's `/model` lists what its provider entry holds. `settings.json` names the model the launch runs as the default, so a bare `pi` run still starts on it. Entries the launch does not own, in this provider or any other, keep their fields and their place.
+
 Each model entry states a `contextWindow` and a `maxTokens`. Pi budgets the session and compacts from the declared window, and it sends the declared output budget as the request's maximum. The Switch's catalog doesn't report a window, so the launch states one rather than leaving Pi's 128000 default, which would compact a session at a fraction of the 1M window the Switch serves. Set `HARNESS_CONTEXT_LENGTH` to override the window for a model whose real one differs. The output budget is the whole window, the most any route allows, and the Switch caps each request to the limit of the route that serves it.
 
 ## Model

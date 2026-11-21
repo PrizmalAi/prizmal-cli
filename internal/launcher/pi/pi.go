@@ -90,6 +90,16 @@ func (p *Pi) SupportedAPIs() []string { return []string{launch.APIChat} }
 
 func (p *Pi) String() string { return "Pi" }
 
+// ShowsModelList reports that a launch hands Pi the whole catalog. Pi's picker
+// reads the models in its provider entry, so the only way for /model to offer
+// every model the Switch serves is for Edit to write every one of them. Writing
+// just the launched model leaves a session that runs a model its own picker
+// cannot show, and a user who switches away cannot switch back.
+//
+// The launched model leads the list LaunchModels builds, and settings.json
+// names it as the default, so a bare pi run still starts on it.
+func (p *Pi) ShowsModelList() bool { return true }
+
 // RunsHeadless reports that Pi's print mode runs one prompt and exits.
 func (p *Pi) RunsHeadless(args []string) bool {
 	for _, arg := range args {
@@ -670,15 +680,38 @@ func (p *Pi) Edit(models []launch.LaunchModel) error {
 
 	config := make(map[string]any)
 	if data, err := os.ReadFile(configPath); err == nil {
-		_ = json.Unmarshal(data, &config)
+		if err := json.Unmarshal(data, &config); err != nil {
+			return fmt.Errorf("read %s: %w; leaving it as it is", configPath, err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("read %s: %w", configPath, err)
 	}
 
-	providers, ok := config["providers"].(map[string]any)
-	if !ok {
-		providers = make(map[string]any)
+	providers := make(map[string]any)
+	if existing, ok := config["providers"]; ok {
+		var isObject bool
+		if providers, isObject = existing.(map[string]any); !isObject {
+			return fmt.Errorf("read %s: providers is not an object; leaving it as it is", configPath)
+		}
+	}
+
+	// settings.json is read before either file is written, so an unparsable
+	// settings file refuses the whole Edit instead of leaving models.json half
+	// rewritten.
+	settingsPath := filepath.Join(home, ".pi", "agent", "settings.json")
+	settings := make(map[string]any)
+	if data, err := os.ReadFile(settingsPath); err == nil {
+		if err := json.Unmarshal(data, &settings); err != nil {
+			return fmt.Errorf("read %s: %w; leaving it as it is", settingsPath, err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("read %s: %w", settingsPath, err)
 	}
 
 	piProvider, ok := configProvider(providers, piProviderID)
+	if _, present := providers[piProviderID]; present && !ok {
+		return fmt.Errorf("read %s: provider %s is not an object; leaving it as it is", configPath, piProviderID)
+	}
 	if !ok {
 		piProvider = map[string]any{
 			"baseUrl": envconfig.OpenAIBaseURL(false),
@@ -695,9 +728,12 @@ func (p *Pi) Edit(models []launch.LaunchModel) error {
 		piProvider["headers"] = withClientVersionHeader(piProvider["headers"])
 	}
 
-	existingModels, ok := piProvider["models"].([]any)
-	if !ok {
-		existingModels = make([]any, 0)
+	existingModels := make([]any, 0)
+	if existing, ok := piProvider["models"]; ok {
+		var isList bool
+		if existingModels, isList = existing.([]any); !isList {
+			return fmt.Errorf("read %s: provider %s models is not a list; leaving it as it is", configPath, piProviderID)
+		}
 	}
 
 	// Build set of selected models to track which need to be added
@@ -707,21 +743,20 @@ func (p *Pi) Edit(models []launch.LaunchModel) error {
 	}
 
 	// Build new models list:
-	// 1. Keep user-managed models (no _launch marker) - untouched
+	// 1. Keep every entry prizmal does not own, in place and as it stands,
+	//    including one shaped like nothing pi knows
 	// 2. Keep launch-managed models (_launch marker) that are still selected
 	// 3. Add new launch-managed models
 	var newModels []any
 	for _, m := range existingModels {
-		if modelObj, ok := m.(map[string]any); ok {
-			if id, ok := modelObj["id"].(string); ok {
-				// User-managed model (no _launch marker) - always preserve
-				if !isManagedModel(modelObj) {
-					newModels = append(newModels, m)
-				} else if selectedSet[id] {
-					newModels = append(newModels, m)
-					selectedSet[id] = false
-				}
-			}
+		modelObj, ok := m.(map[string]any)
+		if !ok || !isManagedModel(modelObj) {
+			newModels = append(newModels, m)
+			continue
+		}
+		if id, ok := modelObj["id"].(string); ok && selectedSet[id] {
+			newModels = append(newModels, m)
+			selectedSet[id] = false
 		}
 	}
 
@@ -745,12 +780,6 @@ func (p *Pi) Edit(models []launch.LaunchModel) error {
 	}
 
 	// Update settings.json with default provider and model
-	settingsPath := filepath.Join(home, ".pi", "agent", "settings.json")
-	settings := make(map[string]any)
-	if data, err := os.ReadFile(settingsPath); err == nil {
-		_ = json.Unmarshal(data, &settings)
-	}
-
 	settings["defaultProvider"] = piProviderID
 	settings["defaultModel"] = models[0].Name
 

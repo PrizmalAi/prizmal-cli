@@ -51,6 +51,10 @@ jobs:
         env:
           PRIZMAL_HARNESS_LAUNCH: require
         run: go test -count=1 -v -run 'TestHarnessLaunchPi$|TestHarnessLaunchPiWithoutAModel$' ./cmd/prizmal
+      - name: List every Switch model in pi's picker
+        env:
+          PRIZMAL_HARNESS_LAUNCH: require
+        run: go test -count=1 -v -run 'TestHarnessLaunchPiListsEverySwitchModel$' ./cmd/prizmal
       - name: Launch pi from a device login
         env:
           PRIZMAL_HARNESS_LAUNCH: require
