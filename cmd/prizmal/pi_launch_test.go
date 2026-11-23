@@ -3,7 +3,9 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -202,4 +204,158 @@ func TestHarnessLaunchPiRecordsTheSwitchTurnCharge(t *testing.T) {
 	if want := float64(piTurnChargePico) / 1e12; total != want {
 		t.Fatalf("Pi recorded a turn cost of %v, want the Switch's %v", total, want)
 	}
+}
+
+// piSwitchModels is the catalog a Switch serves with names it decorates with
+// the [1m] context-budget suffix. The launcher reads each entry's bare name.
+var piSwitchModels = []string{"frontier", "core", "flash", "premier", "test"}
+
+// TestHarnessLaunchPiListsEverySwitchModel pins both halves of the launch
+// contract. A real Pi launched against a five-model stub must show all five in
+// the list its own picker reads, and the launch must leave the operator's
+// existing models.json entries exactly as they were: the entry for another
+// provider and their own entry under the prizmal provider both survive, in
+// place, with their fields unchanged.
+func TestHarnessLaunchPiListsEverySwitchModel(t *testing.T) {
+	skipHarnessLaunchInShortMode(t)
+	harnessPath := harnessLaunchOnPath(t, "pi")
+
+	srv := stubserver.NewServer(stubserver.WithModels(piSwitchModels...))
+	t.Cleanup(srv.Close)
+	prizmalBin, home, project := harnessLaunchSandbox(t, srv.URL, false)
+
+	// The operator's own config, in the shape prizmal finds on a machine it has
+	// configured before: a second provider and a model prizmal does not manage.
+	modelsPath := filepath.Join(home, ".pi", "agent", "models.json")
+	if err := os.MkdirAll(filepath.Dir(modelsPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	userModels := `{
+  "providers": {
+    "openrouter": {
+      "baseUrl": "https://openrouter.example.invalid/v1",
+      "api": "openai-completions",
+      "apiKey": "$OPERATOR_KEY",
+      "models": [{"id": "zeta", "input": ["text"]}]
+    },
+    "prizmal": {
+      "baseUrl": "https://switch.example.invalid/v1",
+      "api": "openai-completions",
+      "apiKey": "$PRIZMAL_SWITCH_KEY",
+      "models": [{"id": "operator-model", "input": ["text"], "contextWindow": 65536}]
+    }
+  }
+}
+`
+	if err := os.WriteFile(modelsPath, []byte(userModels), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	userSettings := "{\n  \"theme\": \"dark\"\n}\n"
+	settingsPath := filepath.Join(home, ".pi", "agent", "settings.json")
+	if err := os.WriteFile(settingsPath, []byte(userSettings), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	beforeProvider := renderedJSON(t, piProviderFromFile(t, modelsPath, "openrouter"))
+
+	const launched = "flash"
+	harnessArgs := harnessLaunchCases["pi"].args
+	stdout, stderr, timedOut, runErr := runPrizmalInSandbox(t, prizmalBin, home, project, harnessPath,
+		append([]string{"-y", "-m", launched, "pi", "--"}, harnessArgs...)...)
+	if !strings.Contains(stdout, stubserver.Reply) {
+		t.Fatalf("pi did not finish the session (run error: %v, timed out: %v)\n--- stdout ---\n%s\n--- stderr ---\n%s",
+			runErr, timedOut, tail(stdout, 50), tail(stderr, 50))
+	}
+
+	// Pi's picker offers the models its provider entry lists, so that entry is
+	// the list under test.
+	provider := piProviderFromFile(t, modelsPath, "prizmal")
+	entries, _ := provider["models"].([]any)
+	if len(entries) != len(piSwitchModels)+1 {
+		t.Fatalf("prizmal provider lists %d entries, want %d Switch models plus the operator's: %v",
+			len(entries), len(piSwitchModels), entries)
+	}
+	if first, _ := entries[0].(map[string]any); first["id"] != "operator-model" {
+		t.Fatalf("the operator's entry moved: %v", entries)
+	}
+	listed := map[string]bool{}
+	for _, entry := range entries {
+		modelObj, _ := entry.(map[string]any)
+		id, _ := modelObj["id"].(string)
+		listed[id] = true
+	}
+	for _, name := range piSwitchModels {
+		if !listed[name] {
+			t.Fatalf("prizmal provider does not list %q: %v", name, entries)
+		}
+	}
+	if after := renderedJSON(t, piProviderFromFile(t, modelsPath, "openrouter")); after != beforeProvider {
+		t.Fatalf("the operator's other provider changed\nbefore: %s\nafter:  %s", beforeProvider, after)
+	}
+
+	// The list Pi's picker reads is the list Pi prints, with the key the launch
+	// puts in the child environment. This is the assertion a user's /model makes.
+	rows := piListModels(t, harnessPath, home)
+	for _, name := range piSwitchModels {
+		if !slices.Contains(rows, "prizmal"+"\t"+name) {
+			t.Fatalf("pi does not offer prizmal/%s; it lists %v", name, rows)
+		}
+	}
+}
+
+// piProviderFromFile reads one provider out of a models.json.
+func piProviderFromFile(t *testing.T, path, id string) map[string]any {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config map[string]any
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatalf("unmarshal %s: %v", path, err)
+	}
+	providers, _ := config["providers"].(map[string]any)
+	provider, ok := providers[id].(map[string]any)
+	if !ok {
+		t.Fatalf("no %q provider in %s", id, path)
+	}
+	return provider
+}
+
+// renderedJSON marshals a value with sorted field names, so two reads compare
+// content rather than key order.
+func renderedJSON(t *testing.T, value any) string {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(encoded)
+}
+
+// piListModels asks the installed Pi which models its picker offers, as the
+// provider/model pairs it prints, one per row. A launch's /model reads the same
+// list.
+func piListModels(t *testing.T, harnessPath, home string) []string {
+	t.Helper()
+	cmd := exec.Command(harnessPath, "--list-models")
+	cmd.Env = append(homeEnv(home),
+		"PATH="+filepath.Dir(harnessPath)+string(filepath.ListSeparator)+os.Getenv("PATH"),
+		"LANG=C.UTF-8",
+		"TERM=dumb",
+		"NO_COLOR=1",
+		"PRIZMAL_SWITCH_KEY="+stubserver.StubKey,
+	)
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("pi --list-models: %v\n%s", err, out)
+	}
+	var rows []string
+	for _, line := range strings.Split(string(out), "\n")[1:] {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		rows = append(rows, fields[0]+"\t"+fields[1])
+	}
+	return rows
 }
