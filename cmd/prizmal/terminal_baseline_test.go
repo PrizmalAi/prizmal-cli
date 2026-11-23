@@ -309,7 +309,7 @@ func runBaselineCases(t *testing.T, cases []baselineCase, dir string, harnesses 
 			if err == nil {
 				got = withBaselineVersion(got, string(want))
 				got = withBaselineCodexVersion(got, string(want))
-				got = withBaselineCodexVersion(got, string(want))
+				got = withBaselinePiVersion(got, string(want))
 			}
 			if *updateBaselines {
 				// A screen that differs only in the Claude Code version is
