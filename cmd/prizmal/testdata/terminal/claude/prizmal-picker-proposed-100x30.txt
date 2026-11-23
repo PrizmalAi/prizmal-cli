@@ -3,6 +3,7 @@ Select a model
   tier-sonnet      balanced · Balanced cost and speed
   tier-haiku       flash · Quick answers
   tier-fable       deep · Long, hard tasks
+  default
   experimental
   team-opus-blend  Team blend for refactors
 

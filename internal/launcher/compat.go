@@ -161,15 +161,11 @@ func plainConfirmPrompt(prompt string, options ConfirmOptions) (bool, error) {
 	return answer == "y" || answer == "yes", nil
 }
 
-// LaunchModelNames extracts non-empty model names from a LaunchModel list.
+// LaunchModelNames extracts non-empty model names from a LaunchModel list. It
+// shares LaunchableNames' one implementation, so a runner's name list and the
+// `prizmal --list` list can never drift apart.
 func LaunchModelNames(models []LaunchModel) []string {
-	names := make([]string, 0, len(models))
-	for _, m := range models {
-		if m.Name != "" {
-			names = append(names, m.Name)
-		}
-	}
-	return names
+	return LaunchableNames(models)
 }
 
 // SupportChecker is what a runner implements when the platform it runs on
