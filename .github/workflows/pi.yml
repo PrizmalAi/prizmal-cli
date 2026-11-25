@@ -9,6 +9,11 @@ name: pi
 # passes when that reply reaches stdout. No Switch key is involved.
 # PRIZMAL_HARNESS_LAUNCH=require turns a missing harness into a failure, so
 # the job cannot pass by skipping.
+#
+# terminal-baselines renders pi's screens in tmux and compares them to the
+# files under cmd/prizmal/testdata/terminal/pi, on the pi release recorded in
+# pi-version beside them. Its picker screen records every model the fake
+# switch serves plus a model entry the launch must leave alone.
 
 on:
   push:
@@ -71,6 +76,37 @@ jobs:
         env:
           PRIZMAL_HARNESS_LAUNCH: require
         run: go test -count=1 -v -run 'TestHarnessLaunchPiRecordsTheSwitchTurnCharge$' ./cmd/prizmal
+
+  terminal-baselines:
+    # tmux has no native Windows build, and running it under WSL would test
+    # Linux again, so the screen baselines run on Linux and macOS only.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(github.event_name == 'schedule' && '["macos-latest"]' || '["ubuntu-latest"]') }}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - name: Install tmux
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then brew install tmux; else sudo apt-get update -qq && sudo apt-get install -y -qq tmux; fi
+      - name: Install the pinned pi
+        run: npm install -g "@earendil-works/pi-coding-agent@$(cat cmd/prizmal/testdata/terminal/pi/pi-version)"
+      - name: Compare terminal baselines
+        env:
+          PRIZMAL_TERMINAL_BASELINES: require
+        run: go test -count=1 -v -run 'TestTerminalBaselinesPi$' ./cmd/prizmal
 
   # compaction installs the pi release recorded in
   # cmd/prizmal/testdata/harness/pi-version, because Pi's compaction
