@@ -1,10 +1,9 @@
 /**
- * Prizmal Switch extension for Pi: the device-token provider and the turn
- * charge.
+ * Prizmal Switch extension for Pi: the provider and the turn charge.
  *
- * Every launch loads this file. A device launch also registers the provider
- * below; a switch-key launch keeps the provider from models.json and gets only
- * the turn charge.
+ * Every launch loads this file, and every launch registers the provider below
+ * from the sidecar config written beside it. The provider exists for the life
+ * of the child process and no launch writes the user's own models.json.
  *
  * The turn charge: Pi prices a turn from per-token rates in models.json, and
  * the Switch's router picks the serving model per turn, so no rate is right.
@@ -14,15 +13,16 @@
  *
  * A machine signed in with a device key holds no switch key: the CLI mints a
  * short-lived device token from ~/.prizmal/device.key and must mint a new one
- * as the old expires. This extension registers the Switch as a provider whose
- * apiKey is a command, the CLI's device-token helper, which Pi runs whenever it
- * needs the credential. The command prints a fresh token, so a session that
- * outlives one token keeps working without a local proxy or any other
- * long-lived helper.
+ * as the old expires. For that launch the provider's apiKey is a command, the
+ * CLI's device-token helper, which Pi runs whenever it needs the credential.
+ * The command prints a fresh token, so a session that outlives one token keeps
+ * working without a local proxy or any other long-lived helper. A switch-key
+ * launch instead names the environment variable its key rides in, which is the
+ * same "$NAME" reference a models.json entry uses.
  *
  * The launch writes this file and hands Pi its path with --extension, along
- * with prizmal-device.json next to it, which carries the endpoint and models
- * for this launch.
+ * with prizmal-device.json next to it, which carries the endpoint, models and
+ * key reference for this launch.
  */
 import { readFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -41,11 +41,14 @@ type PrizmalLaunchConfig = {
   providerName: string;
   baseURL: string;
   headers?: Record<string, string>;
+  /** "$NAME" reference to the switch key, absent in a device-mode launch. */
+  apiKey?: string;
   models: PrizmalModel[];
 };
 
 type PrizmalModel = {
   id: string;
+  name?: string;
   contextWindow: number;
   maxTokens: number;
   reasoning?: boolean;
@@ -154,8 +157,13 @@ export default function (pi: ExtensionAPI) {
   if (!config) {
     return;
   }
+  // A device launch hands over the credential command; a switch-key launch
+  // hands over the reference to the variable holding the key. Without either
+  // there is no credential, and registering the provider would only take the
+  // session down when Pi resolved it.
   const command = process.env[piCommandEnvVar];
-  if (!command) {
+  const apiKey = command ? `!${command}` : config.apiKey;
+  if (!apiKey) {
     return;
   }
 
@@ -163,10 +171,12 @@ export default function (pi: ExtensionAPI) {
     name: config.providerName,
     baseUrl: config.baseURL,
     api: "openai-completions",
-    // The apiKey is a command, not a fixed key. Pi runs it when it needs the
-    // credential and reads a fresh device token from stdout, so a device token
-    // that expires mid-session is replaced rather than sent again.
-    apiKey: `!${command}`,
+    // In device mode the apiKey is a command, not a fixed key. Pi runs it when
+    // it needs the credential and reads a fresh device token from stdout, so a
+    // token that expires mid-session is replaced rather than sent again. In
+    // switch-key mode it is the "$PRIZMAL_SWITCH_KEY" reference, which Pi
+    // resolves from its own environment for each request.
+    apiKey,
     // The launch's headers, such as the CLI version the Switch records.
     headers: config.headers,
     models: config.models.map(toModel),
@@ -184,6 +194,7 @@ function readLaunchConfig(path: string): PrizmalLaunchConfig | undefined {
       providerName: parsed.providerName ?? parsed.providerID,
       baseURL: parsed.baseURL,
       headers: parsed.headers,
+      apiKey: parsed.apiKey,
       models: parsed.models,
     };
   } catch {
@@ -194,7 +205,7 @@ function readLaunchConfig(path: string): PrizmalLaunchConfig | undefined {
 function toModel(model: PrizmalModel) {
   return {
     id: model.id,
-    name: model.id,
+    name: model.name ?? model.id,
     input: (model.vision ? ["text", "image"] : ["text"]) as ("text" | "image")[],
     reasoning: model.reasoning === true,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },

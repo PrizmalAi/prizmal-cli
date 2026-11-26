@@ -19,6 +19,11 @@ import (
 type runnerPosture struct {
 	restorable bool
 	editor     bool
+	// ephemeralLaunch records that a launch writes no configuration, so Edit
+	// belongs to --persist alone. It is the state the design principle asks
+	// every harness to reach, written down per harness so the ones that have
+	// not got there are visible.
+	ephemeralLaunch bool
 	// keyOnEnvironment records where the Switch key travels. It is the reason
 	// restore is unevenly supported, so it is written down next to the
 	// restorable flag it explains rather than left to each adapter's prose.
@@ -54,10 +59,14 @@ var runnerPostures = map[string]runnerPosture{
 	// That gap is tracked separately; it is a product question, not a gap
 	// this table papers over.
 	"opencode": {restorable: false, editor: true, keyOnEnvironment: true},
-	// pi: models.json carries the provider entry and, on a legacy install, the
-	// live key. pi reads the key from the environment when the entry names
-	// none, so the entry is the only thing written that restore must remove.
-	"pi": {restorable: true, editor: true, keyOnEnvironment: true},
+	// pi: a launch writes nothing. The extension the launch loads registers the
+	// provider from a sidecar, the key rides the child environment, and the
+	// agent directory Pi runs with is the launch's own, so a /model switch dies
+	// with it. Edit stays for --persist, which writes models.json and the
+	// default, and restore removes what an older build wrote: the provider
+	// entry (which carried the live key on a legacy install) and the prizmal
+	// rows in enabledModels.
+	"pi": {restorable: true, editor: true, ephemeralLaunch: true, keyOnEnvironment: true},
 }
 
 // TestRunnerProtocolCompleteness walks the registry and fails on any runner
@@ -81,6 +90,9 @@ func TestRunnerProtocolCompleteness(t *testing.T) {
 		}
 		if _, ok := spec.Runner.(launch.Editor); ok != want.editor {
 			t.Errorf("integration %q implements launch.Editor = %v, want %v", spec.Name, ok, want.editor)
+		}
+		if _, ok := spec.Runner.(launch.EphemeralEditor); ok != want.ephemeralLaunch {
+			t.Errorf("integration %q implements launch.EphemeralEditor = %v, want %v", spec.Name, ok, want.ephemeralLaunch)
 		}
 		// Every runner answers for its own installation; without this the
 		// registry cannot tell a missing binary from a present one and skips
@@ -116,6 +128,10 @@ func TestNoHypotheticalSeams(t *testing.T) {
 		reflect.TypeOf((*launch.ModelListShower)(nil)).Elem(),
 		reflect.TypeOf((*launch.OwningModelFlag)(nil)).Elem(),
 		reflect.TypeOf((*launch.Editor)(nil)).Elem(),
+		// EphemeralEditor is part of the protocol: the launch reads it to know
+		// whether Edit belongs to --persist alone, so a harness that writes no
+		// config on launch keeps the explicit persistent form.
+		reflect.TypeOf((*launch.EphemeralEditor)(nil)).Elem(),
 		reflect.TypeOf((*launch.Restorer)(nil)).Elem(),
 		reflect.TypeOf((*launch.RestoreMesager)(nil)).Elem(),
 		reflect.TypeOf((*launch.Installed)(nil)).Elem(),

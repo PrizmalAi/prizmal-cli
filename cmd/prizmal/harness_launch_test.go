@@ -549,6 +549,9 @@ func homeEnv(home string) []string {
 	tmp := filepath.Join(home, "tmp")
 	_ = os.MkdirAll(tmp, 0o700)
 	env := []string{"HOME=" + home}
+	// A developer's own PI_CODING_AGENT_DIR must not point a test launch at
+	// their real agent directory.
+	env = append(env, "PI_CODING_AGENT_DIR=")
 	if runtime.GOOS != "windows" {
 		return append(env, "TMPDIR="+tmp)
 	}

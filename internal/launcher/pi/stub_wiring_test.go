@@ -9,6 +9,7 @@ import (
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	"github.com/PrizmalAi/prizmal-cli/internal/internaltest"
 	launch "github.com/PrizmalAi/prizmal-cli/internal/launcher"
+	"github.com/PrizmalAi/prizmal-cli/internal/launcher/launchtest"
 	"github.com/PrizmalAi/prizmal-cli/internal/stubserver"
 )
 
@@ -22,36 +23,57 @@ func TestStubServerPiWiring(t *testing.T) {
 	defer srv.Close()
 	envconfig.SetBaseURL(srv.URL)
 	envconfig.SetAPIKey(stubserver.StubKey)
+	envconfig.SetDeviceMode(false)
 	defer func() { envconfig.SetBaseURL(""); envconfig.SetAPIKey("") }()
 
-	d := internaltest.SandboxedHome(t)
+	home := internaltest.SandboxedHome(t)
 	p := &Pi{}
-	if err := p.Edit([]launch.LaunchModel{{Name: "prizmal/default"}}); err != nil {
-		t.Fatal(err)
+
+	// The launch's sidecar is what the extension registers the provider from,
+	// so it is the config under test: the stub's endpoint, the key reference,
+	// and the models the launch resolved.
+	l, err := piLaunchFor("prizmal/default", []launch.LaunchModel{{Name: "prizmal/default"}})
+	if err != nil {
+		t.Fatalf("piLaunchFor: %v", err)
 	}
-	// Read back the models.json and check the provider carries the stub key.
-	data, err := os.ReadFile(filepath.Join(d, ".pi/agent/models.json"))
+	t.Cleanup(l.clean)
+	data, err := os.ReadFile(l.configPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var cfg map[string]any
+	var cfg piDeviceConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		t.Fatal(err)
 	}
-	providers, _ := cfg["providers"].(map[string]any)
+	wantBase := launchtest.StubEndpoint(srv.URL) + "/v1"
+	if cfg.BaseURL != wantBase {
+		t.Fatalf("sidecar baseURL = %q, want %q", cfg.BaseURL, wantBase)
+	}
+	if cfg.APIKey != piAPIKeyReference {
+		t.Fatalf("sidecar apiKey = %q, want %q", cfg.APIKey, piAPIKeyReference)
+	}
+	if got := internaltest.EnvValue(p.envVars(l), envconfig.KeyEnvVar+"="); got != stubserver.StubKey {
+		t.Fatalf("%s = %q, want %q", envconfig.KeyEnvVar, got, stubserver.StubKey)
+	}
+
+	// --persist writes the provider to models.json, and that entry carries the
+	// stub's endpoint and the same key reference.
+	if err := p.Edit([]launch.LaunchModel{{Name: "prizmal/default"}}); err != nil {
+		t.Fatal(err)
+	}
+	persisted, err := launch.ReadJSONFile(filepath.Join(home, piModelsPath))
+	if err != nil || persisted == nil {
+		t.Fatalf("read the persisted models.json: %v", err)
+	}
+	providers, _ := persisted["providers"].(map[string]any)
 	prizmal, _ := providers["prizmal"].(map[string]any)
 	if prizmal == nil {
-		// legacy key might still be used
-		prizmal, _ = providers["ollama"].(map[string]any)
+		t.Fatal("no prizmal provider in models.json")
 	}
-	if prizmal == nil {
-		t.Fatal("no prizmal or ollama provider in models.json")
+	if got, _ := prizmal["baseUrl"].(string); got != launchtest.StubEndpoint(srv.URL)+"/v1" {
+		t.Fatalf("models.json baseUrl = %q, want the stub's endpoint", got)
 	}
-	apiKey, _ := prizmal["apiKey"].(string)
-	if apiKey != piAPIKeyReference {
-		t.Fatalf("apiKey = %q, want %q", apiKey, piAPIKeyReference)
-	}
-	if got := internaltest.EnvValue(p.envVars(nil), envconfig.KeyEnvVar+"="); got != stubserver.StubKey {
-		t.Fatalf("%s = %q, want %q", envconfig.KeyEnvVar, got, stubserver.StubKey)
+	if apiKey, _ := prizmal["apiKey"].(string); apiKey != piAPIKeyReference {
+		t.Fatalf("models.json apiKey = %q, want %q", apiKey, piAPIKeyReference)
 	}
 }

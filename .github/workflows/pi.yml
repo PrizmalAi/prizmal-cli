@@ -60,6 +60,14 @@ jobs:
         env:
           PRIZMAL_HARNESS_LAUNCH: require
         run: go test -count=1 -v -run 'TestHarnessLaunchPiListsEverySwitchModel$' ./cmd/prizmal
+      - name: Leave the user's config byte-identical, on a switch key and a device login
+        env:
+          PRIZMAL_HARNESS_LAUNCH: require
+        run: go test -count=1 -v -run 'TestHarnessLaunchPiLeavesTheUserConfigByteIdentical$' ./cmd/prizmal
+      - name: Keep the provider and the default in the explicit --persist form
+        env:
+          PRIZMAL_HARNESS_LAUNCH: require
+        run: go test -count=1 -v -run 'TestPersistPiWritesTheProviderAndTheDefault$' ./cmd/prizmal
       - name: Launch pi from a device login
         env:
           PRIZMAL_HARNESS_LAUNCH: require
@@ -107,6 +115,10 @@ jobs:
         env:
           PRIZMAL_TERMINAL_BASELINES: require
         run: go test -count=1 -v -run 'TestTerminalBaselinesPi$' ./cmd/prizmal
+      - name: Keep a /model switch inside the launch
+        env:
+          PRIZMAL_TERMINAL_BASELINES: require
+        run: go test -count=1 -v -run 'TestPiModelSwitchInsideALaunchLeavesTheUserConfig$' ./cmd/prizmal
 
   # compaction installs the pi release recorded in
   # cmd/prizmal/testdata/harness/pi-version, because Pi's compaction

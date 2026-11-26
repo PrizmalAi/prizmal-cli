@@ -13,10 +13,13 @@ import (
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher/launchtest"
 )
 
-const wantVersionRef = "$PRIZMAL_CLIENT_VERSION"
-
-// models.json names the variable, so the file stays right when the CLI upgrades.
-func TestPiModelsJSONNamesTheClientVersionVariable(t *testing.T) {
+// A --persist write leaves the client version out of models.json entirely. A
+// persisted provider is read by a bare pi, which has no PRIZMAL_CLIENT_VERSION
+// and no launch to set one, and Pi 1.6.0 refuses a request whose referenced
+// variable is unset: a "$PRIZMAL_CLIENT_VERSION" header there would take every
+// request down. The launch sends the version itself, from the sidecar it writes
+// per session.
+func TestPiPersistWritesNoClientVersionReference(t *testing.T) {
 	home := internaltest.SandboxedHome(t)
 	envconfig.SetClientVersion("1.4.2")
 	t.Cleanup(func() { envconfig.SetClientVersion("") })
@@ -27,22 +30,14 @@ func TestPiModelsJSONNamesTheClientVersionVariable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var cfg map[string]any
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		t.Fatal(err)
-	}
-	provider := cfg["providers"].(map[string]any)["prizmal"].(map[string]any)
-	headers, _ := provider["headers"].(map[string]any)
-	if got := headers["x-prizmal-client-version"]; got != wantVersionRef {
-		t.Errorf("headers = %v, want x-prizmal-client-version %s", headers, wantVersionRef)
-	}
-	if raw := string(data); strings.Contains(raw, "1.4.2") {
-		t.Errorf("models.json contains the version itself: %s", raw)
+	if strings.Contains(string(data), envconfig.ClientVersionEnvVar) {
+		t.Errorf("models.json refers to %s: %s", envconfig.ClientVersionEnvVar, data)
 	}
 }
 
-// pi refuses to send a request when the variable is unset or empty, so the
-// launch always exports a non-empty value, with or without a version.
+// pi refuses to send a request when the variable is unset or empty, so a launch
+// still exports a non-empty value, with or without a version. An entry an older
+// build left in the user's models.json may refer to it.
 func TestPiAlwaysExportsANonEmptyClientVersion(t *testing.T) {
 	for _, tc := range []struct{ name, set, want string }{
 		{name: "a release", set: "1.4.2", want: "1.4.2"},
@@ -61,19 +56,20 @@ func TestPiAlwaysExportsANonEmptyClientVersion(t *testing.T) {
 	}
 }
 
-// A device-mode launch carries no models.json reference: the extension
-// registers the provider, so it takes the header from the sidecar config, and
-// the variable is exported too.
+// Every launch writes the running version into the sidecar as a literal, so the
+// request carries it whatever the user's models.json says, and exports the
+// variable too.
 func TestPiDeviceLaunchSendsTheClientVersion(t *testing.T) {
 	launchtest.WithDeviceMode(t)
 	envconfig.SetBaseURL("https://switch.test")
 	envconfig.SetClientVersion("1.4.2")
+	internaltest.SandboxedHome(t)
 	t.Cleanup(func() {
 		envconfig.SetBaseURL("")
 		envconfig.SetClientVersion("")
 	})
 
-	l, err := piDeviceLaunchFor("probe-model", []launch.LaunchModel{{Name: "probe-model"}})
+	l, err := piLaunchFor("probe-model", []launch.LaunchModel{{Name: "probe-model"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,17 +87,18 @@ func TestPiDeviceLaunchSendsTheClientVersion(t *testing.T) {
 		t.Errorf("sidecar headers = %v, want 1.4.2", cfg.Headers)
 	}
 	if got := internaltest.EnvValue((&Pi{}).envVars(l), "PRIZMAL_CLIENT_VERSION="); got != "1.4.2" {
-		t.Errorf("device launch PRIZMAL_CLIENT_VERSION = %q, want 1.4.2", got)
+		t.Errorf("launch PRIZMAL_CLIENT_VERSION = %q, want 1.4.2", got)
 	}
 }
 
-// Edit re-asserts the version reference on a provider entry that exists, keeps
-// the operator's other headers, and replaces a client-version header of theirs.
-func TestPiEditKeepsOtherProviderHeaders(t *testing.T) {
+// A --persist keeps the operator's other provider headers and drops a
+// client-version header an older build wrote, which is the entry that fails a
+// bare pi after an upgrade.
+func TestPiPersistKeepsOtherProviderHeadersAndDropsTheVersion(t *testing.T) {
 	home := internaltest.SandboxedHome(t)
 	internaltest.SandboxedSeed(t, home, piModelsPath, `{"providers":{"prizmal":{`+
 		`"baseUrl":"https://old.example/v1","api":"openai-completions","apiKey":"$PRIZMAL_SWITCH_KEY",`+
-		`"headers":{"X-Team":"blue","X-Prizmal-Client-Version":"spoofed"},`+
+		`"headers":{"X-Team":"blue","X-Prizmal-Client-Version":"$PRIZMAL_CLIENT_VERSION"},`+
 		`"models":[{"id":"probe-model","_launch":true}]}}}`)
 	if err := (&Pi{}).Edit([]launch.LaunchModel{{Name: "probe-model"}}); err != nil {
 		t.Fatalf("Edit: %v", err)
@@ -114,10 +111,10 @@ func TestPiEditKeepsOtherProviderHeaders(t *testing.T) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		t.Fatal(err)
 	}
-	headers, _ := cfg["providers"].(map[string]any)["prizmal"].(map[string]any)["headers"].(map[string]any)
-	want := map[string]any{"X-Team": "blue", "x-prizmal-client-version": wantVersionRef}
-	if len(headers) != len(want) || headers["X-Team"] != "blue" || headers["x-prizmal-client-version"] != wantVersionRef {
-		t.Errorf("headers = %v, want %v", headers, want)
+	provider, _ := cfg["providers"].(map[string]any)["prizmal"].(map[string]any)
+	headers, _ := provider["headers"].(map[string]any)
+	if len(headers) != 1 || headers["X-Team"] != "blue" {
+		t.Errorf("headers = %v, want only X-Team kept", headers)
 	}
 }
 

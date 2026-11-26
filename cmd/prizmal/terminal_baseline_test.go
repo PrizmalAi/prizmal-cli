@@ -86,6 +86,9 @@ type baselineStep struct {
 	literal string
 	key     string
 	waitFor string
+	// pause is how long to wait before the next step's keys, for a screen
+	// that has to close before the harness takes input again.
+	pause time.Duration
 }
 
 type baselineCase struct {
@@ -165,6 +168,11 @@ type baselineCase struct {
 	// setup runs once the case's HOME and project directory exist and before
 	// the harness starts, for a case that needs a git repository or a file.
 	setup func(t *testing.T, home, project string)
+	// assert runs once the steps are done and the pane settled, for a case
+	// that proves behaviour rather than a screen. Such a case needs no
+	// baseline file: the steps drive the real harness, and assert reads what
+	// it left behind in HOME.
+	assert func(t *testing.T, home, project string)
 }
 
 // updateScenario describes the install a case poses as and the release host it
@@ -285,7 +293,7 @@ func runBaselineCases(t *testing.T, cases []baselineCase, dir string, harnesses 
 			}
 			tc.codexDir = harnessDirs[codexBaselineHarness.name]
 			tc.updateOld, tc.updateNew = updateOld, updateNew
-			got, ansi := renderBaseline(t, tmuxPath, prizmalBin, claudeDir, tc)
+			got, ansi, home, project := renderBaseline(t, tmuxPath, prizmalBin, claudeDir, tc)
 			got = withStableElapsed(got)
 			got = withStableCodexValues(got)
 			got = withStableDeviceValues(got)
@@ -311,6 +319,9 @@ func runBaselineCases(t *testing.T, cases []baselineCase, dir string, harnesses 
 				got = withBaselineCodexVersion(got, string(want))
 				got = withBaselinePiVersion(got, string(want))
 			}
+			if tc.assert != nil {
+				tc.assert(t, home, project)
+			}
 			if *updateBaselines {
 				// A screen that differs only in the Claude Code version is
 				// left alone, so the file keeps its recorded version.
@@ -323,6 +334,11 @@ func runBaselineCases(t *testing.T, cases []baselineCase, dir string, harnesses 
 				return
 			}
 			if err != nil {
+				if tc.assert != nil {
+					// A behavioural case proves what the harness did, not what
+					// it drew, so it has no screen to compare.
+					return
+				}
 				t.Fatalf("read baseline (run with -update-baselines to create it): %v", err)
 			}
 			if got != string(want) {
@@ -335,7 +351,7 @@ func runBaselineCases(t *testing.T, cases []baselineCase, dir string, harnesses 
 
 // renderBaseline runs one case in its own tmux server and returns the final
 // screen as plain text and with its colour codes.
-func renderBaseline(t *testing.T, tmuxPath, prizmalBin, claudeDir string, tc baselineCase) (string, string) {
+func renderBaseline(t *testing.T, tmuxPath, prizmalBin, claudeDir string, tc baselineCase) (screen, ansi, homeDir, projectDir string) {
 	t.Helper()
 
 	catalog := tc.catalog
@@ -545,12 +561,15 @@ func renderBaseline(t *testing.T, tmuxPath, prizmalBin, claudeDir string, tc bas
 		}
 		// A screen that never shows the marker is itself a change, so the
 		// remaining keys are skipped and the comparison below prints the diff.
-		if !waitForSettledScreen(func() string { return capture(false) }, step.waitFor, timeout) {
+		if step.waitFor != "" && !waitForSettledScreen(func() string { return capture(false) }, step.waitFor, timeout) {
 			t.Errorf("screen did not show %q within %s", step.waitFor, timeout)
 			break
 		}
+		if step.pause > 0 {
+			time.Sleep(step.pause)
+		}
 	}
-	return normalizeScreen(capture(false)), capture(true)
+	return normalizeScreen(capture(false)), capture(true), home, project
 }
 
 // waitForSettledScreen polls until the screen shows want and then stays the

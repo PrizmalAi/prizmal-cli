@@ -140,8 +140,9 @@ func TestRestoreUnsupportedIntegration(t *testing.T) {
 		// environment, so there is nothing for --restore to take back.
 		{name: "claude", restorable: false},
 		{name: "codex", restorable: true},
-		// Pi writes the live key into ~/.pi/agent/models.json because it has no
-		// environment channel for a custom provider, so it must offer the undo.
+		// Pi's launch writes nothing, but --persist still writes the provider
+		// into ~/.pi/agent/models.json and an older build's entry is still on
+		// machines that upgraded, so it must offer the undo.
 		{name: "pi", restorable: true},
 		// Cline is in the same position as pi: its provider entry in
 		// providers.json carries the live key, so it needs the same undo.

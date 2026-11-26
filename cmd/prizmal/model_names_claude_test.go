@@ -78,7 +78,7 @@ func runClaudeNames(t *testing.T, tc baselineCase) *stubserver.Recorder {
 		t.Skip(reason)
 	}
 	prizmalBin := buildPrizmal(t)
-	screen, _ := renderBaseline(t, tmuxPath, prizmalBin, claudeDir, tc)
+	screen, _, _, _ := renderBaseline(t, tmuxPath, prizmalBin, claudeDir, tc)
 	t.Cleanup(func() {
 		if t.Failed() {
 			t.Logf("--- final screen ---\n%s", screen)

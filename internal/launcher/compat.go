@@ -330,6 +330,23 @@ type Editor interface {
 	Models() []string
 }
 
+// EphemeralEditor is an Editor whose launch writes no configuration: Edit is
+// reached only through `--persist`. An integration that configures itself
+// through its child environment and the extension the launch loads has nothing
+// to write, and it keeps Edit as the explicit, persistent form rather than
+// losing it.
+type EphemeralEditor interface {
+	EphemeralLaunch() bool
+}
+
+// EditsOnLaunch reports whether a launch writes its configuration through
+// Edit. A runner without the EphemeralEditor opt-out keeps editing on launch,
+// which is what every harness except Pi does.
+func EditsOnLaunch(runner Runner) bool {
+	e, ok := runner.(EphemeralEditor)
+	return !ok || !e.EphemeralLaunch()
+}
+
 // Restorer is a runner that can take back the configuration a launch wrote, so
 // `prizmal --restore <harness>` has something to remove. It lives here, beside
 // the interfaces it completes, rather than as an anonymous interface in the
@@ -337,12 +354,13 @@ type Editor interface {
 // more place a rename silently leaves behind.
 //
 // Not every runner implements it, and the asymmetry is on the harness side.
-// pi and cline have no environment channel for a custom provider, so they
-// write the provider's live key into their own config file and `--restore` is
-// the only way back off the disk. Codex carries its key on the child
-// environment and needs only the profile it wrote taken out. Claude Code is
-// fully ephemeral and writes no file at all, so it has nothing to undo: an
-// absent Restore is that harness's documented posture, not a gap.
+// cline has no environment channel for a custom provider, so it writes the
+// provider's live key into its own config file and `--restore` is the only way
+// back off the disk. pi and codex write on `--persist` alone and carry the key
+// on the child environment, so their restore takes back what an older build or
+// an explicit persist left. Claude Code is fully ephemeral and writes no file
+// at all, so it has nothing to undo: an absent Restore is that harness's
+// documented posture, not a gap.
 type Restorer interface {
 	Restore() (RestoreOutcome, error)
 }

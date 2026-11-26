@@ -96,12 +96,12 @@ func allHarnessExpectations() []harnessExpectation {
 			name:        "pi",
 			binaryNames: []string{"pi"},
 			alsoMockNpm: true,
-			// pi reads the key from $PRIZMAL_SWITCH_KEY, which the apiKey
-			// in ~/.pi/agent/models.json names. The test env sets no key
-			// variable, so only prizmal can have put it there. pi only
-			// honors settings.json's defaultProvider when the provider
-			// entry passes its schema validation, so the launch itself
-			// must select the provider explicitly (pi_launch_args).
+			// pi reads the key from $PRIZMAL_SWITCH_KEY, which the sidecar
+			// the extension reads names. The test env sets no key variable,
+			// so only prizmal can have put it there. pi only honors
+			// settings.json's defaultProvider when the provider entry
+			// passes its schema validation, so the launch itself must
+			// select the provider explicitly (pi_launch_args).
 			requiredEnv:  []string{"PRIZMAL_SWITCH_KEY"},
 			requiredArgs: []string{"--provider", "prizmal", "--model", mockLaunchModel},
 		},

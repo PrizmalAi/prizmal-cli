@@ -10,25 +10,28 @@ import (
 	"testing"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
+	"github.com/PrizmalAi/prizmal-cli/internal/internaltest"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher/launchtest"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher/selfpath"
 )
 
-// TestPiDeviceLaunchWritesExtensionAndConfig is the core of the device-mode
-// launch: it lays down the extension and a sidecar config naming the Switch
-// endpoint and the launch's models, and hands Pi both paths.
-func TestPiDeviceLaunchWritesExtensionAndConfig(t *testing.T) {
+// TestPiLaunchWritesExtensionAndConfig is the core of every launch: it lays
+// down the extension and a sidecar config naming the Switch endpoint and the
+// launch's models, and hands Pi both paths.
+func TestPiLaunchWritesExtensionAndConfig(t *testing.T) {
 	launchtest.WithDeviceMode(t)
 	envconfig.SetBaseURL("https://switch.test")
+	internaltest.SandboxedHome(t)
+	t.Cleanup(func() { envconfig.SetBaseURL("") })
 
-	launch, err := piDeviceLaunchFor("probe-model", []launch.LaunchModel{{Name: "probe-model"}})
+	l, err := piLaunchFor("probe-model", []launch.LaunchModel{{Name: "probe-model"}})
 	if err != nil {
-		t.Fatalf("piDeviceLaunchFor: %v", err)
+		t.Fatalf("piLaunchFor: %v", err)
 	}
-	t.Cleanup(launch.clean)
+	t.Cleanup(l.clean)
 
-	source, err := os.ReadFile(launch.extensionPath)
+	source, err := os.ReadFile(l.extensionPath)
 	if err != nil {
 		t.Fatalf("read the extension: %v", err)
 	}
@@ -39,7 +42,7 @@ func TestPiDeviceLaunchWritesExtensionAndConfig(t *testing.T) {
 		t.Fatal("the extension does not register a provider")
 	}
 
-	data, err := os.ReadFile(launch.configPath)
+	data, err := os.ReadFile(l.configPath)
 	if err != nil {
 		t.Fatalf("read the extension config: %v", err)
 	}
@@ -56,90 +59,140 @@ func TestPiDeviceLaunchWritesExtensionAndConfig(t *testing.T) {
 	if len(config.Models) != 1 || config.Models[0].ID != "probe-model" {
 		t.Errorf("models = %+v, want one probe-model", config.Models)
 	}
-}
-
-// TestPiDeviceLaunchHoldsNoCredential pins the credential-at-rest rule for the
-// device launch: the extension runs a command for the key, and neither file it
-// writes holds key material or a token.
-func TestPiDeviceLaunchHoldsNoCredential(t *testing.T) {
-	launchtest.WithDeviceMode(t)
-
-	launch, err := piDeviceLaunchFor("probe-model", []launch.LaunchModel{{Name: "probe-model"}})
-	if err != nil {
-		t.Fatalf("piDeviceLaunchFor: %v", err)
-	}
-	t.Cleanup(launch.clean)
-
-	for _, path := range []string{launch.extensionPath, launch.configPath} {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read %s: %v", path, err)
-		}
-		if strings.Contains(string(data), "pz-d-dt-test-token") {
-			t.Errorf("%s holds the device token", path)
-		}
+	if config.APIKey != "" {
+		t.Errorf("apiKey = %q in a device-mode launch, want none: the credential is the command", config.APIKey)
 	}
 }
 
-// TestPiDeviceLaunchRemovesItsDirectory checks the launch leaves nothing
-// behind once Pi exits: the extension and config live only for the session.
-func TestPiDeviceLaunchRemovesItsDirectory(t *testing.T) {
-	launchtest.WithDeviceMode(t)
+// TestPiLaunchHoldsNoCredential pins the credential-at-rest rule: the extension
+// runs a command for the key in device mode and names the environment variable
+// in switch-key mode, and no file the launch writes holds the key, a token or
+// the credential command's output.
+func TestPiLaunchHoldsNoCredential(t *testing.T) {
+	for _, device := range []bool{true, false} {
+		name := "switch key"
+		if device {
+			name = "device"
+		}
+		t.Run(name, func(t *testing.T) {
+			if device {
+				launchtest.WithDeviceMode(t)
+			} else {
+				envconfig.SetDeviceMode(false)
+			}
+			internaltest.WithAPIKey(t, internaltest.FakeKeyAtRest)
+			internaltest.SandboxedHome(t)
 
-	launch, err := piDeviceLaunchFor("probe-model", nil)
-	if err != nil {
-		t.Fatalf("piDeviceLaunchFor: %v", err)
+			l, err := piLaunchFor("probe-model", []launch.LaunchModel{{Name: "probe-model"}})
+			if err != nil {
+				t.Fatalf("piLaunchFor: %v", err)
+			}
+			t.Cleanup(l.clean)
+
+			paths, err := filepath.Glob(filepath.Join(l.dir, "*"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, path := range paths {
+				info, err := os.Lstat(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+					continue
+				}
+				data, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, secret := range []string{internaltest.FakeKeyAtRest, "pz-d-dt-test-token"} {
+					if strings.Contains(string(data), secret) {
+						t.Errorf("%s holds a credential", path)
+					}
+				}
+			}
+		})
 	}
-	if _, err := os.Stat(launch.dir); err != nil {
+}
+
+// TestPiLaunchRemovesItsDirectory checks the launch leaves nothing behind once
+// Pi exits: the extension, its config and the agent directory live only for the
+// session.
+func TestPiLaunchRemovesItsDirectory(t *testing.T) {
+	launchtest.WithDeviceMode(t)
+	internaltest.SandboxedHome(t)
+
+	l, err := piLaunchFor("probe-model", nil)
+	if err != nil {
+		t.Fatalf("piLaunchFor: %v", err)
+	}
+	if _, err := os.Stat(l.dir); err != nil {
 		t.Fatalf("stat the launch directory: %v", err)
 	}
-	launch.clean()
-	if _, err := os.Stat(launch.dir); !os.IsNotExist(err) {
+	l.clean()
+	if _, err := os.Stat(l.dir); !os.IsNotExist(err) {
 		t.Fatalf("the launch directory survived clean: err = %v", err)
 	}
 }
 
-// TestPiSwitchKeyLaunchLoadsTheChargeExtensionOnly pins that a switch-key
-// launch loads the extension for the turn charge and writes no sidecar
-// config: the provider entry Edit wrote and the key in the environment stay the
-// whole provider configuration.
-func TestPiSwitchKeyLaunchLoadsTheChargeExtensionOnly(t *testing.T) {
+// TestPiSwitchKeyLaunchRegistersTheSwitchProvider pins the switch-key half of
+// the ephemeral contract: the launch writes a sidecar naming the key variable
+// and hands Pi the extension and the config, because the extension registers
+// the provider that models.json used to hold.
+func TestPiSwitchKeyLaunchRegistersTheSwitchProvider(t *testing.T) {
 	envconfig.SetDeviceMode(false)
+	internaltest.SandboxedHome(t)
 
-	launch, err := piDeviceLaunchFor("probe-model", nil)
+	l, err := piLaunchFor("probe-model", nil)
 	if err != nil {
-		t.Fatalf("piDeviceLaunchFor: %v", err)
+		t.Fatalf("piLaunchFor: %v", err)
 	}
-	t.Cleanup(launch.clean)
-	if launch.extensionPath == "" || launch.configPath != "" {
-		t.Fatalf("launch = %+v, want an extension and no config", launch)
+	t.Cleanup(l.clean)
+	if l.extensionPath == "" || l.configPath == "" {
+		t.Fatalf("launch = %+v, want an extension and a config", l)
 	}
-	if got := piLaunchArgs("probe-model", launch, nil); !reflect.DeepEqual(got, []string{"--extension", launch.extensionPath, "--provider", piProviderID, "--model", "probe-model"}) {
+	if got := piLaunchArgs("probe-model", l, nil); !reflect.DeepEqual(got, []string{"--extension", l.extensionPath, "--provider", piProviderID, "--model", "probe-model"}) {
 		t.Fatalf("piLaunchArgs = %v, want the extension flag", got)
 	}
-	env := (&Pi{}).envVars(launch)
+
+	data, err := os.ReadFile(l.configPath)
+	if err != nil {
+		t.Fatalf("read the sidecar: %v", err)
+	}
+	var config piDeviceConfig
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatalf("unmarshal the sidecar: %v", err)
+	}
+	if config.APIKey != piAPIKeyReference {
+		t.Fatalf("sidecar apiKey = %q, want %q", config.APIKey, piAPIKeyReference)
+	}
+
+	env := (&Pi{}).envVars(l)
 	if got := launchtest.EnvValue(env, envconfig.KeyEnvVar+"="); got == "" && envconfig.APIKey() != "" {
 		t.Errorf("%s missing from a switch-key launch environment", envconfig.KeyEnvVar)
 	}
-	if got := launchtest.EnvValue(env, piDeviceConfigEnv+"="); got != "" {
-		t.Errorf("%s = %q in a switch-key launch, want none", piDeviceConfigEnv, got)
+	if got := launchtest.EnvValue(env, piDeviceConfigEnv+"="); got != l.configPath {
+		t.Errorf("%s = %q, want %q", piDeviceConfigEnv, got, l.configPath)
+	}
+	if got := launchtest.EnvValue(env, piCredentialCommandEnv+"="); got != "" {
+		t.Errorf("%s = %q in a switch-key launch, want none", piCredentialCommandEnv, got)
 	}
 }
 
-// TestPiDeviceLaunchArgsLoadTheExtension pins that a device-mode launch hands
-// Pi the extension by path, ahead of the provider it selects, and that a
-// user's own provider choice still wins.
-func TestPiDeviceLaunchArgsLoadTheExtension(t *testing.T) {
-	extension := &piDeviceLaunch{extensionPath: "/tmp/prizmal-device.ts"}
+// TestPiLaunchArgsLoadTheExtension pins that a launch hands Pi the extension by
+// path, ahead of the provider it selects, and that a user's own provider choice
+// still wins.
+func TestPiLaunchArgsLoadTheExtension(t *testing.T) {
+	l := &piLaunch{extensionPath: "/tmp/prizmal-device.ts"}
 
-	got := piLaunchArgs("probe-model", extension, []string{"--print", "hi"})
+	got := piLaunchArgs("probe-model", l, []string{"--print", "hi"})
 	want := []string{"--extension", "/tmp/prizmal-device.ts", "--provider", piProviderID, "--model", "probe-model", "--print", "hi"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("piLaunchArgs = %v, want %v", got, want)
 	}
 
 	user := []string{"--provider", "anthropic", "--print", "hi"}
-	got = piLaunchArgs("probe-model", extension, user)
+	got = piLaunchArgs("probe-model", l, user)
 	want = append([]string{"--extension", "/tmp/prizmal-device.ts"}, user...)
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("piLaunchArgs with a user provider = %v, want %v", got, want)
@@ -147,15 +200,15 @@ func TestPiDeviceLaunchArgsLoadTheExtension(t *testing.T) {
 }
 
 // TestPiDeviceEnvCarriesTheCredentialCommand pins the device-mode environment:
-// the credential command is this binary's helper, and the config path points
-// at the sidecar the extension reads. No key variable reaches the child.
+// the credential command is this binary's helper, and the config path points at
+// the sidecar the extension reads. No key variable reaches the child.
 func TestPiDeviceEnvCarriesTheCredentialCommand(t *testing.T) {
 	launchtest.WithDeviceMode(t)
-	extension := &piDeviceLaunch{configPath: "/tmp/prizmal-device.json"}
+	l := &piLaunch{configPath: "/tmp/prizmal-device.json", agentDir: "/tmp/agent", device: true}
 
-	env := (&Pi{}).envVars(extension)
-	if got := launchtest.EnvValue(env, piDeviceConfigEnv+"="); got != extension.configPath {
-		t.Errorf("%s = %q, want %q", piDeviceConfigEnv, got, extension.configPath)
+	env := (&Pi{}).envVars(l)
+	if got := launchtest.EnvValue(env, piDeviceConfigEnv+"="); got != l.configPath {
+		t.Errorf("%s = %q, want %q", piDeviceConfigEnv, got, l.configPath)
 	}
 	command := launchtest.EnvValue(env, piCredentialCommandEnv+"=")
 	if !strings.HasSuffix(command, " auth token") {
@@ -163,6 +216,9 @@ func TestPiDeviceEnvCarriesTheCredentialCommand(t *testing.T) {
 	}
 	if got := launchtest.EnvValue(env, envconfig.KeyEnvVar+"="); got != "" {
 		t.Errorf("%s is set in a device-mode environment, want no key", envconfig.KeyEnvVar)
+	}
+	if got := launchtest.EnvValue(env, piAgentDirEnv+"="); got != l.agentDir {
+		t.Errorf("%s = %q, want %q", piAgentDirEnv, got, l.agentDir)
 	}
 }
 
@@ -192,10 +248,10 @@ func TestPiCredentialCommandCarriesTheTypedPath(t *testing.T) {
 
 // TestPiDeviceConfigLeadsWithTheLaunchedModel pins the row order: Pi reads
 // models[0] as the model a bare launch selects, so the launch's own model has
-// to come first, as it does in the models.json Edit writes.
+// to come first.
 func TestPiDeviceConfigLeadsWithTheLaunchedModel(t *testing.T) {
 	envconfig.SetBaseURL("")
-	data := piDeviceConfigJSON("chosen", []launch.LaunchModel{{Name: "chosen"}, {Name: "other"}})
+	data := piDeviceConfigJSON("chosen", []launch.LaunchModel{{Name: "chosen"}, {Name: "other"}}, true, nil)
 	var config piDeviceConfig
 	if err := json.Unmarshal(data, &config); err != nil {
 		t.Fatalf("unmarshal: %v", err)
@@ -209,7 +265,7 @@ func TestPiDeviceConfigLeadsWithTheLaunchedModel(t *testing.T) {
 // model but no catalog rows: the extension still gets that model, so Pi has
 // something to select rather than an empty provider.
 func TestPiDeviceConfigCarriesOneRowWithoutModels(t *testing.T) {
-	data := piDeviceConfigJSON("only", nil)
+	data := piDeviceConfigJSON("only", nil, true, nil)
 	var config piDeviceConfig
 	if err := json.Unmarshal(data, &config); err != nil {
 		t.Fatalf("unmarshal: %v", err)
@@ -231,19 +287,20 @@ func TestPiDeviceExtensionIsEmbedded(t *testing.T) {
 	}
 }
 
-// TestPiDeviceConfigPathUnderTempDir checks the sidecar lands in the system
+// TestPiLaunchDirectoryIsUnderTempDir checks the sidecar lands in the system
 // temp directory, not in the user's home, so a launch leaves no per-session
 // file in a place that survives it.
-func TestPiDeviceConfigPathUnderTempDir(t *testing.T) {
+func TestPiLaunchDirectoryIsUnderTempDir(t *testing.T) {
 	launchtest.WithDeviceMode(t)
-	launch, err := piDeviceLaunchFor("probe-model", nil)
+	internaltest.SandboxedHome(t)
+	l, err := piLaunchFor("probe-model", nil)
 	if err != nil {
-		t.Fatalf("piDeviceLaunchFor: %v", err)
+		t.Fatalf("piLaunchFor: %v", err)
 	}
-	t.Cleanup(launch.clean)
+	t.Cleanup(l.clean)
 
 	temp := os.TempDir()
-	resolved, err := filepath.EvalSymlinks(launch.dir)
+	resolved, err := filepath.EvalSymlinks(l.dir)
 	if err != nil {
 		t.Fatalf("resolve the launch directory: %v", err)
 	}
@@ -266,8 +323,8 @@ func TestPiDeviceEnvPinsTheSwitchHost(t *testing.T) {
 	envconfig.SetBaseURL("https://api.example.invalid")
 	t.Cleanup(func() { envconfig.SetBaseURL("") })
 
-	extension := &piDeviceLaunch{configPath: "/tmp/prizmal-device.json"}
-	env := (&Pi{}).envVars(extension)
+	l := &piLaunch{configPath: "/tmp/prizmal-device.json", agentDir: "/tmp/agent", device: true}
+	env := (&Pi{}).envVars(l)
 	if got := launchtest.EnvValue(env, envconfig.EnvVar+"="); got != "https://api.example.invalid" {
 		t.Fatalf("%s = %q, want the launch's own Switch host", envconfig.EnvVar, got)
 	}

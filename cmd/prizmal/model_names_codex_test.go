@@ -120,7 +120,7 @@ func runCodexNames(t *testing.T, tc baselineCase) *stubserver.Recorder {
 	}
 	tc.codexDir = codexOnPath(t)
 	prizmalBin := buildPrizmal(t)
-	_, _ = renderBaseline(t, tmuxPath, prizmalBin, "", tc)
+	_, _, _, _ = renderBaseline(t, tmuxPath, prizmalBin, "", tc)
 	return tc.recorder
 }
 

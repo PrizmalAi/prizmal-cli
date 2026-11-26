@@ -3,10 +3,15 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/PrizmalAi/prizmal-cli/internal/stubserver"
 )
 
 // piBaselineDir holds the screens of the real pi.
@@ -136,4 +141,118 @@ func TestPiBaselineVersionRewrite(t *testing.T) {
 	if after := withBaselinePiVersion(update, update); after != update {
 		t.Fatalf("the rewrite changed an update screen to\n%s", after)
 	}
+}
+
+// piSwitchCaseUserModels and piSwitchCaseUserSettings are the operator's own
+// configuration in TestPiModelSwitchInsideALaunchLeavesTheUserConfig: another
+// provider, a default of their own, and a scope that does not name prizmal.
+const (
+	piSwitchCaseUserModels = `{
+  "providers": {
+    "openrouter": {
+      "baseUrl": "https://openrouter.example.invalid/v1",
+      "api": "openai-completions",
+      "apiKey": "$OPERATOR_KEY",
+      "models": [{"id": "zeta", "input": ["text"]}]
+    }
+  }
+}
+`
+	piSwitchCaseUserSettings = "{\n  \"theme\": \"dark\",\n  \"defaultProvider\": \"openrouter\",\n  \"defaultModel\": \"zeta\",\n  \"enabledModels\": [\"prizmal/*\", \"openrouter/zeta\"]\n}\n"
+)
+
+// TestPiModelSwitchInsideALaunchLeavesTheUserConfig drives Pi's own /model
+// switch inside a launch, which is the one write-back the CLI cannot prevent by
+// writing less: Pi persists the choice into its settings. The launch points Pi
+// at an agent directory of its own, so the switch lands there and the operator's
+// defaultProvider, defaultModel and enabledModels come out of the session
+// exactly as they went in.
+func TestPiModelSwitchInsideALaunchLeavesTheUserConfig(t *testing.T) {
+	seed := func(t *testing.T, home, _ string) {
+		t.Helper()
+		agentDir := filepath.Join(home, ".pi", "agent")
+		if err := os.MkdirAll(agentDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(agentDir, "models.json"), []byte(piSwitchCaseUserModels), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(agentDir, "settings.json"), []byte(piSwitchCaseUserSettings), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	assert := func(t *testing.T, home, _ string) {
+		t.Helper()
+		agentDir := filepath.Join(home, ".pi", "agent")
+		for path, want := range map[string]string{
+			filepath.Join(agentDir, "models.json"):   piSwitchCaseUserModels,
+			filepath.Join(agentDir, "settings.json"): piSwitchCaseUserSettings,
+		} {
+			got, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != want {
+				t.Fatalf("%s changed inside the launch\nbefore: %s\nafter:  %s", path, want, got)
+			}
+		}
+		// The switch itself happened, and the launch's transcript survived it:
+		// Pi writes the session into the user's sessions directory through the
+		// launch's link, and the transcript records a model change away from
+		// the one the launch started on.
+		sessions, _ := filepath.Glob(filepath.Join(agentDir, "sessions", "*", "*.jsonl"))
+		if len(sessions) == 0 {
+			t.Fatal("the launch recorded no session")
+		}
+		var transcript strings.Builder
+		for _, path := range sessions {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			transcript.Write(data)
+		}
+		switched := false
+		for _, line := range strings.Split(transcript.String(), "\n") {
+			var entry struct {
+				Type     string `json:"type"`
+				Provider string `json:"provider"`
+				ModelID  string `json:"modelId"`
+			}
+			if json.Unmarshal([]byte(line), &entry) == nil && entry.Type == "model_change" &&
+				entry.Provider == "prizmal" && entry.ModelID != "" && entry.ModelID != "smart" {
+				switched = true
+			}
+		}
+		if !switched {
+			t.Fatalf("the transcript records no /model switch away from smart:\n%s", transcript.String())
+		}
+	}
+
+	cases := []baselineCase{{
+		name: "pi-model-switch-leaves-the-user-config", cols: 100, rows: 30,
+		args: []string{"-m", "smart", "pi"}, harness: "pi",
+		catalog: piBaselineCatalog, setup: seed,
+		env: []string{"PI_OFFLINE=1"}, standIns: []string{"fd", "rg"},
+		steps: []baselineStep{
+			stepPiStartup,
+			stepPiOpenModels,
+			stepPiModels,
+			// The picker's first row is the current model; one Down reaches the
+			// operator's own model under the prizmal provider.
+			{key: "Down"},
+			{key: "Enter", pause: 2 * time.Second},
+			// One turn on the new model, so Pi writes a transcript: the model
+			// switch is only recorded in it once the session has something to
+			// save.
+			{literal: "Reply with a short greeting."},
+			{key: "Enter", waitFor: stubserver.Reply},
+			// Leave the session, so the transcript and Pi's own writes are
+			// settled before the assertions read them.
+			{literal: "/quit"},
+			{key: "Enter", waitFor: "[prizmal exited"},
+		},
+		assert: assert,
+	}}
+	runBaselineCases(t, cases, piBaselineDir, piBaselineHarness)
 }
