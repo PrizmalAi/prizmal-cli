@@ -329,3 +329,24 @@ func TestPiDeviceEnvPinsTheSwitchHost(t *testing.T) {
 		t.Fatalf("%s = %q, want the launch's own Switch host", envconfig.EnvVar, got)
 	}
 }
+
+// TestPiChildEnvDropsAnInheritedCredentialCommand pins the nested-launch case:
+// a launch started from inside another launch inherits that launch's
+// device-token command, and the extension prefers a command over the sidecar's
+// switch-key reference. A switch-key or relay launch must not carry it, and a
+// device launch must carry its own.
+func TestPiChildEnvDropsAnInheritedCredentialCommand(t *testing.T) {
+	t.Setenv(piCredentialCommandEnv, "/outer/prizmal auth token")
+	envconfig.SetDeviceMode(false)
+
+	env := (&Pi{}).childEnv(nil)
+	if got := launchtest.EnvValue(env, piCredentialCommandEnv+"="); got != "" {
+		t.Fatalf("%s = %q in a switch-key launch, want none", piCredentialCommandEnv, got)
+	}
+
+	launchtest.WithDeviceMode(t)
+	l := &piLaunch{configPath: "/tmp/prizmal-device.json", agentDir: "/tmp/agent", device: true}
+	if got := launchtest.EnvValue((&Pi{}).childEnv(l), piCredentialCommandEnv+"="); !strings.HasSuffix(got, " auth token") {
+		t.Fatalf("%s = %q in a device launch, want the launch's own command", piCredentialCommandEnv, got)
+	}
+}

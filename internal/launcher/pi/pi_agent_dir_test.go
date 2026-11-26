@@ -293,3 +293,41 @@ func (s *stringsBuilder) Write(p []byte) (int, error) {
 }
 
 func (s *stringsBuilder) String() string { return string(s.b) }
+
+// TestPiPersistAndRestoreHonourTheAgentDirVariable pins one agent directory for
+// everything prizmal reads or writes. A user who runs pi with
+// PI_CODING_AGENT_DIR set keeps their config there, so --persist writes there,
+// --restore removes it there, and the stale-entry warning reads the same file.
+func TestPiPersistAndRestoreHonourTheAgentDirVariable(t *testing.T) {
+	home := internaltest.SandboxedHome(t)
+	internaltest.WithAPIKey(t, internaltest.FakeKeyAtRest)
+	agentDir := filepath.Join(home, "custom-agent")
+	t.Setenv(piAgentDirEnv, agentDir)
+
+	p := &Pi{}
+	if err := p.Edit([]launch.LaunchModel{{Name: "probe-model"}}); err != nil {
+		t.Fatalf("Pi.Edit: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(agentDir, piModelsName)); err != nil {
+		t.Fatalf("--persist wrote outside %s: %v", agentDir, err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".pi", "agent", piModelsName)); !os.IsNotExist(err) {
+		t.Fatalf("--persist wrote the default agent directory: err = %v", err)
+	}
+	if paths := p.Paths(); len(paths) != 2 ||
+		paths[0] != filepath.Join(agentDir, piModelsName) || paths[1] != filepath.Join(agentDir, piSettingsName) {
+		t.Fatalf("Paths() = %v, want both files in the custom agent directory", paths)
+	}
+
+	outcome, err := p.Restore()
+	if err != nil {
+		t.Fatalf("Pi.Restore: %v", err)
+	}
+	if !outcome.Removed {
+		t.Error("outcome.Removed = false, want true: the persisted provider was in the custom directory")
+	}
+	providers, _ := internaltest.SandboxedJSON(t, home, filepath.Join("custom-agent", piModelsName))["providers"].(map[string]any)
+	if _, ok := providers[piProviderID]; ok {
+		t.Error("restore left the prizmal provider in the custom agent directory")
+	}
+}

@@ -208,8 +208,14 @@ func warnPiStaleLaunchEntry(w io.Writer) {
 
 // childEnv is the environment pi runs in: the inherited environment with the
 // launch's own variables in place of any inherited copy.
+//
+// The credential command is dropped before the launch's own variables go in.
+// A launch started from inside another launch would otherwise inherit that
+// launch's device-token command, and the extension prefers a command over the
+// sidecar's switch-key reference, so a nested switch-key or relay launch would
+// send the outer session's device token.
 func (p *Pi) childEnv(l *piLaunch) []string {
-	return launch.ChildEnv(nil, p.envVars(l))
+	return launch.ChildEnv([]string{piCredentialCommandEnv}, p.envVars(l))
 }
 
 // envVars is the environment Pi is launched with, before the inherited
@@ -683,17 +689,17 @@ func npmArgs(prefix string, args ...string) []string {
 }
 
 func (p *Pi) Paths() []string {
-	home, err := os.UserHomeDir()
-	if err != nil {
+	agentDir := piUserAgentDir()
+	if agentDir == "" {
 		return nil
 	}
 
 	var paths []string
-	modelsPath := filepath.Join(home, ".pi", "agent", "models.json")
+	modelsPath := filepath.Join(agentDir, piModelsName)
 	if _, err := os.Stat(modelsPath); err == nil {
 		paths = append(paths, modelsPath)
 	}
-	settingsPath := filepath.Join(home, ".pi", "agent", "settings.json")
+	settingsPath := filepath.Join(agentDir, piSettingsName)
 	if _, err := os.Stat(settingsPath); err == nil {
 		paths = append(paths, settingsPath)
 	}
@@ -705,12 +711,12 @@ func (p *Pi) Edit(models []launch.LaunchModel) error {
 		return nil
 	}
 
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
+	agentDir := piUserAgentDir()
+	if agentDir == "" {
+		return fmt.Errorf("find the Pi agent directory: HOME is not set and %s names none", piAgentDirEnv)
 	}
 
-	configPath := filepath.Join(home, ".pi", "agent", "models.json")
+	configPath := filepath.Join(agentDir, piModelsName)
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		return err
 	}
@@ -735,7 +741,7 @@ func (p *Pi) Edit(models []launch.LaunchModel) error {
 	// settings.json is read before either file is written, so an unparsable
 	// settings file refuses the whole Edit instead of leaving models.json half
 	// rewritten.
-	settingsPath := filepath.Join(home, ".pi", "agent", "settings.json")
+	settingsPath := filepath.Join(agentDir, piSettingsName)
 	settings := make(map[string]any)
 	if data, err := os.ReadFile(settingsPath); err == nil {
 		if err := json.Unmarshal(data, &settings); err != nil {
@@ -852,16 +858,16 @@ const piScopePrefix = piProviderID + "/"
 // copies the file it is about to overwrite into ~/.prizmal/backup, which would
 // deposit the key being removed one directory over.
 func (p *Pi) Restore() (launch.RestoreOutcome, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return launch.RestoreOutcome{}, err
+	agentDir := piUserAgentDir()
+	if agentDir == "" {
+		return launch.RestoreOutcome{}, fmt.Errorf("find the Pi agent directory: HOME is not set and %s names none", piAgentDirEnv)
 	}
 
-	models, err := piRestoreModels(filepath.Join(home, ".pi", "agent", "models.json"))
+	models, err := piRestoreModels(filepath.Join(agentDir, piModelsName))
 	if err != nil {
 		return launch.RestoreOutcome{}, err
 	}
-	settings, err := piRestoreSettings(filepath.Join(home, ".pi", "agent", "settings.json"))
+	settings, err := piRestoreSettings(filepath.Join(agentDir, piSettingsName))
 	if err != nil {
 		return launch.RestoreOutcome{}, err
 	}
@@ -981,12 +987,12 @@ func piWriteJSONFile(path string, config map[string]any) error {
 }
 
 func (p *Pi) Models() []string {
-	home, err := os.UserHomeDir()
-	if err != nil {
+	agentDir := piUserAgentDir()
+	if agentDir == "" {
 		return nil
 	}
 
-	configPath := filepath.Join(home, ".pi", "agent", "models.json")
+	configPath := filepath.Join(agentDir, piModelsName)
 	config, err := fileutil.ReadJSON(configPath)
 	if err != nil {
 		return nil
