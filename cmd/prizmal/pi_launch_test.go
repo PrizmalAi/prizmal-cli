@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -408,5 +409,24 @@ func TestPersistPiWritesTheProviderAndTheDefault(t *testing.T) {
 	}
 	if parsed.DefaultProvider != "prizmal" || parsed.DefaultModel != harnessLaunchModel {
 		t.Fatalf("settings.json names %q/%q, want prizmal/%s", parsed.DefaultProvider, parsed.DefaultModel, harnessLaunchModel)
+	}
+
+	// The persisted entry works for a bare pi: no launch, no PRIZMAL_CLIENT_VERSION,
+	// only the switch key the README says to export.
+	cmd := exec.Command(harnessPath, "--provider", "prizmal", "--model", harnessLaunchModel, "-p", "Reply with a short greeting.")
+	cmd.Dir = project
+	cmd.Env = append(homeEnv(home),
+		"PATH="+filepath.Dir(harnessPath)+string(filepath.ListSeparator)+os.Getenv("PATH"),
+		"LANG=C.UTF-8",
+		"TERM=dumb",
+		"NO_COLOR=1",
+		"PRIZMAL_SWITCH_KEY="+stubserver.StubKey,
+	)
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("a bare pi did not run on the persisted entry: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), stubserver.Reply) {
+		t.Fatalf("a bare pi on the persisted entry got no reply:\n%s", out)
 	}
 }
