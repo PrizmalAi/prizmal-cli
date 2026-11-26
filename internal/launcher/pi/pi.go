@@ -761,7 +761,13 @@ func (p *Pi) Edit(models []launch.LaunchModel) error {
 		piProvider["baseUrl"] = envconfig.OpenAIBaseURL(false)
 		piProvider["api"] = "openai-completions"
 		piProvider["apiKey"] = piAPIKeyReference
-		piProvider["headers"] = withoutClientVersionHeader(piProvider["headers"])
+		if headers := withoutClientVersionHeader(piProvider["headers"]); headers != nil {
+			piProvider["headers"] = headers
+		} else {
+			// A null headers value fails pi's schema, so the key goes rather
+			// than staying as a null.
+			delete(piProvider, "headers")
+		}
 	}
 
 	existingModels := make([]any, 0)

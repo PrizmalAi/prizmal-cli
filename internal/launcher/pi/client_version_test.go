@@ -118,6 +118,23 @@ func TestPiPersistKeepsOtherProviderHeadersAndDropsTheVersion(t *testing.T) {
 	}
 }
 
+// A persisted entry whose only header was the client version loses the key
+// altogether: pi's schema rejects a null headers value.
+func TestPiPersistDropsAnEmptyHeaderMap(t *testing.T) {
+	home := internaltest.SandboxedHome(t)
+	internaltest.SandboxedSeed(t, home, piModelsPath, `{"providers":{"prizmal":{`+
+		`"baseUrl":"https://old.example/v1","api":"openai-completions","apiKey":"$PRIZMAL_SWITCH_KEY",`+
+		`"headers":{"x-prizmal-client-version":"$PRIZMAL_CLIENT_VERSION"},`+
+		`"models":[{"id":"probe-model","_launch":true}]}}}`)
+	if err := (&Pi{}).Edit([]launch.LaunchModel{{Name: "probe-model"}}); err != nil {
+		t.Fatalf("Edit: %v", err)
+	}
+	provider := parseProvider(t, readFile(t, filepath.Join(home, piModelsPath)), piProviderID)
+	if headers, ok := provider["headers"]; ok {
+		t.Errorf("headers = %v, want the key gone", headers)
+	}
+}
+
 // The device-launch test overrides the process-wide Switch URL, so it must put
 // the URL back for every test that runs after it.
 func TestPiDeviceLaunchTestRestoresTheBaseURL(t *testing.T) {
