@@ -89,22 +89,17 @@ func (c *Claude) SupportsDeviceMode() bool { return true }
 // prizmal produced, never as one the operator typed. A caller-supplied --model
 // is consumed by the CLI before this point.
 //
-// A --settings the caller typed is folded into the launch's own settings
-// instead of being forwarded beside it, because Claude Code keeps only one:
-// see mergeCallerSettings for the merge and which side wins a conflict.
-func (c *Claude) args(model string, rows []launch.ModelRow, settingsJSON string, extra []string) ([]string, error) {
-	settingsJSON, extra, err := mergeCallerSettings(settingsJSON, extra)
-	if err != nil {
-		return nil, err
-	}
+// A --settings the caller typed never reaches this function: launchArgs merges
+// it into the launch's settings first, because Claude Code keeps only one.
+func (c *Claude) args(model string, rows []launch.ModelRow, settingsValue string, extra []string) []string {
 	var args []string
-	if settingsJSON != "" {
-		args = append(args, "--settings", settingsJSON)
+	if settingsValue != "" {
+		args = append(args, "--settings", settingsValue)
 	}
 	if named := claudeLaunchModelName(model, rows); named != "" {
 		args = append(args, "--model", named)
 	}
-	return append(args, extra...), nil
+	return append(args, extra...)
 }
 
 // ClaudeInstaller is Claude Code's install story. Its installer drops the
@@ -187,10 +182,11 @@ func (c *Claude) Run(model string, models []launch.LaunchModel, args []string) e
 		}
 	}
 
-	launchArgs, err := c.args(model, rows, settings, args)
+	launchArgs, cleanup, err := c.launchArgs(model, rows, settings, args)
 	if err != nil {
 		return err
 	}
+	defer cleanup()
 
 	cmd := exec.Command(claudePath, launchArgs...)
 	cmd.Stdin = os.Stdin
@@ -550,7 +546,10 @@ func claudeLaunchModelName(model string, rows []launch.ModelRow) string {
 // to run, the tier remaps, and the picker rows.
 //
 // It is one argument on the command line, so it is scoped to the launched
-// process and persists nowhere. Nothing is written to ~/.claude.
+// process and persists nowhere. Nothing is written to ~/.claude. A caller's
+// settings are merged into it by launchArgs, which moves the merged object to a
+// private temporary file for the session, because the caller's file may hold a
+// credential.
 func claudeSettingsJSON(model string, rows []launch.ModelRow) (string, error) {
 	if model == "" {
 		return "", nil

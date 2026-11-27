@@ -458,10 +458,7 @@ func TestClaudeArgsCarryInlineSettings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("claudeSettingsJSON: %v", err)
 	}
-	args, err := (&Claude{}).args("some-model", nil, settings, []string{"--verbose"})
-	if err != nil {
-		t.Fatalf("args: %v", err)
-	}
+	args := (&Claude{}).args("some-model", nil, settings, []string{"--verbose"})
 
 	want := []string{"--settings", settings, "--model", "some-model[1m]", "--verbose"}
 	if strings.Join(args, " ") != strings.Join(want, " ") {
@@ -480,12 +477,8 @@ func TestClaudeArgsCarryInlineSettings(t *testing.T) {
 		t.Fatalf("--model value = %q, want %q (the settings model's spelling)", flagModel, got)
 	}
 
-	empty, err := (&Claude{}).args("", nil, "", []string{"--verbose"})
-	if err != nil {
-		t.Fatalf("args: %v", err)
-	}
-	if strings.Join(empty, " ") != "--verbose" {
-		t.Fatalf("args with no settings and no model = %v, want [--verbose]", empty)
+	if args := (&Claude{}).args("", nil, "", []string{"--verbose"}); strings.Join(args, " ") != "--verbose" {
+		t.Fatalf("args with no settings and no model = %v, want [--verbose]", args)
 	}
 }
 
@@ -537,10 +530,7 @@ func TestClaudeArgsStateTheModelThemselves(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := (&Claude{}).args(tc.model, nil, tc.settings, tc.extra)
-			if err != nil {
-				t.Fatalf("args: %v", err)
-			}
+			got := (&Claude{}).args(tc.model, nil, tc.settings, tc.extra)
 			if strings.Join(got, " ") != strings.Join(tc.want, " ") {
 				t.Fatalf("args(%q, %q, %v) = %v, want %v", tc.model, tc.settings, tc.extra, got, tc.want)
 			}
@@ -552,9 +542,7 @@ func TestClaudeArgsStateTheModelThemselves(t *testing.T) {
 // back.
 func TestClaudeArgsDoNotMutateTheCallersSlice(t *testing.T) {
 	extra := []string{"--resume", "abc"}
-	if _, err := (&Claude{}).args("smart", nil, "", extra); err != nil {
-		t.Fatalf("args: %v", err)
-	}
+	_ = (&Claude{}).args("smart", nil, "", extra)
 	if strings.Join(extra, " ") != "--resume abc" {
 		t.Fatalf("the caller's slice was rewritten: %v", extra)
 	}
@@ -920,8 +908,8 @@ func TestClaudeLaunchSpellsATieredConfigAsItsRow(t *testing.T) {
 	if !strings.Contains(settings, `"model":"flash[1m]"`) {
 		t.Errorf("settings = %s, want the model spelled flash[1m]", settings)
 	}
-	if args, err := (&Claude{}).args("flash", rows, "", nil); err != nil || strings.Join(args, " ") != "--model flash[1m]" {
-		t.Errorf("args = %v (%v), want --model flash[1m]", args, err)
+	if args := (&Claude{}).args("flash", rows, "", nil); strings.Join(args, " ") != "--model flash[1m]" {
+		t.Errorf("args = %v, want --model flash[1m]", args)
 	}
 	if !slices.Contains(claudeChildEnv("flash", rows), "ANTHROPIC_DEFAULT_OPUS_MODEL=flash[1m]") {
 		t.Errorf("child env lacks ANTHROPIC_DEFAULT_OPUS_MODEL=flash[1m]")

@@ -27,6 +27,18 @@ func launchSettingsJSONForTest(t *testing.T) string {
 	return device
 }
 
+// launchArgsForTest drives the seam a launch uses, and removes anything it
+// wrote when the test ends.
+func launchArgsForTest(t *testing.T, own string, extra []string) []string {
+	t.Helper()
+	args, cleanup, err := (&Claude{}).launchArgs("smart", nil, own, extra)
+	if err != nil {
+		t.Fatalf("launchArgs: %v", err)
+	}
+	t.Cleanup(cleanup)
+	return args
+}
+
 // settingsValues returns every --settings value Claude Code would read, which
 // stops at the first -- because everything after it is positional.
 func settingsValues(t *testing.T, args []string) []string {
@@ -50,6 +62,20 @@ func settingsValues(t *testing.T, args []string) []string {
 		i++
 	}
 	return values
+}
+
+// settingsJSONFrom reads the settings the launch passes: inline JSON, or the
+// file the argument names.
+func settingsJSONFrom(t *testing.T, value string) string {
+	t.Helper()
+	if strings.HasPrefix(strings.TrimSpace(value), "{") {
+		return value
+	}
+	data, err := os.ReadFile(value)
+	if err != nil {
+		t.Fatalf("the --settings value %q is neither JSON nor a readable file: %v", value, err)
+	}
+	return string(data)
 }
 
 func decodeSettings(t *testing.T, data string) map[string]any {
@@ -103,10 +129,7 @@ func TestClaudeLaunchPassesOneSettingsArgument(t *testing.T) {
 		{name: "a caller settings argument after --", extra: []string{"--", "--settings=" + path}, position: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			args, err := (&Claude{}).args("smart", nil, own, tc.extra)
-			if err != nil {
-				t.Fatalf("args: %v", err)
-			}
+			args := launchArgsForTest(t, own, tc.extra)
 
 			// A positional argument after -- is the prompt, not a flag: the
 			// harness must still receive it untouched.
@@ -131,14 +154,15 @@ func TestClaudeLaunchPassesOneSettingsArgument(t *testing.T) {
 			if len(values) != 1 {
 				t.Fatalf("got %d --settings arguments, want exactly 1: %v", len(values), args)
 			}
+			settings := settingsJSONFrom(t, values[0])
 			if !tc.caller {
-				if values[0] != own {
-					t.Fatalf("the launch's settings changed with no caller settings:\n got: %s\nwant: %s", values[0], own)
+				if settings != own {
+					t.Fatalf("the launch's settings changed with no caller settings:\n got: %s\nwant: %s", settings, own)
 				}
 				return
 			}
 
-			got := decodeSettings(t, values[0])
+			got := decodeSettings(t, settings)
 			if got["theme"] != "dark" {
 				t.Errorf("the caller's theme was dropped: %v", got["theme"])
 			}
@@ -153,6 +177,55 @@ func TestClaudeLaunchPassesOneSettingsArgument(t *testing.T) {
 	}
 }
 
+// A caller's settings file may hold a credential, and a command line is
+// readable by any process that can list them. The merged object therefore
+// travels in a private file that is removed when the launch ends, never in an
+// argument.
+func TestClaudeLaunchKeepsCallerSettingsOffTheCommandLine(t *testing.T) {
+	const secret = "caller-token-that-must-not-be-an-argument"
+	path := writeSettingsFile(t, `{"env":{"CALLER_TOKEN":"`+secret+`"}}`)
+
+	args, cleanup, err := (&Claude{}).launchArgs("smart", nil, launchSettingsJSONForTest(t), []string{"--settings", path})
+	if err != nil {
+		t.Fatalf("launchArgs: %v", err)
+	}
+	for _, arg := range args {
+		if strings.Contains(arg, secret) {
+			t.Fatalf("the caller's token reached the command line in %q", arg)
+		}
+	}
+
+	values := settingsValues(t, args)
+	if len(values) != 1 {
+		t.Fatalf("got %d --settings arguments, want exactly 1: %v", len(values), args)
+	}
+	settingsPath := values[0]
+	if strings.HasPrefix(strings.TrimSpace(settingsPath), "{") {
+		t.Fatalf("the merged settings are inline in argv: %q", settingsPath)
+	}
+	if base := filepath.Base(settingsPath); !strings.HasPrefix(base, "prizmal-claude-settings-") {
+		t.Errorf("the merged settings file is called %q, want a prizmal-claude-settings name", base)
+	}
+	if !strings.HasPrefix(settingsPath, os.TempDir()) {
+		t.Errorf("the merged settings live in %q, want the temporary directory", settingsPath)
+	}
+	info, err := os.Stat(settingsPath)
+	if err != nil {
+		t.Fatalf("stat the merged settings: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Errorf("the merged settings are mode %#o, want 0600", perm)
+	}
+	if data, err := os.ReadFile(settingsPath); err != nil || !strings.Contains(string(data), secret) {
+		t.Fatalf("the merged settings do not carry the caller's key (err %v):\n%s", err, data)
+	}
+
+	cleanup()
+	if _, err := os.Stat(settingsPath); err == nil {
+		t.Errorf("the launch left %s behind after it ended", settingsPath)
+	}
+}
+
 // A key both sides set keeps the launch's value. Without the apiKeyHelper and
 // the model settings the launch cannot authenticate and cannot route, so the
 // caller's value only ever adds keys the launch does not state.
@@ -161,15 +234,12 @@ func TestClaudeLaunchSettingsMergeKeepsTheLaunchsOwnKeys(t *testing.T) {
 	ownSettings := decodeSettings(t, own)
 	path := writeSettingsFile(t, `{"model":"caller-model","apiKeyHelper":"echo caller-key","modelPicker":{"replaceBuiltInOptions":false,"options":[]},"statusLine":{"type":"command","command":"echo hi"}}`)
 
-	args, err := (&Claude{}).args("smart", nil, own, []string{"--settings=" + path})
-	if err != nil {
-		t.Fatalf("args: %v", err)
-	}
+	args := launchArgsForTest(t, own, []string{"--settings=" + path})
 	values := settingsValues(t, args)
 	if len(values) != 1 {
 		t.Fatalf("got %d --settings arguments, want exactly 1: %v", len(values), args)
 	}
-	got := decodeSettings(t, values[0])
+	got := decodeSettings(t, settingsJSONFrom(t, values[0]))
 
 	if got["model"] != ownSettings["model"] {
 		t.Errorf("model = %v, want the launch's %v", got["model"], ownSettings["model"])
@@ -189,18 +259,14 @@ func TestClaudeLaunchSettingsMergeKeepsTheLaunchsOwnKeys(t *testing.T) {
 // Two caller settings arguments merge in the order they appear, so the later
 // one wins over the earlier one, the way a stack of settings files does.
 func TestClaudeLaunchSettingsMergeReadsCallerSettingsInOrder(t *testing.T) {
-	own := launchSettingsJSONForTest(t)
 	first := writeSettingsFile(t, `{"theme":"dark","first":true}`)
 
-	args, err := (&Claude{}).args("smart", nil, own, []string{"--settings", first, "--settings", `{"theme":"light","second":true}`})
-	if err != nil {
-		t.Fatalf("args: %v", err)
-	}
+	args := launchArgsForTest(t, launchSettingsJSONForTest(t), []string{"--settings", first, "--settings", `{"theme":"light","second":true}`})
 	values := settingsValues(t, args)
 	if len(values) != 1 {
 		t.Fatalf("got %d --settings arguments, want exactly 1: %v", len(values), args)
 	}
-	got := decodeSettings(t, values[0])
+	got := decodeSettings(t, settingsJSONFrom(t, values[0]))
 	if got["theme"] != "light" {
 		t.Errorf("theme = %v, want the later argument's %q", got["theme"], "light")
 	}
@@ -209,11 +275,33 @@ func TestClaudeLaunchSettingsMergeReadsCallerSettingsInOrder(t *testing.T) {
 	}
 }
 
+// An empty object is an object: it merges like any other, adding nothing and
+// taking nothing away. Read as an absent value instead, a later caller argument
+// stating {} would silently erase what an earlier one put under that key.
+func TestClaudeLaunchSettingsMergeTreatsAnEmptyObjectAsAnObject(t *testing.T) {
+	args := launchArgsForTest(t, launchSettingsJSONForTest(t), []string{
+		"--settings", `{"env":{"CALLER":"1"}}`,
+		"--settings", `{"env":{},"permissions":{}}`,
+	})
+	values := settingsValues(t, args)
+	if len(values) != 1 {
+		t.Fatalf("got %d --settings arguments, want exactly 1: %v", len(values), args)
+	}
+	got := decodeSettings(t, settingsJSONFrom(t, values[0]))
+	env, _ := got["env"].(map[string]any)
+	if env["CALLER"] != "1" {
+		t.Errorf("env = %v, want the earlier argument's CALLER key kept", env)
+	}
+	if got["model"] == nil || got["apiKeyHelper"] == nil {
+		t.Errorf("the launch's own keys were dropped: %v", got)
+	}
+}
+
 // A caller settings path that cannot be read fails the launch with the path in
 // the message, rather than handing Claude Code an argument it cannot parse.
 func TestClaudeLaunchSettingsMergeReportsAnUnreadableFile(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "absent.json")
-	_, err := (&Claude{}).args("smart", nil, launchSettingsJSONForTest(t), []string{"--settings", missing})
+	_, _, err := (&Claude{}).launchArgs("smart", nil, launchSettingsJSONForTest(t), []string{"--settings", missing})
 	if err == nil {
 		t.Fatal("a missing settings file did not fail the launch")
 	}
@@ -221,7 +309,7 @@ func TestClaudeLaunchSettingsMergeReportsAnUnreadableFile(t *testing.T) {
 		t.Errorf("error %q does not name the file %q", err, missing)
 	}
 
-	if _, err := (&Claude{}).args("smart", nil, "", []string{"--settings", "not json"}); err == nil {
+	if _, _, err := (&Claude{}).launchArgs("smart", nil, "", []string{"--settings", "not json"}); err == nil {
 		t.Error("an unreadable settings argument did not fail the launch")
 	}
 }
@@ -231,15 +319,12 @@ func TestClaudeLaunchSettingsMergeReportsAnUnreadableFile(t *testing.T) {
 // whole.
 func TestClaudeLaunchSettingsMergeExtendsNestedObjects(t *testing.T) {
 	own := `{"model":"m[1m]","env":{"PRIZMAL_OWN":"1"},"modelPicker":{"replaceBuiltInOptions":true}}`
-	args, err := (&Claude{}).args("smart", nil, own, []string{"--settings", `{"env":{"CALLER":"1"},"modelPicker":{"replaceBuiltInOptions":false}}`})
-	if err != nil {
-		t.Fatalf("args: %v", err)
-	}
+	args := launchArgsForTest(t, own, []string{"--settings", `{"env":{"CALLER":"1"},"modelPicker":{"replaceBuiltInOptions":false}}`})
 	values := settingsValues(t, args)
 	if len(values) != 1 {
 		t.Fatalf("got %d --settings arguments, want exactly 1: %v", len(values), args)
 	}
-	got := decodeSettings(t, values[0])
+	got := decodeSettings(t, settingsJSONFrom(t, values[0]))
 	env, _ := got["env"].(map[string]any)
 	if env["PRIZMAL_OWN"] != "1" || env["CALLER"] != "1" {
 		t.Errorf("env = %v, want the launch's and the caller's keys", env)
@@ -247,5 +332,18 @@ func TestClaudeLaunchSettingsMergeExtendsNestedObjects(t *testing.T) {
 	picker, _ := got["modelPicker"].(map[string]any)
 	if picker["replaceBuiltInOptions"] != true {
 		t.Errorf("modelPicker = %v, want the launch's replaceBuiltInOptions", picker)
+	}
+}
+
+// A launch with no caller settings writes nothing: its own settings hold no
+// credential, so they stay on the command line.
+func TestClaudeLaunchWithoutCallerSettingsStaysOnTheCommandLine(t *testing.T) {
+	args := launchArgsForTest(t, launchSettingsJSONForTest(t), []string{"--verbose"})
+	values := settingsValues(t, args)
+	if len(values) != 1 {
+		t.Fatalf("got %d --settings arguments, want exactly 1: %v", len(values), args)
+	}
+	if !strings.HasPrefix(strings.TrimSpace(values[0]), "{") {
+		t.Fatalf("the launch's own settings left the command line for %q", values[0])
 	}
 }

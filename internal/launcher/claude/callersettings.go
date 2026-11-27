@@ -7,6 +7,8 @@ import (
 	"io"
 	"os"
 	"strings"
+
+	"github.com/PrizmalAi/prizmal-cli/internal/launcher"
 )
 
 // settingsField is one key of a settings object. The value stays raw JSON so a
@@ -21,9 +23,20 @@ type settingsField struct {
 // settingsObject is a settings object with its key order kept.
 type settingsObject []settingsField
 
+// mergedSettings is the one settings object a launch hands Claude Code.
+type mergedSettings struct {
+	// json is the object, empty when the launch has no settings at all.
+	json string
+	// caller reports that a caller's settings are part of the object. Their
+	// content came from a file the caller keeps, which may hold a credential,
+	// so a launch passes such an object through a private file instead of its
+	// command line.
+	caller bool
+}
+
 // decodeSettingsObject reads one JSON object into an ordered settingsObject.
-// Empty input is a nil object, because a launch with no model builds no
-// settings at all.
+// Blank input is a nil object, because a launch with no model builds no
+// settings at all; {} is an empty object like any other.
 func decodeSettingsObject(data []byte) (settingsObject, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return nil, nil
@@ -36,7 +49,7 @@ func decodeSettingsObject(data []byte) (settingsObject, error) {
 	if delim, ok := tok.(json.Delim); !ok || delim != '{' {
 		return nil, fmt.Errorf("settings JSON is not an object")
 	}
-	var object settingsObject
+	object := make(settingsObject, 0)
 	for dec.More() {
 		keyToken, err := dec.Token()
 		if err != nil {
@@ -166,12 +179,13 @@ func readCallerSettings(value string) (settingsObject, error) {
 //
 // Arguments after -- are positional, so a --settings spelling there is part of
 // the prompt and is left alone.
-func mergeCallerSettings(settingsJSON string, extra []string) (string, []string, error) {
+func mergeCallerSettings(settingsJSON string, extra []string) (mergedSettings, []string, error) {
 	own, err := decodeSettingsObject([]byte(settingsJSON))
 	if err != nil {
-		return "", nil, fmt.Errorf("parse the launch's Claude Code settings: %w", err)
+		return mergedSettings{}, nil, fmt.Errorf("parse the launch's Claude Code settings: %w", err)
 	}
 	var caller settingsObject
+	fromCaller := false
 	kept := make([]string, 0, len(extra))
 	for i := 0; i < len(extra); i++ {
 		arg := extra[i]
@@ -186,23 +200,73 @@ func mergeCallerSettings(settingsJSON string, extra []string) (string, []string,
 				continue
 			}
 			if i+1 >= len(extra) {
-				return "", nil, fmt.Errorf("--settings has no value")
+				return mergedSettings{}, nil, fmt.Errorf("--settings has no value")
 			}
 			i++
 			value = extra[i]
 		}
 		next, err := readCallerSettings(value)
 		if err != nil {
-			return "", nil, err
+			return mergedSettings{}, nil, err
 		}
 		caller = overlaySettings(caller, next, true)
+		fromCaller = true
 	}
-	if len(bytes.TrimSpace([]byte(settingsJSON))) == 0 && caller == nil {
-		return "", kept, nil
+	if len(bytes.TrimSpace([]byte(settingsJSON))) == 0 && !fromCaller {
+		return mergedSettings{}, kept, nil
 	}
 	data, err := encodeSettingsObject(overlaySettings(own, caller, false))
 	if err != nil {
-		return "", nil, fmt.Errorf("merge the caller's Claude Code settings: %w", err)
+		return mergedSettings{}, nil, fmt.Errorf("merge the caller's Claude Code settings: %w", err)
 	}
-	return string(data), kept, nil
+	return mergedSettings{json: string(data), caller: fromCaller}, kept, nil
+}
+
+// writeMergedSettings writes the merged settings to a file only its owner can
+// read and returns the path.
+func writeMergedSettings(settings string) (string, error) {
+	f, err := os.CreateTemp("", "prizmal-claude-settings-*.json")
+	if err != nil {
+		return "", fmt.Errorf("write the merged Claude Code settings: %w", err)
+	}
+	path := f.Name()
+	_, writeErr := f.WriteString(settings)
+	closeErr := f.Close()
+	if writeErr != nil || closeErr != nil {
+		_ = os.Remove(path)
+		if writeErr != nil {
+			return "", fmt.Errorf("write the merged Claude Code settings: %w", writeErr)
+		}
+		return "", fmt.Errorf("write the merged Claude Code settings: %w", closeErr)
+	}
+	return path, nil
+}
+
+// launchArgs builds the command line for a launch, and returns the cleanup that
+// removes anything it had to write.
+//
+// When a caller's settings are merged in, the object travels in a private
+// temporary file named by the --settings argument rather than as the argument
+// itself. The caller's file may hold a credential, and a command line is
+// readable by any process that can list them, so inlining the file's contents
+// would publish what the caller kept private. The launch removes the file when
+// Claude Code exits. A launch with no caller settings keeps its own object on
+// the command line, where it was before: it holds no credential, because the
+// apiKeyHelper is a command rather than the token it prints.
+func (c *Claude) launchArgs(model string, rows []launch.ModelRow, settingsJSON string, extra []string) ([]string, func(), error) {
+	settings, extra, err := mergeCallerSettings(settingsJSON, extra)
+	if err != nil {
+		return nil, nil, err
+	}
+	value := settings.json
+	cleanup := func() {}
+	if settings.caller && value != "" {
+		path, err := writeMergedSettings(value)
+		if err != nil {
+			return nil, nil, err
+		}
+		value = path
+		cleanup = func() { _ = os.Remove(path) }
+	}
+	return c.args(model, rows, value, extra), cleanup, nil
 }
