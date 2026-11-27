@@ -203,6 +203,9 @@ prizmal --relay --model flash codex
 # Claude Code, passing a harness flag straight through without a separator
 prizmal claude --resume <session-id>
 
+# Claude Code, with your own settings merged into the launch's
+prizmal claude --settings ./my-claude-settings.json
+
 # Codex, with the old `--` separator still accepted
 prizmal codex -- --sandbox workspace-write
 
@@ -250,7 +253,7 @@ own flags come before the name (see the Usage block above) and every
 argument after it is handed to the harness unchanged, so `claude --resume
 <session-id>` and any other harness flag need no separator. The `--`
 separator is still accepted and consumed, and everything after it passes
-through the same way.
+through the same way. The exception is Claude Code's `--settings`: a launch merges it into the settings it builds itself, because Claude Code keeps only one and the launch's own settings are what make the session work (see [the Claude Code doc](docs/claude-code.md)).
 
 A launch always runs a real model. It takes the model from `--model`, from the
 default an earlier `--pick` saved, or from the interactive picker when neither
