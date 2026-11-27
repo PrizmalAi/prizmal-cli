@@ -186,6 +186,11 @@ func (c *Claude) Run(model string, models []launch.LaunchModel, args []string) e
 	if err != nil {
 		return err
 	}
+	// The cleanup runs after cmd.Run returns, whatever it returns: a zero
+	// exit, a non-zero one, or a process that never started. The one thing it
+	// cannot run after is a prizmal killed outright, such as by SIGKILL, so
+	// such a launch leaves its merged settings file in the temporary
+	// directory.
 	defer cleanup()
 
 	cmd := exec.Command(claudePath, launchArgs...)

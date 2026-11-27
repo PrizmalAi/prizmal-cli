@@ -224,6 +224,12 @@ func mergeCallerSettings(settingsJSON string, extra []string) (mergedSettings, [
 
 // writeMergedSettings writes the merged settings to a file only its owner can
 // read and returns the path.
+//
+// The file is os.CreateTemp's, so it lives in os.TempDir() (TMPDIR, or %TEMP%
+// on Windows) under a prizmal-claude-settings- name, with mode 0600. The
+// temporary directory is the per-user one, so the file is readable by its owner
+// and nobody else; Windows has no POSIX mode and relies on the ACL of that
+// directory, which keeps the file to its owner in the same way.
 func writeMergedSettings(settings string) (string, error) {
 	f, err := os.CreateTemp("", "prizmal-claude-settings-*.json")
 	if err != nil {
@@ -249,10 +255,17 @@ func writeMergedSettings(settings string) (string, error) {
 // temporary file named by the --settings argument rather than as the argument
 // itself. The caller's file may hold a credential, and a command line is
 // readable by any process that can list them, so inlining the file's contents
-// would publish what the caller kept private. The launch removes the file when
-// Claude Code exits. A launch with no caller settings keeps its own object on
-// the command line, where it was before: it holds no credential, because the
-// apiKeyHelper is a command rather than the token it prints.
+// would publish what the caller kept private. The file is
+// os.TempDir()/prizmal-claude-settings-*.json, mode 0600, and the returned
+// cleanup removes it. Run defers that cleanup around cmd.Run, so the file goes
+// when Claude Code exits with a zero status, when it exits non-zero, and when
+// the process never starts at all. What keeps it past that is a prizmal no
+// program can finish: a SIGKILL or a power loss leaves it in the temporary
+// directory, where it holds the caller's own settings and never a prizmal key.
+//
+// A launch with no caller settings writes no file and keeps its own object on
+// the command line, where it was before: that object holds no credential,
+// because the apiKeyHelper is a command rather than the token it prints.
 func (c *Claude) launchArgs(model string, rows []launch.ModelRow, settingsJSON string, extra []string) ([]string, func(), error) {
 	settings, extra, err := mergeCallerSettings(settingsJSON, extra)
 	if err != nil {
