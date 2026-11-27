@@ -341,6 +341,23 @@ func TestClaudeLaunchSettingsMergeExtendsNestedObjects(t *testing.T) {
 	}
 }
 
+// A launch with no caller settings still returns a cleanup that Run can defer.
+// A nil func there would panic the moment a bare launch returned, replacing
+// Claude Code's exit status with a crash.
+func TestClaudeLaunchReturnsACleanupWithoutCallerSettings(t *testing.T) {
+	args, cleanup, err := (&Claude{}).launchArgs("smart", nil, launchSettingsJSONForTest(t), nil)
+	if err != nil {
+		t.Fatalf("launchArgs: %v", err)
+	}
+	if cleanup == nil {
+		t.Fatal("launchArgs returned a nil cleanup, which panics when deferred")
+	}
+	cleanup()
+	if len(args) == 0 {
+		t.Fatal("launchArgs returned no arguments")
+	}
+}
+
 // A launch with no caller settings writes nothing: its own settings hold no
 // credential, so they stay on the command line.
 func TestClaudeLaunchWithoutCallerSettingsStaysOnTheCommandLine(t *testing.T) {
