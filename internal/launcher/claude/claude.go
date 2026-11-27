@@ -88,7 +88,15 @@ func (c *Claude) SupportsDeviceMode() bool { return true }
 // prizmal owns the model decision, so the harness receives it as a value
 // prizmal produced, never as one the operator typed. A caller-supplied --model
 // is consumed by the CLI before this point.
-func (c *Claude) args(model string, rows []launch.ModelRow, settingsJSON string, extra []string) []string {
+//
+// A --settings the caller typed is folded into the launch's own settings
+// instead of being forwarded beside it, because Claude Code keeps only one:
+// see mergeCallerSettings for the merge and which side wins a conflict.
+func (c *Claude) args(model string, rows []launch.ModelRow, settingsJSON string, extra []string) ([]string, error) {
+	settingsJSON, extra, err := mergeCallerSettings(settingsJSON, extra)
+	if err != nil {
+		return nil, err
+	}
 	var args []string
 	if settingsJSON != "" {
 		args = append(args, "--settings", settingsJSON)
@@ -96,7 +104,7 @@ func (c *Claude) args(model string, rows []launch.ModelRow, settingsJSON string,
 	if named := claudeLaunchModelName(model, rows); named != "" {
 		args = append(args, "--model", named)
 	}
-	return append(args, extra...)
+	return append(args, extra...), nil
 }
 
 // ClaudeInstaller is Claude Code's install story. Its installer drops the
@@ -179,7 +187,12 @@ func (c *Claude) Run(model string, models []launch.LaunchModel, args []string) e
 		}
 	}
 
-	cmd := exec.Command(claudePath, c.args(model, rows, settings, args)...)
+	launchArgs, err := c.args(model, rows, settings, args)
+	if err != nil {
+		return err
+	}
+
+	cmd := exec.Command(claudePath, launchArgs...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

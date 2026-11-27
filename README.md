@@ -203,6 +203,9 @@ prizmal --relay --model flash codex
 # Claude Code, passing a harness flag straight through without a separator
 prizmal claude --resume <session-id>
 
+# Claude Code, with your own settings merged into the launch's
+prizmal claude --settings ./my-claude-settings.json
+
 # Codex, with the old `--` separator still accepted
 prizmal codex -- --sandbox workspace-write
 
