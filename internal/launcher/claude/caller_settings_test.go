@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -213,8 +214,13 @@ func TestClaudeLaunchKeepsCallerSettingsOffTheCommandLine(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat the merged settings: %v", err)
 	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
-		t.Errorf("the merged settings are mode %#o, want 0600", perm)
+	// Windows has no POSIX mode: Stat reports a synthetic 0666, and access is
+	// decided by the ACL of the per-user temporary directory the file lives
+	// in. Everywhere else the file must be owner-only.
+	if runtime.GOOS != "windows" {
+		if perm := info.Mode().Perm(); perm != 0o600 {
+			t.Errorf("the merged settings are mode %#o, want 0600", perm)
+		}
 	}
 	if data, err := os.ReadFile(settingsPath); err != nil || !strings.Contains(string(data), secret) {
 		t.Fatalf("the merged settings do not carry the caller's key (err %v):\n%s", err, data)
