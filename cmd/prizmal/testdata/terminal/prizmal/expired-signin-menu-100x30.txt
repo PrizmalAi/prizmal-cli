@@ -1,0 +1,7 @@
+This device's sign-in expired.
+Sign in
+▸ Sign in with your browser  Approve this machine in your browser
+  Paste a key                Use a Prizmal Switch API key
+  Use the key already set    From config file (~/.prizmal/config.json)
+
+  ↑/k up • ↓/j down • / filter • esc quit without saving

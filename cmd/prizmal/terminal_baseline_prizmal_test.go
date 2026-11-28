@@ -182,6 +182,47 @@ var prizmalBaselineCases = []baselineCase{
 		deviceApprovedAfter: 2,
 		steps:               []baselineStep{{waitFor: "This device is approved"}},
 	},
+	// A launch whose device sign-in expired, on a machine whose config file
+	// also holds a switch key. The first refresh is refused, so the launch
+	// shows the Sign in picker with a third row for the key already set. The
+	// update check is off, because it would spend the stub's one refused
+	// refresh before the launch reaches the device sign-in.
+	{
+		name: "expired-signin-menu-100x30", cols: 100, rows: 30,
+		args:              []string{"--model", "smart", "claude"},
+		deviceKey:         true,
+		deviceReauthFirst: true,
+		configExtra:       map[string]any{"check_updates": false},
+		steps:             []baselineStep{{waitFor: "Use the key already set"}},
+	},
+	// The same picker backed out: the launch stops with the expired sign-in
+	// error rather than run on the key the operator did not choose.
+	{
+		name: "expired-signin-escape-100x30", cols: 100, rows: 30,
+		args:              []string{"--model", "smart", "claude"},
+		deviceKey:         true,
+		deviceReauthFirst: true,
+		configExtra:       map[string]any{"check_updates": false},
+		steps: []baselineStep{
+			{waitFor: "Use the key already set"},
+			{key: "Escape", waitFor: "[prizmal exited"},
+		},
+	},
+	// The browser row re-approves the same key: the login shows its link,
+	// the approval lands, and the launch goes on in device mode.
+	{
+		name: "expired-signin-browser-100x30", cols: 100, rows: 30,
+		args:                []string{"--model", "smart", "claude"},
+		deviceKey:           true,
+		deviceReauthFirst:   true,
+		deviceApprovedAfter: 3,
+		deviceReauthBy:      "2099-01-08T00:00:00Z",
+		configExtra:         map[string]any{"check_updates": false},
+		steps: []baselineStep{
+			{waitFor: "Use the key already set"},
+			{key: "Enter", waitFor: "[prizmal exited"},
+		},
+	},
 	// A machine whose device key was revoked. The stub answers the first refresh
 	// as the Switch answers a revoked key; the login says so, asks about a
 	// backup, and goes on with a new key, which the next refresh approves. The

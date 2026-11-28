@@ -220,8 +220,10 @@ func ensureConfigWithMenu(read keyReader, interactive bool, pick menuPicker, bro
 	}
 }
 
-// configFromPastedKey reads a switch key and writes the config file, the way
-// the first run always did. An empty answer writes nothing.
+// configFromPastedKey reads a switch key and writes it to the config file. A
+// config file that already exists keeps its other fields; a new one gets the
+// default base URL, the way the first run always did. An empty answer writes
+// nothing.
 func configFromPastedKey(read keyReader) (*config.Config, error) {
 	key, err := read(apiKeyPrompt)
 	if err != nil {
@@ -231,10 +233,14 @@ func configFromPastedKey(read keyReader) (*config.Config, error) {
 	if key == "" {
 		return nil, nil
 	}
-	cfg := &config.Config{
-		BaseURL: envconfig.DefaultURL,
-		APIKey:  config.NewPlainAPIKey(key),
+	cfg, err := config.Load()
+	if errors.Is(err, config.ErrNoConfig) {
+		cfg, err = &config.Config{BaseURL: envconfig.DefaultURL}, nil
 	}
+	if err != nil {
+		return nil, err
+	}
+	cfg.APIKey = config.NewPlainAPIKey(key)
 	if err := cfg.Save(); err != nil {
 		return nil, err
 	}

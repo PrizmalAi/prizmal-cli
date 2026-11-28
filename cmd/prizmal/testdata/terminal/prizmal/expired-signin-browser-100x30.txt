@@ -1,0 +1,17 @@
+This device's sign-in expired.
+Sign in
+▸ Sign in with your browser  Approve this machine in your browser
+  Paste a key                Use a Prizmal Switch API key
+  Use the key already set    From config file (~/.prizmal/config.json)
+
+
+To approve this device, open:
+
+<consent-url>
+
+Device fingerprint: <fp>
+Confirm this matches the fingerprint shown in your browser.
+Waiting for approval...
+Approved in your browser.
+using api key from: device login (~/.prizmal/device.key)
+[prizmal exited 0]
