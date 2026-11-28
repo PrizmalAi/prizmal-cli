@@ -121,6 +121,10 @@ func deviceLoginApplies(listFlag bool, args []string) bool {
 	return launcher.SupportsDeviceMode(spec.Runner)
 }
 
+// expiredSignInMessage is the error a launch stops with when the device's
+// sign-in expired and nobody signed in again.
+const expiredSignInMessage = "this device's sign-in expired; run prizmal login to re-approve it"
+
 // enterDeviceMode turns an enrolled device key into the launch's credential:
 // it refreshes a device token and puts it in envconfig, where the catalog
 // fetch and the launchers read it. It is a no-op when no device key exists.
@@ -130,18 +134,29 @@ func deviceLoginApplies(listFlag bool, args []string) bool {
 // envconfig.APIKey() here, with device mode still off, sees exactly the
 // flag/env/config chain requireCredentialForRemote and announceKeySource see.
 //
-// A token that cannot be refreshed — the sign-in deadline passed, the device
-// was revoked, the switch is unreachable — stops the launch only when there
-// is nothing else to run with. A flag, $PRIZMAL_SWITCH_KEY, or the config
-// file's api_key may already have resolved a working switch key before this
-// runs (main.go resolves the config key first); device mode outranks that
-// key when the device handshake works, not when it fails with a usable
-// credential sitting right there. Silently proceeding on the fallback, with
-// one warning, beats hard-erroring a launch that has a real key in hand.
+// An expired sign-in on a terminal shows the first-run Sign in picker, so the
+// operator signs in again without leaving the launch: see signInAfterExpiry.
+//
+// Any other token that cannot be refreshed, and an expired sign-in with no
+// terminal, stops the launch only when there is nothing else to run with. A
+// flag, $PRIZMAL_SWITCH_KEY, or the config file's api_key may already have
+// resolved a working switch key before this runs (main.go resolves the config
+// key first); device mode outranks that key when the device handshake works,
+// not when it fails with a usable credential sitting right there. Silently
+// proceeding on the fallback, with one warning, beats hard-erroring a launch
+// that has a real key in hand.
 //
 // deviceLoginApplies decides whether this runs at all. A runner that cannot
 // refresh a device token falls back to its ordinary key source.
 func enterDeviceMode() error {
+	return enterDeviceModeWith(stdinIsTerminal(), launcher.PickOption, readSecret, signInBrowser)
+}
+
+// enterDeviceModeWith holds the body of enterDeviceMode with its inputs
+// supplied: whether anyone is at a terminal, the picker, how a pasted key is
+// read, and the browser sign-in. A test supplies fakes for each, so it never
+// opens a terminal, a browser or a real Switch.
+func enterDeviceModeWith(interactive bool, pick menuPicker, read keyReader, browserSignIn func() error) error {
 	if !deviceKeyExists() {
 		return nil
 	}
@@ -152,21 +167,28 @@ func enterDeviceMode() error {
 
 	client := device.NewClient(envconfig.BaseURL())
 	token, ct, err := device.HelperToken(client, key, time.Now(), loadCachedToken, time.Sleep)
+	if err != nil && interactive && errors.Is(err, device.ErrReauthRequired) {
+		signedIn, serr := signInAfterExpiry(pick, read, browserSignIn)
+		if serr != nil {
+			return serr
+		}
+		if !signedIn {
+			// The operator chose a switch key, which already sits in envconfig.
+			return nil
+		}
+		// The browser sign-in re-approved the same key, so the refresh that
+		// failed now returns a token.
+		token, ct, err = device.HelperToken(client, key, time.Now(), loadCachedToken, time.Sleep)
+		if err != nil {
+			return deviceRefreshError(err)
+		}
+	}
 	if err != nil {
 		if fallback, src := envconfig.APIKey(), envconfig.APIKeySource(); fallback != "" {
 			fmt.Fprintf(os.Stderr, "warning: device key could not refresh (%v); using the switch key from %s instead\n", err, src)
 			return nil
 		}
-		if errors.Is(err, device.ErrReauthRequired) {
-			return fmt.Errorf("this device's sign-in expired; run prizmal login to re-approve it")
-		}
-		if errors.Is(err, device.ErrDeviceRevoked) {
-			return fmt.Errorf("this device was revoked; run prizmal login to enroll a new key")
-		}
-		if errors.Is(err, device.ErrNotAuthorized) || errors.Is(err, device.ErrDeviceUnknown) {
-			return fmt.Errorf("device not authorized; run prizmal login to re-approve this device")
-		}
-		return err
+		return deviceRefreshError(err)
 	}
 
 	envconfig.SetDeviceMode(true)
@@ -177,6 +199,71 @@ func enterDeviceMode() error {
 		_ = ct.Save()
 	}
 	return nil
+}
+
+// deviceRefreshError names the fix for a refresh the Switch refused.
+func deviceRefreshError(err error) error {
+	switch {
+	case errors.Is(err, device.ErrReauthRequired):
+		return errors.New(expiredSignInMessage)
+	case errors.Is(err, device.ErrDeviceRevoked):
+		return fmt.Errorf("this device was revoked; run prizmal login to enroll a new key")
+	case errors.Is(err, device.ErrNotAuthorized) || errors.Is(err, device.ErrDeviceUnknown):
+		return fmt.Errorf("device not authorized; run prizmal login to re-approve this device")
+	}
+	return err
+}
+
+// currentKeyOption is the row the expired sign-in picker adds when a flag,
+// $PRIZMAL_SWITCH_KEY or the config file already holds a switch key.
+const currentKeyOption = "current"
+
+// signInAfterExpiry shows the first-run Sign in picker after the device's
+// sign-in expired. It reports true when the browser row re-approved the
+// device, so the caller retries the refresh, and false when a switch key will
+// carry the launch: a pasted one, saved the way the first run saves it, or the
+// one already set, which the picker offers as a third row. A backed-out picker
+// or an empty paste stops the launch with expiredSignInMessage, so nothing
+// launches on a key the operator did not choose.
+func signInAfterExpiry(pick menuPicker, read keyReader, browserSignIn func() error) (bool, error) {
+	fmt.Fprintf(os.Stderr, "%sThis device's sign-in expired.%s\n", launcher.AnsiYellow, launcher.AnsiReset)
+	options := firstRunSignInOptions()
+	if envconfig.APIKey() != "" {
+		options = append(options, launcher.Option{
+			Label:       "Use the key already set",
+			Value:       currentKeyOption,
+			Description: "From " + string(envconfig.APIKeySource()),
+		})
+	}
+	choice, err := pick(firstRunSignInHeading, options)
+	if err != nil {
+		if errors.Is(err, launcher.ErrCancelled) {
+			return false, errors.New(expiredSignInMessage)
+		}
+		return false, err
+	}
+	switch choice {
+	case "browser":
+		return true, browserSignIn()
+	case "key":
+		cfg, err := configFromPastedKey(read)
+		if err != nil {
+			return false, err
+		}
+		if cfg == nil {
+			return false, errors.New(expiredSignInMessage)
+		}
+		resolved, err := cfg.APIKey.Resolve()
+		if err != nil {
+			return false, err
+		}
+		envconfig.SetConfigAPIKey(resolved)
+		return false, nil
+	case currentKeyOption:
+		return false, nil
+	default:
+		return false, fmt.Errorf("unexpected sign-in choice %q", choice)
+	}
 }
 
 // warnReauthDeadline prints the sign-in deadline warning when device mode is on

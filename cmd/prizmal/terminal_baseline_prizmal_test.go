@@ -182,6 +182,20 @@ var prizmalBaselineCases = []baselineCase{
 		deviceApprovedAfter: 2,
 		steps:               []baselineStep{{waitFor: "This device is approved"}},
 	},
+	// The Sign in picker an expired sign-in shows, with a third row for the
+	// switch key the config file already holds.
+	expiredSignInCase("expired-signin-menu-100x30"),
+	// The same picker backed out: the launch stops with the expired sign-in
+	// error rather than run on the key the operator did not choose.
+	expiredSignInCase("expired-signin-escape-100x30", baselineStep{key: "Escape", waitFor: "[prizmal exited"}),
+	// The browser row re-approves the same key: the login shows its link,
+	// the approval lands, and the launch goes on in device mode.
+	func() baselineCase {
+		c := expiredSignInCase("expired-signin-browser-100x30", baselineStep{key: "Enter", waitFor: "[prizmal exited"})
+		c.deviceApprovedAfter = 3
+		c.deviceReauthBy = "2099-01-08T00:00:00Z"
+		return c
+	}(),
 	// A machine whose device key was revoked. The stub answers the first refresh
 	// as the Switch answers a revoked key; the login says so, asks about a
 	// backup, and goes on with a new key, which the next refresh approves. The
@@ -244,6 +258,22 @@ var prizmalBaselineCases = []baselineCase{
 		args:  []string{"auth", "token"},
 		steps: []baselineStep{{waitFor: "run prizmal login"}},
 	},
+}
+
+// expiredSignInCase is a launch whose device sign-in expired, on a machine
+// whose config file also holds a switch key. The stub refuses the first
+// refresh, so the launch shows the Sign in picker; steps run after the picker
+// is drawn. The update check is off, because it would spend the stub's one
+// refused refresh before the launch reaches the device sign-in.
+func expiredSignInCase(name string, steps ...baselineStep) baselineCase {
+	return baselineCase{
+		name: name, cols: 100, rows: 30,
+		args:              []string{"--model", "smart", "claude"},
+		deviceKey:         true,
+		deviceReauthFirst: true,
+		configExtra:       map[string]any{"check_updates": false},
+		steps:             append([]baselineStep{{waitFor: "Use the key already set"}}, steps...),
+	}
 }
 
 // TestTerminalBaselinesPrizmal renders the screens prizmal draws itself: the
