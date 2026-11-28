@@ -49,7 +49,10 @@ type Expectations struct {
 	StubRequest *StubRequest `json:"stub_request,omitempty"`
 	// CaptureFiles maps a file path to a marker name under
 	// MOCK_EXPECTATIONS_DIR. Tests use it for harness config that exists only
-	// while the child runs.
+	// while the child runs. A path may name a variable, as $PRIZMAL_PI_CONFIG
+	// does, and is read from this process's environment: the launch hands the
+	// mock the name of the file it wrote, and the file itself is in a
+	// directory the test cannot predict.
 	CaptureFiles map[string]string `json:"capture_files,omitempty"`
 }
 
@@ -153,7 +156,7 @@ func Run() int {
 		return 1
 	}
 	for source, marker := range exp.CaptureFiles {
-		data, err := os.ReadFile(source)
+		data, err := os.ReadFile(os.ExpandEnv(source))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "mock %s: capture %s: %v\n", binName, source, err)
 			return 1

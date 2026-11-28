@@ -75,7 +75,7 @@ func TestClaudeTiersStartInAutoMode(t *testing.T) {
 	for _, tc := range claudeAutoModeCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			screen, _ := renderBaseline(t, tmuxPath, prizmalBin, claudeDir, baselineCase{
+			screen, _, _, _ := renderBaseline(t, tmuxPath, prizmalBin, claudeDir, baselineCase{
 				name: tc.name, cols: 100, rows: 30,
 				args: tc.args, catalog: tc.catalog, entries: tc.entries, claude: true,
 				steps: []baselineStep{stepClaudeReady},

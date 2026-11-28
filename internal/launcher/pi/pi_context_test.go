@@ -63,7 +63,7 @@ func TestPiModelConfigDeclaresTheLargestOutputBudget(t *testing.T) {
 // sidecar config, so a device launch and a switch-key launch of the same model
 // size it the same way. This pins the sidecar's two numbers.
 func TestPiDeviceConfigCarriesWindowAndOutputBudget(t *testing.T) {
-	data := piDeviceConfigJSON("smart", []launch.LaunchModel{{Name: "smart"}})
+	data := piDeviceConfigJSON("smart", []launch.LaunchModel{{Name: "smart"}}, true, nil)
 	var config struct {
 		Models []struct {
 			ID            string `json:"id"`

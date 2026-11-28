@@ -8,16 +8,14 @@ import (
 	"testing"
 
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
+	"github.com/PrizmalAi/prizmal-cli/internal/internaltest"
 )
 
 // cdkSandboxHome points HOME and USERPROFILE at a temp dir so no adapter ever
 // reads or writes a real user configuration during tests.
 func cdkSandboxHome(t *testing.T) string {
 	t.Helper()
-	d := t.TempDir()
-	t.Setenv("HOME", d)
-	t.Setenv("USERPROFILE", d)
-	return d
+	return internaltest.SandboxedHome(t)
 }
 
 // findPlaceholders reports whether any of the legacy placeholder values appear

@@ -3,6 +3,7 @@ package pi
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,24 +28,26 @@ const (
 	piLegacyNpmPackage = "@mariozechner/pi-coding-agent"
 )
 
-// piProviderID is the provider id this integration writes into
-// models.json (Edit) and removes from it (Restore), and the id the launch
-// selects with --provider. pi only honors settings.json's defaultProvider
-// when the provider entry passes its schema validation — an entry it
-// rejects (an empty apiKey, for instance) is dropped and the launch falls
-// back to pi's built-in provider — so the command must carry the
-// selection explicitly rather than rely on the settings file.
+// piProviderID is the provider id a --persist writes into models.json, the id
+// Restore removes from it, and the id every launch registers through the
+// extension it loads and selects with --provider. pi only honors
+// settings.json's defaultProvider when the provider entry passes its schema
+// validation — an entry it rejects (an empty apiKey, for instance) is dropped
+// and the launch falls back to pi's built-in provider — so the command must
+// carry the selection explicitly rather than rely on the settings file.
 const piProviderID = "prizmal"
 
-// piAPIKeyReference is the apiKey Edit writes into the provider entry. pi
+// piAPIKeyReference is the apiKey Edit writes into the provider entry, and the
+// one the launch's sidecar names so the extension registers the same value. pi
 // reads a "$NAME" value from its own environment, and Run puts the key there,
-// so models.json names the variable and never holds the key itself.
+// so neither file names the key itself.
 const piAPIKeyReference = "$" + envconfig.KeyEnvVar
 
-// piClientVersionReference is the header value Edit writes into the provider
-// entry. models.json persists across upgrades, so it names the variable and
-// every launch exports the running version. pi refuses a request whose
-// referenced variable is unset or empty, so the launch never leaves it so.
+// piClientVersionReference is the header value builds before this one wrote
+// into models.json. Nothing writes it any more: a file on disk outlives the
+// launch that set the variable, and a bare pi then fails to resolve it. The
+// launch still recognizes the value to tell an operator which command removes
+// the entry, and Restore deletes the provider that carries it.
 const piClientVersionReference = "$" + envconfig.ClientVersionEnvVar
 
 // piRestoredProviderID aliases piProviderID for Restore; keeping one name
@@ -90,13 +93,10 @@ func (p *Pi) SupportedAPIs() []string { return []string{launch.APIChat} }
 func (p *Pi) String() string { return "Pi" }
 
 // ShowsModelList reports that a launch hands Pi the whole catalog. Pi's picker
-// reads the models in its provider entry, so the only way for /model to offer
-// every model the Switch serves is for Edit to write every one of them. Writing
-// just the launched model leaves a session that runs a model its own picker
-// cannot show, and a user who switches away cannot switch back.
-//
-// The launched model leads the list LaunchModels builds, and settings.json
-// names it as the default, so a bare pi run still starts on it.
+// reads the models in its provider entry, so the extension the launch loads
+// lists every model the Switch serves, exactly as a --persist writes them.
+// Handing the launch only its own model would leave a session that runs a model
+// its picker cannot show, and a user who switches away could not switch back.
 func (p *Pi) ShowsModelList() bool { return true }
 
 // RunsHeadless reports that Pi's print mode runs one prompt and exits.
@@ -127,9 +127,15 @@ func (p *Pi) Installed() bool {
 	return err == nil
 }
 
-// Run keeps the models argument: a device launch resolves the extension it
-// hands Pi from the model list, so the parameter cannot be dropped even though
-// the switch-key path ignores it.
+// EphemeralLaunch reports that a launch writes no configuration: everything Pi
+// needs rides the launch's own directory and its child environment, so Edit is
+// reached through --persist alone.
+func (p *Pi) EphemeralLaunch() bool { return true }
+
+// Run launches Pi against the Switch without writing the user's config. The
+// launch hands Pi an extension that registers the provider for the session, a
+// sidecar the extension reads, and an agent directory of the launch's own, all
+// inside a temporary directory that goes when the child exits.
 func (p *Pi) Run(model string, models []launch.LaunchModel, args []string) error {
 	fmt.Fprintf(os.Stderr, "\n%sPreparing Pi...%s\n", launch.AnsiGray, launch.AnsiReset)
 	if err := ensureNpmInstalled(); err != nil {
@@ -142,15 +148,16 @@ func (p *Pi) Run(model string, models []launch.LaunchModel, args []string) error
 		return err
 	}
 
-	// A device-mode launch hands Pi an extension whose provider runs `prizmal
-	// auth token` for each credential it needs, so a session that outlives one
-	// device token keeps working. The launch directory holds that extension and
-	// its config for the life of the child process and goes when it exits.
-	extension, err := piDeviceLaunchFor(model, models)
+	// The launch directory holds the extension, its config and the agent
+	// directory Pi runs with, for the life of the child process. It goes when
+	// it exits, and nothing it holds outlives the session.
+	l, err := piLaunchFor(model, models)
 	if err != nil {
 		return err
 	}
-	defer extension.clean()
+	defer l.clean()
+
+	warnPiStaleLaunchEntry(os.Stderr)
 
 	fmt.Fprintf(os.Stderr, "\n%sLaunching Pi...%s\n\n", launch.AnsiGray, launch.AnsiReset)
 
@@ -158,56 +165,93 @@ func (p *Pi) Run(model string, models []launch.LaunchModel, args []string) error
 	// the saved default, or the picker before it dispatches. Pi injects no
 	// name of its own, so an empty model here would select the provider's
 	// own default rather than a model the operator chose.
-	cmd := exec.Command(bin, piLaunchArgs(model, extension, args)...)
-	cmd.Env = p.childEnv(extension)
+	cmd := exec.Command(bin, piLaunchArgs(model, l, args)...)
+	cmd.Env = p.childEnv(l)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
 
-// piDeviceLaunchFor writes the extension for a launch, and its config when the
-// process is in device mode. A switch-key launch selects the provider entry
-// Edit wrote and takes the key from the environment as before; its extension
-// only sets the turn charge.
-func piDeviceLaunchFor(model string, models []launch.LaunchModel) (*piDeviceLaunch, error) {
-	device := envconfig.DeviceMode() && !envconfig.RelayMode()
-	extension, err := writePiDeviceExtension(model, models, device)
-	if err != nil {
-		return nil, err
+// warnPiStaleLaunchEntry tells an operator whose models.json still holds an
+// entry an older build wrote that a bare pi fails on it, and which command
+// removes it. A launch does not clean it up: an edit prizmal made is permanent
+// until --restore takes it back, and a launch that silently rewrote the file
+// would be the same surprise in the other direction.
+//
+// A file prizmal cannot read has no entry to report; the launch leaves it as it
+// is, and --restore reports the parse error that stops it too.
+func warnPiStaleLaunchEntry(w io.Writer) {
+	modelsPath := filepath.Join(piUserAgentDir(), "models.json")
+	config, err := launch.ReadJSONFile(modelsPath)
+	if err != nil || config == nil {
+		return
 	}
-	return extension, nil
+	providers, _ := config["providers"].(map[string]any)
+	provider, ok := configProvider(providers, piProviderID)
+	if !ok {
+		return
+	}
+	headers, _ := provider["headers"].(map[string]any)
+	stale := false
+	for name, value := range headers {
+		if strings.EqualFold(name, envconfig.ClientVersionHeader) && value == piClientVersionReference {
+			stale = true
+		}
+	}
+	if !stale {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "%sAn earlier prizmal launch left a prizmal provider in %s, and a bare pi fails on it: it needs %s, which only a launch sets.\n%sRun `prizmal --restore pi` to remove it.%s\n",
+		launch.AnsiYellow, modelsPath, envconfig.ClientVersionEnvVar, launch.AnsiYellow, launch.AnsiReset)
+}
+
+// childEnv is the environment pi runs in: the inherited environment with the
+// launch's own variables in place of any inherited copy.
+//
+// The credential command is dropped before the launch's own variables go in.
+// A launch started from inside another launch would otherwise inherit that
+// launch's device-token command, and the extension prefers a command over the
+// sidecar's switch-key reference, so a nested switch-key or relay launch would
+// send the outer session's device token.
+func (p *Pi) childEnv(l *piLaunch) []string {
+	return launch.ChildEnv([]string{piCredentialCommandEnv}, p.envVars(l))
 }
 
 // envVars is the environment Pi is launched with, before the inherited
 // variables are merged in.
 //
-// A switch-key launch carries the key under the name piAPIKeyReference points
-// at. A device-mode launch carries no key: the extension it loads runs
+// A switch-key launch carries the key under the name the sidecar's apiKey
+// points at. A device-mode launch carries no key: the extension it loads runs
 // `prizmal auth token` whenever Pi needs the credential, so the variables name
-// the command that prints a fresh device token and the config that command's
-// provider was built from. Nothing here holds key material, and nothing the
-// Switch would take as a fixed credential reaches the child.
+// the command that prints a fresh device token and the config the provider was
+// built from. Nothing here holds key material, and nothing the Switch would
+// take as a fixed credential reaches the child.
 //
 // The command is a separate prizmal process, and it resolves the Switch host
 // from scratch: --url, then $PRIZMAL_SWITCH_URL, then the config file, then
 // production. A launch aimed at a non-default host by --url would otherwise
 // let that process fall back to production and mint a token the launch's own
 // Switch cannot use, so the launch's resolved URL is pinned for the child.
-// childEnv is the environment pi runs in: the inherited environment with the
-// launch's own variables in place of any inherited copy.
-func (p *Pi) childEnv(extension *piDeviceLaunch) []string {
-	return launch.ChildEnv(nil, p.envVars(extension))
-}
-
-func (p *Pi) envVars(extension *piDeviceLaunch) []string {
+//
+// Every mode points Pi at the launch's agent directory, so Pi's own write-backs
+// land there and go with the launch. The client-version variable is exported
+// too: nothing the launch writes refers to it any more, and an entry an older
+// build left in the user's models.json may still, where a missing value would
+// fail every request.
+func (p *Pi) envVars(l *piLaunch) []string {
 	version := envconfig.ClientVersionEnvVar + "=" + envconfig.ClientVersion()
-	if extension == nil || extension.configPath == "" {
-		return []string{envconfig.KeyEnvVar + "=" + envconfig.APIKey(), version}
+	if l == nil || !l.device {
+		env := []string{envconfig.KeyEnvVar + "=" + envconfig.APIKey(), version}
+		if l != nil {
+			env = append(env, piDeviceConfigEnv+"="+l.configPath, piAgentDirEnv+"="+l.agentDir)
+		}
+		return env
 	}
 	return claude.EnsureHelperBaseURL([]string{
 		piCredentialCommandEnv + "=" + piCredentialCommand(),
-		piDeviceConfigEnv + "=" + extension.configPath,
+		piDeviceConfigEnv + "=" + l.configPath,
+		piAgentDirEnv + "=" + l.agentDir,
 		version,
 	}, envconfig.BaseURL())
 }
@@ -219,12 +263,12 @@ func ensureNpmInstalled() error {
 	return nil
 }
 
-// piLaunchArgs assembles the pi command line: the extension when there is one,
+// piLaunchArgs assembles the pi command line: the extension the launch wrote,
 // the prizmal provider selection, then the user's passthrough args.
 //
-// Every launch loads the extension by path. A device-mode launch's extension
-// registers the provider, which resolves its own credential per request. A
-// switch-key launch relies on the provider entry Edit wrote.
+// Every launch loads the extension by path, and the extension registers the
+// provider from the sidecar written beside it, so the provider exists for the
+// life of the child and nothing depends on the user's models.json.
 //
 // When the user's args already select a provider — --provider (pi spells it
 // long-form only; -p is --print), --provider=…, or a provider-qualified --model
@@ -233,10 +277,10 @@ func ensureNpmInstalled() error {
 // prefix, and a duplicate flag would override the user's choice. Only
 // pi's own option section is scanned: after pi's `--` separator every
 // token is a file or message text, not a flag.
-func piLaunchArgs(model string, extension *piDeviceLaunch, extra []string) []string {
+func piLaunchArgs(model string, l *piLaunch, extra []string) []string {
 	var args []string
-	if extension != nil {
-		args = append(args, "--extension", extension.extensionPath)
+	if l != nil {
+		args = append(args, "--extension", l.extensionPath)
 	}
 	if userSelectsProvider(extra) {
 		return append(args, extra...)
@@ -645,17 +689,17 @@ func npmArgs(prefix string, args ...string) []string {
 }
 
 func (p *Pi) Paths() []string {
-	home, err := os.UserHomeDir()
-	if err != nil {
+	agentDir := piUserAgentDir()
+	if agentDir == "" {
 		return nil
 	}
 
 	var paths []string
-	modelsPath := filepath.Join(home, ".pi", "agent", "models.json")
+	modelsPath := filepath.Join(agentDir, piModelsName)
 	if _, err := os.Stat(modelsPath); err == nil {
 		paths = append(paths, modelsPath)
 	}
-	settingsPath := filepath.Join(home, ".pi", "agent", "settings.json")
+	settingsPath := filepath.Join(agentDir, piSettingsName)
 	if _, err := os.Stat(settingsPath); err == nil {
 		paths = append(paths, settingsPath)
 	}
@@ -667,12 +711,12 @@ func (p *Pi) Edit(models []launch.LaunchModel) error {
 		return nil
 	}
 
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
+	agentDir := piUserAgentDir()
+	if agentDir == "" {
+		return fmt.Errorf("find the Pi agent directory: HOME is not set and %s names none", piAgentDirEnv)
 	}
 
-	configPath := filepath.Join(home, ".pi", "agent", "models.json")
+	configPath := filepath.Join(agentDir, piModelsName)
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		return err
 	}
@@ -697,7 +741,7 @@ func (p *Pi) Edit(models []launch.LaunchModel) error {
 	// settings.json is read before either file is written, so an unparsable
 	// settings file refuses the whole Edit instead of leaving models.json half
 	// rewritten.
-	settingsPath := filepath.Join(home, ".pi", "agent", "settings.json")
+	settingsPath := filepath.Join(agentDir, piSettingsName)
 	settings := make(map[string]any)
 	if data, err := os.ReadFile(settingsPath); err == nil {
 		if err := json.Unmarshal(data, &settings); err != nil {
@@ -716,15 +760,20 @@ func (p *Pi) Edit(models []launch.LaunchModel) error {
 			"baseUrl": envconfig.OpenAIBaseURL(false),
 			"api":     "openai-completions",
 			"apiKey":  piAPIKeyReference,
-			"headers": map[string]any{envconfig.ClientVersionHeader: piClientVersionReference},
 		}
 	} else {
-		// Re-assert the current endpoint and key reference, so a provider
-		// an older build wrote with the key itself loses it.
+		// Re-assert the current endpoint and key reference, so a provider an
+		// older build wrote with the key itself loses it.
 		piProvider["baseUrl"] = envconfig.OpenAIBaseURL(false)
 		piProvider["api"] = "openai-completions"
 		piProvider["apiKey"] = piAPIKeyReference
-		piProvider["headers"] = withClientVersionHeader(piProvider["headers"])
+		if headers := withoutClientVersionHeader(piProvider["headers"]); headers != nil {
+			piProvider["headers"] = headers
+		} else {
+			// A null headers value fails pi's schema, so the key goes rather
+			// than staying as a null.
+			delete(piProvider, "headers")
+		}
 	}
 
 	existingModels := make([]any, 0)
@@ -792,6 +841,12 @@ func (p *Pi) Edit(models []launch.LaunchModel) error {
 // piRestoreSuccess is printed after a successful `prizmal --restore pi`.
 const piRestoreSuccess = "Pi launch configuration removed."
 
+// piScopePrefix is how Pi marks the provider's models in enabledModels, the
+// list that decides what a session starts with when it is non-empty. Pi adds a
+// prizmal row to it when a /model switch happens inside a scope, so a restore
+// drops those rows along with the provider they name.
+const piScopePrefix = piProviderID + "/"
+
 // Restore removes everything Pi.Edit added: the prizmal provider entry in
 // models.json (where builds before the key moved to the environment wrote
 // the key itself) and the default provider and
@@ -803,16 +858,16 @@ const piRestoreSuccess = "Pi launch configuration removed."
 // copies the file it is about to overwrite into ~/.prizmal/backup, which would
 // deposit the key being removed one directory over.
 func (p *Pi) Restore() (launch.RestoreOutcome, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return launch.RestoreOutcome{}, err
+	agentDir := piUserAgentDir()
+	if agentDir == "" {
+		return launch.RestoreOutcome{}, fmt.Errorf("find the Pi agent directory: HOME is not set and %s names none", piAgentDirEnv)
 	}
 
-	models, err := piRestoreModels(filepath.Join(home, ".pi", "agent", "models.json"))
+	models, err := piRestoreModels(filepath.Join(agentDir, piModelsName))
 	if err != nil {
 		return launch.RestoreOutcome{}, err
 	}
-	settings, err := piRestoreSettings(filepath.Join(home, ".pi", "agent", "settings.json"))
+	settings, err := piRestoreSettings(filepath.Join(agentDir, piSettingsName))
 	if err != nil {
 		return launch.RestoreOutcome{}, err
 	}
@@ -847,29 +902,78 @@ func piRestoreModels(configPath string) (launch.RestoreOutcome, error) {
 // user had before the first launch, read from the backup Edit's write took.
 // With no such copy left, the two keys go, so nothing points at the provider
 // entry piRestoreModels just deleted.
+//
+// It also drops every prizmal/* row from enabledModels. A non-empty
+// enabledModels decides what a session starts with, ahead of defaultModel, so
+// a row left there keeps a machine pointed at a provider the restore removed —
+// including the row Pi adds itself when a /model switch happens inside a scope.
+// An enabledModels left empty goes: an empty list has no meaning of its own,
+// and Pi treats a missing one as no scope to honor.
 func piRestoreSettings(settingsPath string) (launch.RestoreOutcome, error) {
 	settings, err := piReadJSONFile(settingsPath)
 	if err != nil || settings == nil {
 		return launch.RestoreOutcome{}, err
 	}
 
-	if !piSettingsPointAtPrizmal(settings) {
+	outcome := launch.RestoreOutcome{}
+	if piSettingsPointAtPrizmal(settings) {
+		delete(settings, "defaultProvider")
+		delete(settings, "defaultModel")
+		previous := launch.PreLaunchCopy("pi", "settings.json", piSettingsPointAtPrizmal)
+		outcome.Reinstated = launch.Reinstate(settings, previous, "defaultProvider", "defaultModel")
+		outcome.Removed = true
+	}
+	if dropped := dropPrizmalScope(settings); dropped {
+		outcome.Removed = true
+	}
+	if !outcome.Removed {
 		return launch.RestoreOutcome{}, nil
 	}
-	delete(settings, "defaultProvider")
-	delete(settings, "defaultModel")
-	previous := launch.PreLaunchCopy("pi", "settings.json", piSettingsPointAtPrizmal)
-	put := launch.Reinstate(settings, previous, "defaultProvider", "defaultModel")
 
 	if err := piWriteJSONFile(settingsPath, settings); err != nil {
 		return launch.RestoreOutcome{}, err
 	}
-	return launch.RestoreOutcome{Removed: true, Reinstated: put}, nil
+	return outcome, nil
 }
 
 func piSettingsPointAtPrizmal(settings map[string]any) bool {
 	provider, _ := settings["defaultProvider"].(string)
 	return provider == piRestoredProviderID
+}
+
+// dropPrizmalScope removes the provider's models from enabledModels and reports
+// whether it changed anything.
+func dropPrizmalScope(settings map[string]any) bool {
+	var entries []any
+	switch current := settings["enabledModels"].(type) {
+	case []any:
+		entries = current
+	case []string:
+		for _, entry := range current {
+			entries = append(entries, entry)
+		}
+	default:
+		return false
+	}
+
+	kept := make([]any, 0, len(entries))
+	dropped := false
+	for _, entry := range entries {
+		if name, ok := entry.(string); ok && strings.HasPrefix(name, piScopePrefix) {
+			dropped = true
+			continue
+		}
+		kept = append(kept, entry)
+	}
+	if !dropped {
+		return false
+	}
+	if len(kept) == 0 {
+		delete(settings, "enabledModels")
+		return true
+	}
+	settings["enabledModels"] = kept
+	return true
 }
 
 // piReadJSONFile returns nil, nil when the file is absent — there is nothing
@@ -883,12 +987,12 @@ func piWriteJSONFile(path string, config map[string]any) error {
 }
 
 func (p *Pi) Models() []string {
-	home, err := os.UserHomeDir()
-	if err != nil {
+	agentDir := piUserAgentDir()
+	if agentDir == "" {
 		return nil
 	}
 
-	configPath := filepath.Join(home, ".pi", "agent", "models.json")
+	configPath := filepath.Join(agentDir, piModelsName)
 	config, err := fileutil.ReadJSON(configPath)
 	if err != nil {
 		return nil
@@ -954,9 +1058,15 @@ func createConfig(model launch.LaunchModel) map[string]any {
 	return cfg
 }
 
-// withClientVersionHeader keeps the operator's other provider headers and
-// replaces any client-version entry with the variable reference.
-func withClientVersionHeader(existing any) map[string]any {
+// withoutClientVersionHeader keeps the operator's other provider headers and
+// drops any client-version entry.
+//
+// A persisted provider is read by a bare pi, which has no PRIZMAL_CLIENT_VERSION
+// and no launch to set one, so a "$PRIZMAL_CLIENT_VERSION" value there fails
+// every request: Pi 1.6.0 refuses to send a request whose referenced variable
+// is unset. An entry an older build wrote therefore loses the header here, and
+// the launch sends the version itself, from the sidecar it writes per session.
+func withoutClientVersionHeader(existing any) map[string]any {
 	headers := map[string]any{}
 	if current, ok := existing.(map[string]any); ok {
 		for name, value := range current {
@@ -965,6 +1075,8 @@ func withClientVersionHeader(existing any) map[string]any {
 			}
 		}
 	}
-	headers[envconfig.ClientVersionHeader] = piClientVersionReference
+	if len(headers) == 0 {
+		return nil
+	}
 	return headers
 }

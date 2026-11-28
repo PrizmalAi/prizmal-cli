@@ -928,7 +928,9 @@ func launch(name string, extraArgs []string, cfg *config.Config, ask launcher.As
 
 	// Editor integrations persist their configuration via Edit before launch.
 	// Relay mode is set first, so an endpoint written here is the loopback URL.
-	if editor, ok := runner.(launcher.Editor); ok {
+	// An ephemeral editor configures its launch without writing, so its Edit
+	// belongs to --persist alone and a launch calls nothing here.
+	if editor, ok := runner.(launcher.Editor); ok && launcher.EditsOnLaunch(runner) {
 		if err := editor.Edit(models); err != nil {
 			return fmt.Errorf("failed to configure %s: %w", spec.Name, err)
 		}

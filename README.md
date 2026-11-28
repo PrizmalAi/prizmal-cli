@@ -17,7 +17,7 @@ prizmal cline
 - **discover** the harness binary (PATH, `~/.local/bin`, npm/uv/bun locations) and **auto-install** it when missing,
 - **inject your provider** via the mechanism each harness supports:
   - env vars (`ANTHROPIC_BASE_URL`, `OPENAI_API_KEY`, …),
-  - config-file surgery with backup + `--restore` (Codex `config.toml` profiles, Pi `models.json`, Cline, …); these files set the endpoint and model, and the key goes on the environment,
+  - config-file surgery with backup + `--restore` (Codex `config.toml` profiles, Cline, …); these files set the endpoint and model, and the key goes on the environment,
   - inline config JSON (OpenCode),
 - **launch** the harness as a child process with your model selected.
 
@@ -147,7 +147,7 @@ A launch that already has its model continues after the warning, without the ext
 | `opencode` | OpenCode | `provider.prizmal.options.apiKey` in the inline config; a device login instead loads a plugin that runs `prizmal auth token` before each request | [docs/opencode.md](docs/opencode.md) |
 | `kilo` | Kilo Code | `provider.prizmal.options.apiKey` in the inline config `KILO_CONFIG_CONTENT`, which holds a per-launch placeholder; the launch always starts a loopback relay that holds the credential, so a device login refreshes per request; `--api responses` or `--api anthropic` picks another wire API | [docs/kilo.md](docs/kilo.md) |
 | `cline` | Cline | `OPENAI_API_KEY`, which Cline reads when `providers.openai-compatible.settings` has no `apiKey`; the launch points its provider at a per-session loopback relay that holds the credential, so the `/model` picker lists your names and a device login refreshes per request. The launch also installs a local `prizmal_search` plugin that adds `prizmal_search__search`. Provider state goes under the data directory that `--data-dir` or `CLINE_DATA_DIR` sets | [docs/cline.md](docs/cline.md) |
-| `pi` | Pi coding agent | `PRIZMAL_SWITCH_KEY`, which `"apiKey": "$PRIZMAL_SWITCH_KEY"` in `~/.pi/agent/models.json` refers to (pi 0.77.0 or later); a device login instead loads an extension whose provider runs `prizmal auth token` | [docs/pi.md](docs/pi.md) |
+| `pi` | Pi coding agent | `PRIZMAL_SWITCH_KEY`, which the launch's extension-based provider refers to (pi 0.77.0 or later); a device login instead runs `prizmal auth token` for each request. A launch leaves `~/.pi/agent` untouched; `--persist` writes the provider into `models.json` | [docs/pi.md](docs/pi.md) |
 
 Each doc covers how a launch configures that harness, what its device-login behavior is, how to undo the configuration with `--restore`, and how to run the harness against the Switch without the CLI.
 

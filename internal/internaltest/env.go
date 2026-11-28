@@ -24,6 +24,9 @@ func SandboxedHome(t *testing.T) string {
 	t.Helper()
 	d := t.TempDir()
 	t.Setenv("HOME", d)
+	// A developer who runs pi with its own agent directory must not hand it to a
+	// test that reads the user's directory or launches a harness.
+	t.Setenv("PI_CODING_AGENT_DIR", "")
 	t.Setenv("USERPROFILE", d) // windows
 	return d
 }

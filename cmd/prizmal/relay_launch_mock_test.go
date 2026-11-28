@@ -48,7 +48,10 @@ func TestEveryHarnessUsesRelayOnlyWhenRequestedExceptCline(t *testing.T) {
 					capture[filepath.Join(home, ".cline", "data", "settings", "providers.json")] = "cline.providers.json"
 					capture[filepath.Join(home, ".cline", "data", "globalState.json")] = "cline.globalState.json"
 				case "pi":
-					capture[filepath.Join(home, ".pi", "agent", "models.json")] = "pi.models.json"
+					// A launch writes no models.json: the provider lives in the
+					// sidecar the extension reads, in a directory the test
+					// learns from the environment.
+					capture["$PRIZMAL_PI_CONFIG"] = "pi.sidecar.json"
 				}
 				if len(capture) > 0 {
 					addMockCaptureFiles(t, expDir, capture)
@@ -198,17 +201,25 @@ func assertHarnessRelayWiring(
 	case "pi":
 		keyEnv = "PRIZMAL_SWITCH_KEY"
 		var config struct {
-			Providers map[string]struct {
-				BaseURL string `json:"baseUrl"`
-				APIKey  string `json:"apiKey"`
-			} `json:"providers"`
+			ProviderID string `json:"providerID"`
+			BaseURL    string `json:"baseURL"`
+			APIKey     string `json:"apiKey"`
 		}
-		readMarkerJSON(t, expDir, "pi.models.json", &config)
-		if got := config.Providers["prizmal"].BaseURL; got != strings.TrimSuffix(wantOpenAIBase, "/") {
-			t.Errorf("Pi provider baseUrl = %q, want %q", got, strings.TrimSuffix(wantOpenAIBase, "/"))
+		readMarkerJSON(t, expDir, "pi.sidecar.json", &config)
+		if config.ProviderID != "prizmal" {
+			t.Errorf("Pi providerID = %q, want prizmal", config.ProviderID)
 		}
-		if got := config.Providers["prizmal"].APIKey; got != "$PRIZMAL_SWITCH_KEY" {
+		if got := config.BaseURL; got != strings.TrimSuffix(wantOpenAIBase, "/") {
+			t.Errorf("Pi provider baseURL = %q, want %q", got, strings.TrimSuffix(wantOpenAIBase, "/"))
+		}
+		if got := config.APIKey; got != "$PRIZMAL_SWITCH_KEY" {
 			t.Errorf("Pi provider apiKey = %q, want the environment reference", got)
+		}
+		if agentDir := envDumpValue(envDump, "PI_CODING_AGENT_DIR"); agentDir == "" {
+			t.Error("PI_CODING_AGENT_DIR is not set: the launch would write into the user's agent directory")
+		}
+		if _, err := os.Stat(filepath.Join(home, ".pi", "agent", "models.json")); !os.IsNotExist(err) {
+			t.Errorf("the launch wrote the user's models.json: err = %v", err)
 		}
 	case "opencode":
 		var config struct {
