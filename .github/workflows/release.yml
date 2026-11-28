@@ -11,14 +11,14 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           # The notes step below reads the annotated tag object. A tag-push
           # checkout fetches the commit only, so without this every release
           # silently fell back to the generated changelog.
           fetch-tags: true
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
           cache: true
@@ -40,7 +40,7 @@ jobs:
             echo "args=--release-notes $RUNNER_TEMP/release-notes.md" >> "$GITHUB_OUTPUT"
           fi
       # Skipped until the tap App exists; goreleaser then skips the cask push.
-      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+      - uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         id: tap-token
         if: vars.HOMEBREW_TAP_APP_CLIENT_ID != ''
         with:
@@ -49,7 +49,7 @@ jobs:
           owner: PrizmalAi
           repositories: homebrew-tap
           permission-contents: write
-      - uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
+      - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
           distribution: goreleaser
           version: latest
