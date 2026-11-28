@@ -645,16 +645,21 @@ func TestEnterDeviceModeExpiredSignInShowsSignInPicker(t *testing.T) {
 
 // A switch key already set carries the launch in two cases: on a terminal when
 // the operator picks its row, and with no terminal after one warning, as
-// before. Neither opens a browser.
+// before. Neither opens a browser. Each path prints its own line and never the
+// other's: a terminal says the sign-in expired and prints no fallback warning,
+// and no terminal prints the warning and never says it showed a picker.
 func TestEnterDeviceModeExpiredSignInRunsOnTheSwitchKeyAlreadySet(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
 		interactive bool
 		pick        func(t *testing.T) menuPicker
 		wantStderr  string
+		notStderr   string
 	}{
-		{"picked on a terminal", true, func(*testing.T) menuPicker { p, _ := pickerReturns(currentKeyOption); return p }, ""},
-		{"no terminal", false, noPicker, "warning: device key could not refresh"},
+		{"picked on a terminal", true, func(*testing.T) menuPicker { p, _ := pickerReturns(currentKeyOption); return p },
+			"This device's sign-in expired.", "warning:"},
+		{"no terminal", false, noPicker,
+			"warning: device key could not refresh", "This device's sign-in expired."},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			home := useTempHome(t)
@@ -671,6 +676,9 @@ func TestEnterDeviceModeExpiredSignInRunsOnTheSwitchKeyAlreadySet(t *testing.T) 
 			}
 			if !strings.Contains(stderr, tc.wantStderr) {
 				t.Errorf("stderr = %q, want %q", stderr, tc.wantStderr)
+			}
+			if strings.Contains(stderr, tc.notStderr) {
+				t.Errorf("stderr = %q, must not contain %q", stderr, tc.notStderr)
 			}
 			if envconfig.DeviceMode() {
 				t.Error("device mode is on, want the launch on the switch key")
