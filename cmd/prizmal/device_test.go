@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/PrizmalAi/prizmal-cli/internal/envconfig"
 	launcher "github.com/PrizmalAi/prizmal-cli/internal/launcher"
 	"github.com/PrizmalAi/prizmal-cli/internal/launcher/registry"
+	"github.com/PrizmalAi/prizmal-cli/internal/stubserver"
 )
 
 // captureStdout runs f with os.Stdout redirected to a pipe and returns what it
@@ -548,29 +550,17 @@ func TestAuthTokenFallbackRejectsAnUnprintableKey(t *testing.T) {
 	}
 }
 
-// expiredSwitch is a stub refresh endpoint whose device sign-in expired: it
-// answers 401 REAUTH_REQUIRED until approve is called, the way the Switch
-// answers once the browser approval lands.
-type expiredSwitch struct {
-	srv      *httptest.Server
-	approved bool
-}
-
-func newExpiredSwitch(t *testing.T) *expiredSwitch {
+// useExpiredSwitch points the launch at a stub switch that refuses the first
+// refresh as an expired sign-in, as the Switch does once the deadline passed,
+// and approves every refresh after it, as it does once the browser approval
+// lands.
+func useExpiredSwitch(t *testing.T) string {
 	t.Helper()
-	s := &expiredSwitch{}
-	s.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !s.approved {
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"error":{"code":"REAUTH_REQUIRED"}}`))
-			return
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"device_token": "pz-d-dt-reapproved", "expires_in": 600})
-	}))
-	t.Cleanup(s.srv.Close)
-	envconfig.SetBaseURL(s.srv.URL)
+	srv := stubserver.NewServer(stubserver.WithDeviceReauthFirst(), stubserver.WithDeviceApproval())
+	t.Cleanup(srv.Close)
+	envconfig.SetBaseURL(srv.URL)
 	t.Cleanup(func() { envconfig.SetBaseURL("") })
-	return s
+	return srv.URL
 }
 
 // noPicker fails the test when the launch shows a picker it must not show.
@@ -589,105 +579,106 @@ func noBrowser(t *testing.T) func() error {
 	}
 }
 
-// optionValues lists the values of the rows a picker was offered.
-func optionValues(options []launcher.Option) []string {
-	values := make([]string, 0, len(options))
-	for _, o := range options {
-		values = append(values, o.Value)
-	}
-	return values
-}
-
 // On a terminal, an expired sign-in shows the first-run Sign in picker instead
 // of stopping the launch. The browser row re-approves the same device, and the
-// launch goes on in device mode with the token the retried refresh returns.
+// launch goes on in device mode with the token the retried refresh returns. A
+// switch key that is already set does not skip the picker: it adds a third row,
+// and the browser row still wins device mode back.
 func TestEnterDeviceModeExpiredSignInShowsSignInPicker(t *testing.T) {
-	home := useTempHome(t)
-	resetDeviceModeState(t)
-	writeDeviceKey(t, home)
-	sw := newExpiredSwitch(t)
-	pick, seen := pickerReturns("browser")
+	for _, tc := range []struct {
+		name      string
+		configKey string
+	}{
+		{"no switch key set", ""},
+		{"a switch key in the config file", "sk-fallback-from-config"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := useTempHome(t)
+			resetDeviceModeState(t)
+			writeDeviceKey(t, home)
+			envconfig.SetConfigAPIKey(tc.configKey)
+			useExpiredSwitch(t)
+			pick, seen := pickerReturns("browser")
 
-	var signedIn bool
-	stderr, err := captureStderr(t, func() error {
-		return enterDeviceModeWith(true, pick, scriptedReader(""), func() error {
-			signedIn = true
-			sw.approved = true
-			return nil
+			var signedIn bool
+			stderr, err := captureStderr(t, func() error {
+				return enterDeviceModeWith(true, pick, scriptedReader(""), func() error {
+					signedIn = true
+					return nil
+				})
+			})
+			if err != nil {
+				t.Fatalf("enterDeviceMode: %v", err)
+			}
+			if !strings.Contains(stderr, "sign-in expired") {
+				t.Errorf("stderr = %q, want it to say the sign-in expired", stderr)
+			}
+			if seen.heading != firstRunSignInHeading {
+				t.Errorf("picker heading = %q, want %q", seen.heading, firstRunSignInHeading)
+			}
+			first := firstRunSignInOptions()
+			wantRows := len(first)
+			if tc.configKey != "" {
+				wantRows++
+			}
+			if len(seen.options) != wantRows || !reflect.DeepEqual(seen.options[:len(first)], first) {
+				t.Fatalf("picker rows = %+v, want the first-run rows plus one per switch key set", seen.options)
+			}
+			if tc.configKey != "" {
+				extra := seen.options[len(first)]
+				if extra.Value != currentKeyOption || !strings.Contains(extra.Description, string(envconfig.KeySourceConfig)) {
+					t.Errorf("third row = %+v, want the key already set, naming %s", extra, envconfig.KeySourceConfig)
+				}
+			}
+			if !signedIn {
+				t.Fatal("choosing the browser row did not run the browser sign-in")
+			}
+			if !envconfig.DeviceMode() {
+				t.Error("device mode is off after the re-approval")
+			}
+			if got := envconfig.APIKey(); got != stubserver.DeviceToken {
+				t.Fatalf("APIKey() = %q, want the token the retried refresh returned", got)
+			}
 		})
-	})
-	if err != nil {
-		t.Fatalf("enterDeviceMode: %v", err)
-	}
-	if !strings.Contains(stderr, "sign-in expired") {
-		t.Errorf("stderr = %q, want it to say the sign-in expired", stderr)
-	}
-	if seen.heading != firstRunSignInHeading {
-		t.Errorf("picker heading = %q, want %q", seen.heading, firstRunSignInHeading)
-	}
-	if got := strings.Join(optionValues(seen.options), ","); got != "browser,key" {
-		t.Errorf("picker rows = %s, want browser,key with no switch key to offer", got)
-	}
-	if !signedIn {
-		t.Fatal("choosing the browser row did not run the browser sign-in")
-	}
-	if !envconfig.DeviceMode() {
-		t.Error("device mode is off after the re-approval")
-	}
-	if got := envconfig.APIKey(); got != "pz-d-dt-reapproved" {
-		t.Fatalf("APIKey() = %q, want the token the retried refresh returned", got)
 	}
 }
 
-// A switch key that is already set does not skip the picker: the picker offers
-// it as a third row, and the browser row still wins device mode back.
-func TestEnterDeviceModeExpiredSignInOffersTheSwitchKeyAlreadySet(t *testing.T) {
-	home := useTempHome(t)
-	resetDeviceModeState(t)
-	writeDeviceKey(t, home)
-	envconfig.SetConfigAPIKey("sk-fallback-from-config")
-	sw := newExpiredSwitch(t)
-	pick, seen := pickerReturns("browser")
+// A switch key already set carries the launch in two cases: on a terminal when
+// the operator picks its row, and with no terminal after one warning, as
+// before. Neither opens a browser.
+func TestEnterDeviceModeExpiredSignInRunsOnTheSwitchKeyAlreadySet(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		interactive bool
+		pick        func(t *testing.T) menuPicker
+		wantStderr  string
+	}{
+		{"picked on a terminal", true, func(*testing.T) menuPicker { p, _ := pickerReturns(currentKeyOption); return p }, ""},
+		{"no terminal", false, noPicker, "warning: device key could not refresh"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := useTempHome(t)
+			resetDeviceModeState(t)
+			writeDeviceKey(t, home)
+			t.Setenv(envconfig.KeyEnvVar, "sk-fallback-from-env")
+			useExpiredSwitch(t)
 
-	err := enterDeviceModeWith(true, pick, scriptedReader(""), func() error {
-		sw.approved = true
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("enterDeviceMode: %v", err)
-	}
-	if got := strings.Join(optionValues(seen.options), ","); got != "browser,key,current" {
-		t.Fatalf("picker rows = %s, want browser,key,current", got)
-	}
-	if desc := seen.options[2].Description; !strings.Contains(desc, string(envconfig.KeySourceConfig)) {
-		t.Errorf("the current-key row says %q, want it to name %s", desc, envconfig.KeySourceConfig)
-	}
-	if !envconfig.DeviceMode() {
-		t.Error("device mode is off after the re-approval")
-	}
-	if got := envconfig.APIKey(); got != "pz-d-dt-reapproved" {
-		t.Fatalf("APIKey() = %q, want the device token over the config key", got)
-	}
-}
-
-// Choosing the switch key already set launches on it, as the warning path did,
-// without opening a browser.
-func TestEnterDeviceModeExpiredSignInCanUseTheSwitchKeyAlreadySet(t *testing.T) {
-	home := useTempHome(t)
-	resetDeviceModeState(t)
-	writeDeviceKey(t, home)
-	t.Setenv(envconfig.KeyEnvVar, "sk-fallback-from-env")
-	newExpiredSwitch(t)
-	pick, _ := pickerReturns("current")
-
-	if err := enterDeviceModeWith(true, pick, scriptedReader(""), noBrowser(t)); err != nil {
-		t.Fatalf("enterDeviceMode: %v", err)
-	}
-	if envconfig.DeviceMode() {
-		t.Error("device mode is on, want the launch on the switch key")
-	}
-	if got := envconfig.APIKey(); got != "sk-fallback-from-env" {
-		t.Fatalf("APIKey() = %q, want the env key", got)
+			stderr, err := captureStderr(t, func() error {
+				return enterDeviceModeWith(tc.interactive, tc.pick(t), scriptedReader(""), noBrowser(t))
+			})
+			if err != nil {
+				t.Fatalf("enterDeviceMode: %v", err)
+			}
+			if !strings.Contains(stderr, tc.wantStderr) {
+				t.Errorf("stderr = %q, want %q", stderr, tc.wantStderr)
+			}
+			if envconfig.DeviceMode() {
+				t.Error("device mode is on, want the launch on the switch key")
+			}
+			if got := envconfig.APIKey(); got != "sk-fallback-from-env" {
+				t.Fatalf("APIKey() = %q, want the env key", got)
+			}
+		})
 	}
 }
 
@@ -697,8 +688,8 @@ func TestEnterDeviceModeExpiredSignInPastedKeyCarriesTheLaunch(t *testing.T) {
 	home := useTempHome(t)
 	resetDeviceModeState(t)
 	writeDeviceKey(t, home)
-	sw := newExpiredSwitch(t)
-	if err := (&config.Config{BaseURL: sw.srv.URL, DefaultModel: "smart"}).Save(); err != nil {
+	url := useExpiredSwitch(t)
+	if err := (&config.Config{BaseURL: url, DefaultModel: "smart"}).Save(); err != nil {
 		t.Fatal(err)
 	}
 	pick, _ := pickerReturns("key")
@@ -719,104 +710,61 @@ func TestEnterDeviceModeExpiredSignInPastedKeyCarriesTheLaunch(t *testing.T) {
 	if got, _ := cfg.APIKey.Resolve(); got != "sk-pasted" {
 		t.Errorf("config api_key = %q, want the pasted key", got)
 	}
-	if cfg.BaseURL != sw.srv.URL || cfg.DefaultModel != "smart" {
+	if cfg.BaseURL != url || cfg.DefaultModel != "smart" {
 		t.Errorf("config = %+v, want base_url and default_model kept", cfg)
 	}
 }
 
-// An empty answer at the key prompt names no credential, so the launch stops
-// with the expired sign-in message and writes nothing.
-func TestEnterDeviceModeExpiredSignInEmptyPasteStops(t *testing.T) {
-	home := useTempHome(t)
-	resetDeviceModeState(t)
-	writeDeviceKey(t, home)
-	newExpiredSwitch(t)
-	pick, _ := pickerReturns("key")
+// The launch stops with the expired sign-in message when nobody chooses a
+// credential: an empty answer at the key prompt, a backed-out picker even with
+// a switch key at hand, and no terminal with no switch key. None of them
+// writes a config file.
+func TestEnterDeviceModeExpiredSignInStops(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		interactive bool
+		configKey   string
+		pick        func(t *testing.T) menuPicker
+		answer      string
+	}{
+		{"empty paste", true, "", func(*testing.T) menuPicker { p, _ := pickerReturns("key"); return p }, "\n"},
+		{"picker backed out", true, "sk-fallback-from-config", func(*testing.T) menuPicker { return menuCancelled }, ""},
+		{"no terminal and no switch key", false, "", noPicker, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := useTempHome(t)
+			resetDeviceModeState(t)
+			writeDeviceKey(t, home)
+			envconfig.SetConfigAPIKey(tc.configKey)
+			useExpiredSwitch(t)
 
-	err := enterDeviceModeWith(true, pick, scriptedReader("\n"), noBrowser(t))
-	if err == nil || !strings.Contains(err.Error(), "sign-in expired") {
-		t.Fatalf("enterDeviceMode: %v, want the expired sign-in error", err)
-	}
-	if configFileExists(t, home) {
-		t.Error("an empty answer wrote a config file")
-	}
-}
-
-// Backing out of the picker stops the launch with the expired sign-in message,
-// even with a switch key at hand: the operator declined to choose, so nothing
-// launches on a key they did not pick.
-func TestEnterDeviceModeExpiredSignInCancelledStops(t *testing.T) {
-	home := useTempHome(t)
-	resetDeviceModeState(t)
-	writeDeviceKey(t, home)
-	envconfig.SetConfigAPIKey("sk-fallback-from-config")
-	newExpiredSwitch(t)
-
-	err := enterDeviceModeWith(true, menuCancelled, scriptedReader(""), noBrowser(t))
-	if err == nil {
-		t.Fatal("enterDeviceMode succeeded after the picker was cancelled")
-	}
-	if err.Error() != "this device's sign-in expired; run prizmal login to re-approve it" {
-		t.Fatalf("error = %q, want the expired sign-in message", err)
-	}
-	if envconfig.DeviceMode() {
-		t.Error("device mode is on after a cancelled picker")
-	}
-}
-
-// Without a terminal nothing prompts: no switch key stops the launch with the
-// expired sign-in message, as before.
-func TestEnterDeviceModeExpiredSignInWithoutTerminalStops(t *testing.T) {
-	home := useTempHome(t)
-	resetDeviceModeState(t)
-	writeDeviceKey(t, home)
-	newExpiredSwitch(t)
-
-	err := enterDeviceModeWith(false, noPicker(t), scriptedReader(""), noBrowser(t))
-	if err == nil || err.Error() != "this device's sign-in expired; run prizmal login to re-approve it" {
-		t.Fatalf("enterDeviceMode: %v, want the expired sign-in message", err)
-	}
-}
-
-// Without a terminal, a switch key still carries the launch after one warning,
-// as before.
-func TestEnterDeviceModeExpiredSignInWithoutTerminalFallsBack(t *testing.T) {
-	home := useTempHome(t)
-	resetDeviceModeState(t)
-	writeDeviceKey(t, home)
-	envconfig.SetConfigAPIKey("sk-fallback-from-config")
-	newExpiredSwitch(t)
-
-	stderr, err := captureStderr(t, func() error {
-		return enterDeviceModeWith(false, noPicker(t), scriptedReader(""), noBrowser(t))
-	})
-	if err != nil {
-		t.Fatalf("enterDeviceMode: %v", err)
-	}
-	if !strings.Contains(stderr, "warning: device key could not refresh") {
-		t.Errorf("stderr = %q, want the fallback warning", stderr)
-	}
-	if got := envconfig.APIKey(); got != "sk-fallback-from-config" {
-		t.Fatalf("APIKey() = %q, want the config key", got)
+			err := enterDeviceModeWith(tc.interactive, tc.pick(t), scriptedReader(tc.answer), noBrowser(t))
+			if err == nil || err.Error() != expiredSignInMessage {
+				t.Fatalf("enterDeviceMode: %v, want %q", err, expiredSignInMessage)
+			}
+			if envconfig.DeviceMode() {
+				t.Error("device mode is on after the launch stopped")
+			}
+			if configFileExists(t, home) {
+				t.Error("the stopped launch wrote a config file")
+			}
+		})
 	}
 }
 
 // Only an expired sign-in opens the picker. Another refusal keeps today's
-// fallback even on a terminal, because signing in again would not fix it.
+// error even on a terminal, because signing in again would not fix it.
 func TestEnterDeviceModeOtherRefusalsNeverPrompt(t *testing.T) {
 	home := useTempHome(t)
 	resetDeviceModeState(t)
 	writeDeviceKey(t, home)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusUnauthorized)
-		_, _ = w.Write([]byte(`{"error":{"code":"UNAUTHORIZED"}}`))
-	}))
-	defer srv.Close()
+	srv := stubserver.NewServer(stubserver.WithDeviceRevokedFirst())
+	t.Cleanup(srv.Close)
 	envconfig.SetBaseURL(srv.URL)
 	t.Cleanup(func() { envconfig.SetBaseURL("") })
 
 	err := enterDeviceModeWith(true, noPicker(t), scriptedReader(""), noBrowser(t))
-	if err == nil || !strings.Contains(err.Error(), "device not authorized") {
-		t.Fatalf("enterDeviceMode: %v, want the not-authorized error", err)
+	if err == nil || !strings.Contains(err.Error(), "revoked") {
+		t.Fatalf("enterDeviceMode: %v, want the revoked-device error", err)
 	}
 }
